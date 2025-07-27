@@ -18,6 +18,7 @@ def init_db():
     init_db_indexes()
 
     init_default_admin_user()
+    init_default_settings()
 
 
 
@@ -279,10 +280,10 @@ def init_db_tables():
             )
         ''')
         conn.execute('''
-            CREATE TABLE IF NOT EXISTS [System_Settings] ( 
-                [Name] TEXT NOT NULL,
-                [Value] TEXT NOT NULL,
-                PRIMARY KEY ([Name])
+            CREATE TABLE IF NOT EXISTS "System_Settings" (
+                "Name"	TEXT NOT NULL UNIQUE,
+                "Value"	TEXT NOT NULL,
+                PRIMARY KEY("Name")
             )
         ''')
         conn.execute('''
@@ -355,4 +356,11 @@ def init_default_admin_user():
             # Pass: admin
             conn.execute(''' INSERT INTO System_Users (Email, Password, Admin, Enabled) VALUES (?,?,?,?) ''', ['admin@admin.com', '$2a$12$4a3b6u7a1oBdtvuTkvw9TevgCwH36raEE2oe1BI9Wtt7.L4Pfb4YW', 1, 1])
             conn.commit()
+
+
+
+
+def init_default_settings():
+    with get_db_connection() as conn:
+        conn.execute(''' INSERT INTO System_Settings (Name, Value) VALUES (?,?) ''', ['PhishingTestSize', '9'])
 
