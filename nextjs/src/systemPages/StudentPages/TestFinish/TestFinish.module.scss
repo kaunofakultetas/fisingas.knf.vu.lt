@@ -1,0 +1,52 @@
+.home {
+  
+  .mainContainer { /* This is the new container to wrap Navbar and homeContainer */
+    // display: flex;
+    width: 100%; /* This ensures it spans the entire parent's width */
+  }
+
+  .homeContainer {
+    flex: 6;
+    overflow: hidden;
+    background-color: #EBECEF;
+    
+
+    .dashboard {
+      padding: 10px;
+      
+      .widgets, .charts {
+        display: flex;
+        padding: 10px;
+        gap: 20px;
+      }
+  
+      .charts {
+        // padding: 5px 20px;
+        overflow: hidden; 
+      }
+  
+      .listContainer {
+        -webkit-box-shadow: 2px 4px 10px 1px rgba(0, 0, 0, 0.47);
+        box-shadow: 2px 4px 10px 1px rgba(201, 201, 201, 0.47);
+        padding: 20px;
+        margin: 20px;
+      }
+      
+      .listTitle {
+        font-weight: 500;
+        color: gray;
+        margin-bottom: 15px;
+      }
+      
+      .icon {
+        font-size: 18px;
+        padding: 5px;
+        border-radius: 5px;
+        align-self: flex-end;
+      }
+
+
+
+    }
+  }
+}

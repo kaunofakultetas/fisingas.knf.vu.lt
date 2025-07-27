@@ -1,0 +1,11 @@
+FROM node:21.7.3
+
+WORKDIR /app
+
+ENV NEXT_SHARP_PATH /app/node_modules/sharp
+
+ENV PORT 443
+EXPOSE 443
+
+#CMD ["sleep", "infinity"]
+CMD ["npm", "run", "dev"]

@@ -1,0 +1,29 @@
+:80 {
+
+    # Filebrowser Endpoint
+    redir /filebrowser /filebrowser/
+    handle /filebrowser/* {
+        forward_auth fisingas-backend:8000 {
+            uri /api/checkauth/admin
+        }
+        reverse_proxy fisingas-filebrowser:80
+    }
+
+
+    # DBGate Endpoint
+    redir /dbgate /dbgate/
+    handle /dbgate/* {
+        forward_auth fisingas-backend:8000 {
+            uri /api/checkauth/admin
+        }
+        reverse_proxy fisingas-dbgate:3000
+    }
+
+
+    # Backend Endpoint
+    reverse_proxy /api/* fisingas-backend:8000
+
+
+    # NextJS Frontend
+    reverse_proxy /* fisingas-nextjs:3000
+}

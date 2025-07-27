@@ -1,0 +1,91 @@
+services:
+
+
+  fisingas-endpoint:
+    container_name: fisingas-endpoint
+    image: caddy:2-alpine
+    read_only: true
+    volumes:
+      - ./endpoint/Caddyfile:/etc/caddy/Caddyfile
+    ports:
+      - 80:80
+    restart: unless-stopped
+
+
+
+  # Push from Docker hub
+  fisingas-nextjs:
+    container_name: fisingas-nextjs
+    image: vuknf/fisingas-nextjs:latest
+    restart: unless-stopped
+
+  # # Self build
+  # fisingas-nextjs:
+  #   container_name: fisingas-nextjs
+  #   image: fisingas-nextjs
+  #   user: 1000:1000
+  #   build:
+  #     context: ./nextjs
+  #     dockerfile: Dockerfile.prod                                           # Prod
+  #     # dockerfile: Dockerfile.dev                                            # Dev
+  #     args:
+  #       - NEXT_PUBLIC_API_URL=http://fisingas-backend:8000/api
+  #       - NEXT_PUBLIC_API_URL_OUTSIDE=https://fisingas.knf.vu.lt/api
+  #   # environment:                                                            # Dev
+  #   #   - NEXT_PUBLIC_API_URL=http://fisingas-backend:8000/api                # Dev
+  #   #   - NEXT_PUBLIC_API_URL_OUTSIDE=https://fisingas.knf.vu.lt/api          # Dev
+  #   # volumes:                                                                # Dev
+  #   #   - ./nextjs:/app                                                       # Dev
+  #   restart: unless-stopped
+
+
+
+  fisingas-backend:
+    container_name: fisingas-backend
+    image: fisingas-backend
+    build: ./backend
+    environment:
+      - TMPDIR=/tmp/backend
+      # - APP_DEBUG=true          # Dev
+      - DB_PATH=/DATABASE/fisingas.db
+    read_only: true
+    volumes:
+      - ./DATABASE:/DATABASE
+      - ./backend:/app
+    restart: unless-stopped
+
+
+
+  fisingas-dbgate:
+    container_name: fisingas-dbgate
+    image: dbgate/dbgate:6.6.0
+    environment:
+      WEB_ROOT: /dbgate
+
+      CONNECTIONS: con1
+      LABEL_con1: Fišingo Testas - DB
+      FILE_con1: /DATABASE/fisingas.db
+      ENGINE_con1: sqlite@dbgate-plugin-sqlite
+    read_only: false
+    volumes:
+      - ./DATABASE:/DATABASE
+    networks:
+      - isolated
+    restart: unless-stopped
+
+
+
+  fisingas-filebrowser:
+    container_name: fisingas-filebrowser
+    image: fisingas-filebrowser
+    build:
+      context: ./filebrowser
+      dockerfile: Dockerfile
+    read_only: false
+    volumes:
+      - ./filebrowser/data:/data
+    environment:
+      - PUID=1000
+      - PGID=1000
+    restart: unless-stopped
+
