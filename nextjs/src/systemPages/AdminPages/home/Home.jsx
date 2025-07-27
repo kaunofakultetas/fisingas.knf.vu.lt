@@ -52,7 +52,7 @@ const Home = () => {
   useEffect(() => {
     
     async function getData() {
-      const response = await axios.get(process.env.NEXT_PUBLIC_API_URL_OUTSIDE+"/admin/home", { withCredentials: true });
+      const response = await axios.get("/api/admin/home", { withCredentials: true });
       setData(response.data);
     }
     updateCount(getData);
@@ -155,7 +155,7 @@ const Home = () => {
                   variant="outlined"
                   defaultValue={data.phishingtestsize}
                   onChange={(e) => {
-                    axios.post(process.env.NEXT_PUBLIC_API_URL_OUTSIDE+"/admin/update/phishingtestsize", 
+                    axios.post("/api/admin/update/phishingtestsize", 
                       { phishingtestsize: e.target.value }, { withCredentials: true })
                       .then(() => {
                         toast.success(<b>Išsaugota</b>, { duration: 3000 });

@@ -115,7 +115,7 @@ const StudentGroupsTable = () => {
   useEffect(() => {
     async function getData() {
       try {
-        const response = await axios.get(process.env.NEXT_PUBLIC_API_URL_OUTSIDE+"/admin/studentgroups");
+        const response = await axios.get("/api/admin/studentgroups");
         setData(response.data);
         setLoadingData(false);
       } catch (error) {

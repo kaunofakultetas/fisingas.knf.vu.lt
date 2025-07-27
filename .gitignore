@@ -2,3 +2,14 @@ _OLD
 DATABASE
 docker-compose.yml
 filebrowser/data
+
+
+
+
+
+#### Common ignored files ###
+# Byte-compiled / optimized python files
+__pycache__/
+*.py[cod]
+*$py.class
+

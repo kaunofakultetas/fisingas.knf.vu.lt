@@ -29,11 +29,9 @@ services:
   #     dockerfile: Dockerfile.prod                                           # Prod
   #     # dockerfile: Dockerfile.dev                                            # Dev
   #     args:
-  #       - NEXT_PUBLIC_API_URL=http://fisingas-backend:8000/api
-  #       - NEXT_PUBLIC_API_URL_OUTSIDE=https://fisingas.knf.vu.lt/api
+  #       - NEXT_PUBLIC_API_URL=http://fisingas-backend:8080/api
   #   # environment:                                                            # Dev
-  #   #   - NEXT_PUBLIC_API_URL=http://fisingas-backend:8000/api                # Dev
-  #   #   - NEXT_PUBLIC_API_URL_OUTSIDE=https://fisingas.knf.vu.lt/api          # Dev
+  #   #   - NEXT_PUBLIC_API_URL=http://fisingas-backend:8080/api                # Dev
   #   # volumes:                                                                # Dev
   #   #   - ./nextjs:/app                                                       # Dev
   #   restart: unless-stopped

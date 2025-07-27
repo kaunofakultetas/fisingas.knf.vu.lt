@@ -153,7 +153,7 @@ const StudentsListTable = () => {
   useEffect(() => {
     async function getData() {
       try {
-        const response = await axios.get(process.env.NEXT_PUBLIC_API_URL_OUTSIDE+"/admin/students");
+        const response = await axios.get("/api/admin/students");
         setData(response.data);
         setLoadingData(false);
       } catch (error) {

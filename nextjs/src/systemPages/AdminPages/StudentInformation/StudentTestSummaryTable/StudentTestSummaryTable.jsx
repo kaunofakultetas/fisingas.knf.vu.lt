@@ -22,7 +22,7 @@ const columns = [
       return (
         <div style={{ border: "1px solid lightgrey", padding: 5, borderRadius: 5 }}> {/* Container div to handle overflow */}
           <img 
-            src={process.env.NEXT_PUBLIC_API_URL_OUTSIDE+"/phishingpictures/" + params.row.id} 
+            src={"/api/phishingpictures/" + params.row.id} 
             alt=""
             style={{
               height: 75,
@@ -158,7 +158,7 @@ const StudentTestSummaryTable = ({studentID}) => {
   useEffect(() => {
     async function getData() {
       try {
-        const response = await axios.get(process.env.NEXT_PUBLIC_API_URL_OUTSIDE+"/admin/students/" + studentID + "/answers");
+        const response = await axios.get("/api/admin/students/" + studentID + "/answers");
         setData(response.data);
         setLoadingData(false);
       } catch (error) {

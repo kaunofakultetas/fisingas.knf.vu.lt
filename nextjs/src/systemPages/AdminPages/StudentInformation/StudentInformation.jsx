@@ -28,7 +28,7 @@ const StudentInformation = ({ studentID }) => {
   useEffect(() => {
     async function getData() {
       try {
-        const response = await axios.get(process.env.NEXT_PUBLIC_API_URL_OUTSIDE+"/admin/students/" + studentID);
+        const response = await axios.get("/api/admin/students/" + studentID);
         setData(response.data);
       } catch (error) {}
     }
