@@ -11,7 +11,17 @@ from .db import get_db_connection
 
 
 
+
 def init_db():
+    init_db_views()
+    init_db_tables()
+    init_db_indexes()
+
+
+
+
+
+def init_db_views():
     with get_db_connection() as conn:
 
         # CREATE VIEW IF NOT EXISTS
@@ -216,5 +226,127 @@ def init_db():
                     GROUP BY StudentID, QuestionID
                 )
                 GROUP BY StudentID
+            )
+        ''')
+
+
+
+
+def init_db_tables():
+    with get_db_connection() as conn:
+        conn.execute('''
+            CREATE TABLE "PhishingTest_Answers" (
+                "StudentID"	INTEGER NOT NULL,
+                "QuestionID"	INTEGER NOT NULL,
+                "AnswerStatus"	INTEGER,
+                UNIQUE("StudentID","QuestionID")
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE "PhishingTest_AnswersSelectedOptions" (
+                "StudentID"	INTEGER NOT NULL,
+                "QuestionID"	INTEGER NOT NULL,
+                "QuestionOptionID"	INTEGER NOT NULL,
+                "IsSelected"	INTEGER,
+                UNIQUE("StudentID","QuestionID","QuestionOptionID")
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE "PhishingTest_Questions" (
+                "QuestionID"	INTEGER NOT NULL UNIQUE,
+                "IsEnabled"	INTEGER NOT NULL,
+                "Points"	INTEGER NOT NULL,
+                "IsPhishing"	INTEGER NOT NULL,
+                "Question"	TEXT NOT NULL,
+                "Filename"	TEXT NOT NULL,
+                "Picture"	BLOB NOT NULL,
+                "PictureHeight"	INTEGER NOT NULL,
+                "PictureWidth"	INTEGER NOT NULL,
+                "Created"	TEXT NOT NULL,
+                PRIMARY KEY("QuestionID" AUTOINCREMENT)
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE "PhishingTest_QuestionsLinks" (
+                "QuestionLinkID"	INTEGER NOT NULL UNIQUE,
+                "QuestionID"	INTEGER NOT NULL,
+                "Title"	TEXT NOT NULL,
+                "Content"	TEXT NOT NULL,
+                "X"	TEXT NOT NULL,
+                "Y"	TEXT NOT NULL, [W] TEXT NULL, [H] TEXT NULL,
+                PRIMARY KEY("QuestionLinkID" AUTOINCREMENT)
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE "PhishingTest_QuestionsOptions" (
+                "QuestionOptionID"	INTEGER NOT NULL UNIQUE,
+                "QuestionID"	INTEGER NOT NULL,
+                "QuestionOptionText"	TEXT NOT NULL,
+                "AnswerStatus"	INTEGER NOT NULL,
+                PRIMARY KEY("QuestionOptionID" AUTOINCREMENT)
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE [System_Settings] ( 
+                [Name] TEXT NOT NULL,
+                [Value] TEXT NOT NULL,
+                PRIMARY KEY ([Name])
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE "System_Users" (
+                "ID"	INTEGER NOT NULL UNIQUE,
+                "Email"	TEXT NOT NULL,
+                "Password"	TEXT NOT NULL,
+                "Admin"	INTEGER NOT NULL DEFAULT 1,
+                "Enabled"	INTEGER NOT NULL DEFAULT 0,
+                "LastLogin"	TEXT NOT NULL DEFAULT '',
+                CONSTRAINT "sqlite_autoindex_Users_Administrators_2" UNIQUE("Email"),
+                PRIMARY KEY("ID" AUTOINCREMENT)
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE "Users_StudentGroups" (
+                "GroupID"	INTEGER NOT NULL UNIQUE,
+                "Name"	TEXT NOT NULL,
+                "Description"	TEXT NOT NULL,
+                "ShowAnswers"	INTEGER NOT NULL DEFAULT 0,
+                "TimeLimit"	INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY("GroupID" AUTOINCREMENT)
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE "Users_Students" (
+                "StudentID"	INTEGER NOT NULL UNIQUE,
+                "GroupID"	INTEGER NOT NULL DEFAULT 0,
+                "Username"	TEXT NOT NULL,
+                "Passcode"	TEXT NOT NULL,
+                "IsFinished"	INTEGER NOT NULL DEFAULT 0,
+                "LastLogin"	TEXT NOT NULL,
+                "Status"	INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY("StudentID" AUTOINCREMENT)
+            )
+        ''')
+            
+
+
+
+def init_db_indexes():
+    with get_db_connection() as conn:
+        conn.execute('''
+            CREATE INDEX "INDEX_PhishingTest_Answers" ON "PhishingTest_Answers" (
+                "StudentID",
+                "QuestionID"
+            )
+        ''')
+        conn.execute('''
+            CREATE INDEX "INDEX_PhishingTest_AnswersSelectedOptions" ON "PhishingTest_AnswersSelectedOptions" (
+                "StudentID",
+                "QuestionID"
+            )
+        ''')
+        conn.execute('''
+            CREATE INDEX "INDEX_Users_Students" ON "Users_Students" (
+                "StudentID"
             )
         ''')
