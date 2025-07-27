@@ -17,14 +17,14 @@ def init_db():
     init_db_tables()
     init_db_indexes()
 
+    init_default_admin_user()
+
 
 
 
 
 def init_db_views():
     with get_db_connection() as conn:
-
-        # CREATE VIEW IF NOT EXISTS
         conn.execute('''
             CREATE VIEW IF NOT EXISTS _VIEW_GetUsersAnswers (
                 StudentID,
@@ -48,12 +48,12 @@ def init_db_views():
                     IIF(Answer = IsPhishing, 1, 0) AS IsAnswerCorrect
                 FROM (
                     SELECT
-                        PhishingTest_Answers.StudentID				    AS StudentID,
+                        PhishingTest_Answers.StudentID				AS StudentID,
                         Users_Students.Username							AS Username,
-                        PhishingTest_Answers.QuestionID			        AS QuestionID,
-                        PhishingTest_Answers.AnswerStatus		        AS Answer,
-                        PhishingTest_Questions.IsPhishing			    AS IsPhishing,
-                        PhishingTest_Questions.Question				    AS QuestionText
+                        PhishingTest_Answers.QuestionID			AS QuestionID,
+                        PhishingTest_Answers.AnswerStatus		AS Answer,
+                        PhishingTest_Questions.IsPhishing			AS IsPhishing,
+                        PhishingTest_Questions.Question				AS QuestionText
                     FROM
                         PhishingTest_Answers
                     LEFT JOIN PhishingTest_Questions
@@ -69,11 +69,11 @@ def init_db_views():
                     (CorrectOptionsCount * 1.0 / TotalOptionsCount) * 100.0 		AS CorrectOptionsPercentage
                 FROM (
                     SELECT
-                        _VIEW_GetUsersAnswersOptions.StudentID		                AS StudentID,
-                        _VIEW_GetUsersAnswersOptions.Username		                AS Username,
-                        _VIEW_GetUsersAnswersOptions.QuestionID  	                AS QuestionID,
-                        COUNT(*)											        AS TotalOptionsCount,
-                        SUM(IsAnswerOptionCorrectlySelected) 				        AS CorrectOptionsCount
+                        _VIEW_GetUsersAnswersOptions.StudentID		AS StudentID,
+                        _VIEW_GetUsersAnswersOptions.Username		AS Username,
+                        _VIEW_GetUsersAnswersOptions.QuestionID  	AS QuestionID,
+                        COUNT(*)																			AS TotalOptionsCount,
+                        SUM(IsAnswerOptionCorrectlySelected) 				AS CorrectOptionsCount
                     FROM
                         _VIEW_GetUsersAnswersOptions
                     WHERE 
@@ -90,14 +90,14 @@ def init_db_views():
                 GetAnswerResults.QuestionText																AS QuestionText,
                 GetAnswerResults.Answer																		AS Answer,
                 GetAnswerResults.IsPhishing																	AS IsPhishing,
-                GetAnswerResults.IsAnswerCorrect														    AS IsAnswerCorrect,
+                GetAnswerResults.IsAnswerCorrect														AS IsAnswerCorrect,
                 
                 
-                GetUsersAnswersOptionsResults.TotalOptionsCount						        AS TotalOptionsCount,
-                GetUsersAnswersOptionsResults.CorrectOptionsCount					        AS CorrectOptionsCount,
-                GetUsersAnswersOptionsResults.IsAllAnswerOptionsCorrect		                AS IsAllAnswerOptionsCorrect,
-                GetUsersAnswersOptionsResults.CorrectOptionsPercentage			            AS CorrectOptionsPercentage,
-                PRINTF("%.2f", IIF(GetAnswerResults.IsAnswerCorrect = 1, 1 - GetUsersAnswersOptionsResults.TotalOptionsCount *0.1 + GetUsersAnswersOptionsResults.CorrectOptionsCount * 0.1,   0)) 		AS AnswerPoints
+                GetUsersAnswersOptionsResults.TotalOptionsCount						AS TotalOptionsCount,
+                GetUsersAnswersOptionsResults.CorrectOptionsCount					AS CorrectOptionsCount,
+                GetUsersAnswersOptionsResults.IsAllAnswerOptionsCorrect		AS IsAllAnswerOptionsCorrect,
+                GetUsersAnswersOptionsResults.CorrectOptionsPercentage			AS CorrectOptionsPercentage,
+                PRINTF('%.2f', IIF(GetAnswerResults.IsAnswerCorrect = 1, 1 - GetUsersAnswersOptionsResults.TotalOptionsCount *0.1 + GetUsersAnswersOptionsResults.CorrectOptionsCount * 0.1,   0)) 		AS AnswerPoints
             FROM
                 GetAnswerResults
             LEFT JOIN GetUsersAnswersOptionsResults
@@ -106,9 +106,6 @@ def init_db_views():
             WHERE 
                 GetAnswerResults.StudentID IN (SELECT StudentID FROM Users_Students)
         ''')
-
-
-        # CREATE VIEW IF NOT EXISTS -- UPDATED
         conn.execute('''
             CREATE VIEW IF NOT EXISTS _VIEW_GetUsersAnswersOptions (
                 StudentID,
@@ -132,26 +129,23 @@ def init_db_views():
                 IIF(RightAnswerOption = SelectedAnswerOption, 1, 0)							AS IsAnswerOptionCorrectlySelected
             FROM (
                 SELECT
-                    Users_Students.StudentID 												AS StudentID,
-                    Users_Students.Username													AS Username,
-                    PhishingTest_Answers.QuestionID											AS QuestionID,
-                    PhishingTest_QuestionsOptions.QuestionOptionID							AS QuestionOptionID,
-                    PhishingTest_QuestionsOptions.QuestionOptionText						AS QuestionOptionText,
-                    PhishingTest_QuestionsOptions.AnswerStatus								AS RightAnswerOption,
-                    IFNULL(PhishingTest_AnswersSelectedOptions.IsSelected, 0) 				AS SelectedAnswerOption
+                    Users_Students.StudentID 																									AS StudentID,
+                    Users_Students.Username																									AS Username,
+                    PhishingTest_Answers.QuestionID																					AS QuestionID,
+                    PhishingTest_QuestionsOptions.QuestionOptionID														AS QuestionOptionID,
+                    PhishingTest_QuestionsOptions.QuestionOptionText													AS QuestionOptionText,
+                    PhishingTest_QuestionsOptions.AnswerStatus															AS RightAnswerOption,
+                    IFNULL(PhishingTest_AnswersSelectedOptions.IsSelected, 0) 							AS SelectedAnswerOption
                 FROM
                     Users_Students
-                    
                     
                 -- JOIN Table to get what answers do student had to answer
                 LEFT JOIN PhishingTest_Answers
                     ON		PhishingTest_Answers.StudentID = Users_Students.StudentID
                     
-                    
                 -- JOIN Table to get all options of the student questions that exist
                 LEFT JOIN PhishingTest_QuestionsOptions
                     ON 	PhishingTest_QuestionsOptions.QuestionID = PhishingTest_Answers.QuestionID
-                    
                     
                 -- JOIN Table to get all options that user has selected
                 LEFT JOIN PhishingTest_AnswersSelectedOptions
@@ -160,8 +154,6 @@ def init_db_views():
                                 PhishingTest_AnswersSelectedOptions.QuestionOptionID = PhishingTest_QuestionsOptions.QuestionOptionID
             )
         ''')
-
-        # CREATE VIEW IF NOT EXISTS
         conn.execute('''
             CREATE VIEW IF NOT EXISTS _VIEW_GetUsersTestResults (
                 StudentID,
@@ -181,7 +173,7 @@ def init_db_views():
                 QuestionCount,
                 FullyCorrectCount,
                 CAST((FullyCorrectCount * 1.0 / QuestionCount) * 100 AS INTEGER) 		AS PercentageCorrect,
-                PRINTF("%.2f", ROUND((TotalAnswerPoints / QuestionCount * 10), 2)) 	AS TestGrade,
+                PRINTF('%.2f', ROUND((TotalAnswerPoints / QuestionCount * 10), 2)) 	AS TestGrade,
                 TotalIdentifiedCorrectly																									AS TotalIdentifiedCorrectly,
                 TotalOptionsCount																											AS TotalOptionsCount,
                 TotalCorrectOptionsCount																								AS TotalCorrectOptionsCount
@@ -235,7 +227,7 @@ def init_db_views():
 def init_db_tables():
     with get_db_connection() as conn:
         conn.execute('''
-            CREATE TABLE "PhishingTest_Answers" (
+            CREATE TABLE IF NOT EXISTS "PhishingTest_Answers" (
                 "StudentID"	INTEGER NOT NULL,
                 "QuestionID"	INTEGER NOT NULL,
                 "AnswerStatus"	INTEGER,
@@ -243,7 +235,7 @@ def init_db_tables():
             )
         ''')
         conn.execute('''
-            CREATE TABLE "PhishingTest_AnswersSelectedOptions" (
+            CREATE TABLE IF NOT EXISTS "PhishingTest_AnswersSelectedOptions" (
                 "StudentID"	INTEGER NOT NULL,
                 "QuestionID"	INTEGER NOT NULL,
                 "QuestionOptionID"	INTEGER NOT NULL,
@@ -252,7 +244,7 @@ def init_db_tables():
             )
         ''')
         conn.execute('''
-            CREATE TABLE "PhishingTest_Questions" (
+            CREATE TABLE IF NOT EXISTS "PhishingTest_Questions" (
                 "QuestionID"	INTEGER NOT NULL UNIQUE,
                 "IsEnabled"	INTEGER NOT NULL,
                 "Points"	INTEGER NOT NULL,
@@ -267,7 +259,7 @@ def init_db_tables():
             )
         ''')
         conn.execute('''
-            CREATE TABLE "PhishingTest_QuestionsLinks" (
+            CREATE TABLE IF NOT EXISTS "PhishingTest_QuestionsLinks" (
                 "QuestionLinkID"	INTEGER NOT NULL UNIQUE,
                 "QuestionID"	INTEGER NOT NULL,
                 "Title"	TEXT NOT NULL,
@@ -278,7 +270,7 @@ def init_db_tables():
             )
         ''')
         conn.execute('''
-            CREATE TABLE "PhishingTest_QuestionsOptions" (
+            CREATE TABLE IF NOT EXISTS "PhishingTest_QuestionsOptions" (
                 "QuestionOptionID"	INTEGER NOT NULL UNIQUE,
                 "QuestionID"	INTEGER NOT NULL,
                 "QuestionOptionText"	TEXT NOT NULL,
@@ -287,14 +279,14 @@ def init_db_tables():
             )
         ''')
         conn.execute('''
-            CREATE TABLE [System_Settings] ( 
+            CREATE TABLE IF NOT EXISTS [System_Settings] ( 
                 [Name] TEXT NOT NULL,
                 [Value] TEXT NOT NULL,
                 PRIMARY KEY ([Name])
             )
         ''')
         conn.execute('''
-            CREATE TABLE "System_Users" (
+            CREATE TABLE IF NOT EXISTS "System_Users" (
                 "ID"	INTEGER NOT NULL UNIQUE,
                 "Email"	TEXT NOT NULL,
                 "Password"	TEXT NOT NULL,
@@ -306,7 +298,7 @@ def init_db_tables():
             )
         ''')
         conn.execute('''
-            CREATE TABLE "Users_StudentGroups" (
+            CREATE TABLE IF NOT EXISTS "Users_StudentGroups" (
                 "GroupID"	INTEGER NOT NULL UNIQUE,
                 "Name"	TEXT NOT NULL,
                 "Description"	TEXT NOT NULL,
@@ -316,7 +308,7 @@ def init_db_tables():
             )
         ''')
         conn.execute('''
-            CREATE TABLE "Users_Students" (
+            CREATE TABLE IF NOT EXISTS "Users_Students" (
                 "StudentID"	INTEGER NOT NULL UNIQUE,
                 "GroupID"	INTEGER NOT NULL DEFAULT 0,
                 "Username"	TEXT NOT NULL,
@@ -334,19 +326,33 @@ def init_db_tables():
 def init_db_indexes():
     with get_db_connection() as conn:
         conn.execute('''
-            CREATE INDEX "INDEX_PhishingTest_Answers" ON "PhishingTest_Answers" (
+            CREATE INDEX IF NOT EXISTS "INDEX_PhishingTest_Answers" ON "PhishingTest_Answers" (
                 "StudentID",
                 "QuestionID"
             )
         ''')
         conn.execute('''
-            CREATE INDEX "INDEX_PhishingTest_AnswersSelectedOptions" ON "PhishingTest_AnswersSelectedOptions" (
+            CREATE INDEX IF NOT EXISTS "INDEX_PhishingTest_AnswersSelectedOptions" ON "PhishingTest_AnswersSelectedOptions" (
                 "StudentID",
                 "QuestionID"
             )
         ''')
         conn.execute('''
-            CREATE INDEX "INDEX_Users_Students" ON "Users_Students" (
+            CREATE INDEX IF NOT EXISTS "INDEX_Users_Students" ON "Users_Students" (
                 "StudentID"
             )
         ''')
+
+
+
+
+def init_default_admin_user():
+    with get_db_connection() as conn:
+        sqlFetchData = conn.execute(''' SELECT COUNT(*) FROM System_Users ''')
+
+        if(sqlFetchData.fetchone()[0] == 0):
+            # Email: admin@admin.com
+            # Pass: admin
+            conn.execute(''' INSERT INTO System_Users (Email, Password, Admin, Enabled) VALUES (?,?,?,?) ''', ['admin@admin.com', '$2a$12$4a3b6u7a1oBdtvuTkvw9TevgCwH36raEE2oe1BI9Wtt7.L4Pfb4YW', 1, 1])
+            conn.commit()
+
