@@ -35,9 +35,11 @@ from werkzeug.utils import secure_filename
 APP_DEBUG = os.getenv('APP_DEBUG', 'false').lower() == "true"
 app = Flask(__name__)
 cors = CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
-app.secret_key = b'b826fd9844c136d9da9d00670c67150b6eb37690e703a030e40ac903f13317df'
 
-
+if(APP_DEBUG):
+    app.secret_key = b'b826fd9844c136d9da9d00670c67150b6eb37690e703a030e40ac903f13317df'
+else:
+    app.secret_key = random.randbytes(32)
 
 
 

@@ -69,8 +69,6 @@ services:
     read_only: false
     volumes:
       - ./DATABASE:/DATABASE
-    networks:
-      - isolated
     restart: unless-stopped
 
 
