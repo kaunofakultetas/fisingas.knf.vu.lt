@@ -362,5 +362,5 @@ def init_default_admin_user():
 
 def init_default_settings():
     with get_db_connection() as conn:
-        conn.execute(''' INSERT INTO System_Settings (Name, Value) VALUES (?,?) ''', ['PhishingTestSize', '9'])
+        conn.execute(''' INSERT OR IGNORE INTO System_Settings (Name, Value) VALUES (?,?) ''', ['PhishingTestSize', '9'])
 
