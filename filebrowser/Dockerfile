@@ -1,11 +1,20 @@
-FROM filebrowser/filebrowser:v2.32.0
+FROM filebrowser/filebrowser:v2.44.2
 
+USER root
+
+ARG FILEBROWSER_BASE_URL
+ARG FILEBROWSER_TITLE
 WORKDIR /
 
-COPY filebrowser.json /.filebrowser.json
+COPY settings.json /config/settings.json
 COPY branding /branding
 
-RUN /filebrowser config init
-RUN /filebrowser users add student ''
-RUN /filebrowser config set --branding.name "Fišingo Dropbox" --branding.files "/branding" --branding.disableExternal --branding.theme "dark"
-RUN /filebrowser config set --auth.method=noauth
+RUN sed -i "s|FILEBROWSER_BASE_URL|${FILEBROWSER_BASE_URL}|g" /config/settings.json
+
+RUN filebrowser config init
+RUN filebrowser users add student 'dummypassworddummypassword'
+RUN filebrowser config set --branding.name "${FILEBROWSER_TITLE}" --branding.files "/branding" --branding.disableExternal --branding.theme "dark"
+RUN filebrowser config set --auth.method=noauth
+
+RUN chown 1000:1000 /config/settings.json /filebrowser.db
+USER 1000
