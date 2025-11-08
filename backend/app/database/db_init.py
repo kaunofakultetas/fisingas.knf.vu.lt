@@ -1,7 +1,7 @@
 ############################################################
 # Author:           Tomas Vanagas
-# Updated:          2025-07-27
-# Version:          1.0
+# Updated:          2025-11-09
+# Version:          1.1
 # Description:      Database initialization
 ############################################################
 
@@ -349,11 +349,10 @@ def init_db_indexes():
 
 def init_default_admin_user():
     with get_db_connection() as conn:
-        sqlFetchData = conn.execute(''' SELECT COUNT(*) FROM System_Users ''')
 
-        if(sqlFetchData.fetchone()[0] == 0):
-            # Email: admin@admin.com
-            # Pass: admin
+        if(conn.execute(' SELECT COUNT(*) FROM System_Users ').fetchone()[0] == 0):
+            # Default Email:       admin@admin.com
+            # Default Password:    admin
             conn.execute(''' INSERT INTO System_Users (Email, Password, Admin, Enabled) VALUES (?,?,?,?) ''', ['admin@admin.com', '$2a$12$4a3b6u7a1oBdtvuTkvw9TevgCwH36raEE2oe1BI9Wtt7.L4Pfb4YW', 1, 1])
             conn.commit()
 
