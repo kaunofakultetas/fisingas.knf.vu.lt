@@ -15,7 +15,7 @@ export default async function Page() {
 
   let response;
   try {
-    response = await axios.get(process.env.NEXT_PUBLIC_API_URL + '/checkauth', {
+    response = await axios.get(process.env.BACKEND_API_URL + '/api/checkauth', {
       headers: { Cookie: "session=" + cookies().get("session").value }
     });
   } catch (error) {

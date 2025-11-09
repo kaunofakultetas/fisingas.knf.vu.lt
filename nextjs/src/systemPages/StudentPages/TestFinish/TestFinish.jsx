@@ -22,19 +22,19 @@ import { GrCheckboxSelected } from 'react-icons/gr';
 
 export default async function TestFinish() {
 
-  let authResponse = await axios.get(process.env.NEXT_PUBLIC_API_URL+'/checkauth', { 
+  let authResponse = await axios.get(process.env.BACKEND_API_URL+'/api/checkauth', { 
     headers: { Cookie: "session=" + cookies().get("session").value }
   });
 
   
-  let data = await axios.get(process.env.NEXT_PUBLIC_API_URL+"/admin/students/" + authResponse.data.userid, { 
+  let data = await axios.get(process.env.BACKEND_API_URL+"/api/admin/students/" + authResponse.data.userid, { 
     headers: { Cookie: "session=" + cookies().get("session").value }
   });
   data = data.data;
 
 
   // Mark student as finished phishing test
-  await axios.get(process.env.NEXT_PUBLIC_API_URL+"/student/finish", { 
+  await axios.get(process.env.BACKEND_API_URL+"/api/student/finish", { 
     headers: { Cookie: "session=" + cookies().get("session").value }
   });
 

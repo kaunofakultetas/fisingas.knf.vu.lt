@@ -12,49 +12,6 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import Image from 'next/image';
 
 
-const styles = {
-  loginPage: {
-    backgroundImage: "linear-gradient(to bottom right, #7b4397 , #dc2430)",
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    zIndex: -2,
-    loginForm: {
-      maxWidth: 350,
-      margin: "0 auto",
-      display: "flex",
-      flexDirection: "column",
-      background: "white",
-      padding: 20,
-      marginTop: "10%",
-      borderRadius: 15,
-    },
-    errorBox: {
-      fontSize: '12px', 
-      color: 'red', 
-      textAlign: 'center', 
-      whiteSpace: 'pre-wrap'
-    },
-    footer: {
-      height: 100,
-      width: "100%",
-      position: "absolute",
-      bottom: 0,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    copyright: {
-      color: "#fff",
-      lineHeight: "10px",
-      fontSize: "0.7em",
-      marginTop: 50,
-      textAlign: "center",
-    },
-  },
-};
-
 
 
 
@@ -86,7 +43,16 @@ function LoginForm({ selectedForm, setSelectedForm, handleLogin, errorBoxText })
 
 
   return (
-    <form  style={styles.loginPage.loginForm}>
+    <form  style={{
+      maxWidth: 350,
+      margin: "0 auto",
+      display: "flex",
+      flexDirection: "column",
+      background: "white",
+      padding: 20,
+      marginTop: "10%",
+      borderRadius: 15,
+    }}>
       <Image alt="" src="/img/vuknflogo.png" width="330" height="192"/>
       
       <Box style={{textAlign: "center", marginTop: 10}}>
@@ -106,7 +72,12 @@ function LoginForm({ selectedForm, setSelectedForm, handleLogin, errorBoxText })
       </Stack>
 
       
-      <Box style={styles.loginPage.errorBox}>
+      <Box style={{
+        fontSize: '12px', 
+        color: 'red', 
+        textAlign: 'center', 
+        whiteSpace: 'pre-wrap'
+      }}>
         {errorBoxText}
       </Box>
       
@@ -184,7 +155,16 @@ function RegisterForm({ selectedForm, setSelectedForm, handleLogin }) {
 
 
   return (
-    <form  style={styles.loginPage.loginForm}>
+    <form  style={{
+      maxWidth: 350,
+      margin: "0 auto",
+      display: "flex",
+      flexDirection: "column",
+      background: "white",
+      padding: 20,
+      marginTop: "10%",
+      borderRadius: 15,
+    }}>
 
 
       {studentAccessCode === "" &&
@@ -225,7 +205,12 @@ function RegisterForm({ selectedForm, setSelectedForm, handleLogin }) {
           </Stack>
 
           
-          <Box style={styles.loginPage.errorBox}>
+          <Box style={{
+            fontSize: '12px', 
+            color: 'red', 
+            textAlign: 'center', 
+            whiteSpace: 'pre-wrap'
+          }}>
             {errorBoxText}
           </Box>
           
@@ -301,7 +286,15 @@ export default function Login({ deleteTokens }) {
   }
 
   return (
-    <Box style={styles.loginPage}>
+    <Box style={{
+      backgroundImage: "linear-gradient(to bottom right, #7b4397 , #dc2430)",
+      position: "absolute",
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      zIndex: -2,
+    }}>
       
       <div style={{}}>
         <div style={{ display: selectedForm === 0 ? 'block': 'none' }}>
@@ -324,8 +317,22 @@ export default function Login({ deleteTokens }) {
       
       <Particles/>
 
-      <Box style={styles.loginPage.footer}>
-        <Box style={styles.loginPage.copyright}>
+      <Box style={{
+        height: 100,
+        width: "100%",
+        position: "absolute",
+        bottom: 0,
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: -1,
+      }}>
+        <Box style={{
+          color: "#fff",
+          lineHeight: "10px",
+          fontSize: "0.7em",
+          marginTop: 50,
+          textAlign: "center",
+        }}>
           Copyright © | All Rights Reserved | VUKnF
         </Box>
       </Box>

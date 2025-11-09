@@ -4,8 +4,7 @@ WORKDIR /app
 
 ENV NEXT_SHARP_PATH /app/node_modules/sharp
 
-ENV PORT 443
-EXPOSE 443
+ENV PORT 3000
+EXPOSE 3000
 
-#CMD ["sleep", "infinity"]
-CMD ["npm", "run", "dev"]
+CMD ["sh", "-lc", "npm install && npm run dev"]
