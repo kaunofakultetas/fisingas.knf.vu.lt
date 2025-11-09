@@ -17,6 +17,8 @@ services:
   fisingas-nextjs:
     container_name: fisingas-nextjs
     image: vuknf/fisingas-nextjs:latest
+    environment:                                                            # Dev
+      - BACKEND_API_URL=http://fisingas-backend:8080                        # Dev
     restart: unless-stopped
 
   # # Self build
@@ -26,14 +28,12 @@ services:
   #   user: 1000:1000
   #   build:
   #     context: ./nextjs
-  #     dockerfile: Dockerfile.prod                                           # Prod
-  #     # dockerfile: Dockerfile.dev                                            # Dev
-  #     args:
-  #       - NEXT_PUBLIC_API_URL=http://fisingas-backend:8080/api
-  #   # environment:                                                            # Dev
-  #   #   - NEXT_PUBLIC_API_URL=http://fisingas-backend:8080/api                # Dev
-  #   # volumes:                                                                # Dev
-  #   #   - ./nextjs:/app                                                       # Dev
+  #     # dockerfile: Dockerfile                                                # Prod
+  #     dockerfile: Dockerfile.dev                                            # Dev
+  #   environment:                                                            # Dev
+  #     - BACKEND_API_URL=http://fisingas-backend:8080                        # Dev
+  #   volumes:                                                                # Dev
+  #     - ./nextjs:/app                                                       # Dev
   #   restart: unless-stopped
 
 
