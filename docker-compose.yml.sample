@@ -13,7 +13,7 @@ services:
 
 
 
-  # Push from Docker hub
+  # Pull from Docker hub
   fisingas-nextjs:
     container_name: fisingas-nextjs
     image: vuknf/fisingas-nextjs:latest
