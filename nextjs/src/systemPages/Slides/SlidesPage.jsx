@@ -134,6 +134,8 @@ const SlidesPage = () => {
           style={styles.iframe}
           title="Leaderboard"
         />
+        {/* Transparent overlay to block all clicks on iframe */}
+        <div style={styles.iframeOverlay} />
       </div>
     </div>
   );
@@ -169,6 +171,14 @@ const styles = {
     width: '100%',
     height: '100%',
     border: 'none',
+  },
+  iframeOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    cursor: 'default',
   },
 };
 
