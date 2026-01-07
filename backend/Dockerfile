@@ -10,5 +10,8 @@ RUN pip install --no-cache-dir      \
     "bcrypt==4.2.1"
 
 
+COPY . .
+
+
 EXPOSE 8080
 CMD ["python3", "main.py", "--http"]

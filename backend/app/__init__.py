@@ -50,6 +50,8 @@ def create_app():
     from .phishing_test.routes import phishing_test_bp
     app.register_blueprint(phishing_test_bp, url_prefix='')
 
+    from .leaderboard.routes import leaderboard_bp
+    app.register_blueprint(leaderboard_bp, url_prefix='')
 
 
     

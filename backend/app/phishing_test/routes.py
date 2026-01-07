@@ -298,77 +298,6 @@ def homePage_HTTPGET():
 
 
 
-
-
-
-
-
-@phishing_test_bp.route('/api/leaderboard', methods=['GET'])
-def leaderboard_HTTPGET():
-    with get_db_connection() as conn:
-        sqlFetchData = conn.execute(f'''
-            WITH GetStudentsProgress AS (
-                SELECT 
-                    PhishingTest_Answers.StudentID,
-                    Users_Students.Username,
-                    COUNT(*) AS QuestionCount,
-                    IFNULL(     SUM(    IIF(PhishingTest_Answers.AnswerStatus IS NOT NULL, 1, 0)    )   , 0) AS AnsweredQuestionCount,
-                    Users_Students.IsFinished,
-                    Users_Students.LastLogin
-                FROM 
-                    PhishingTest_Answers
-                LEFT JOIN Users_Students
-                    ON Users_Students.StudentID = PhishingTest_Answers.StudentID
-                GROUP BY PhishingTest_Answers.StudentID
-            ),
-            GetTable AS (
-                SELECT 
-                    Users_Students.StudentID                                        AS ID,
-                    Users_Students.Username                                         AS Username,
-
-                    IFNULL(_VIEW_GetUsersTestResults.QuestionCount, '')             AS QuestionCount,
-
-                    IFNULL(_VIEW_GetUsersTestResults.TestGrade, '')                 AS TestGrade,
-
-                    Users_Students.IsFinished                                       AS IsFinished,
-                    Users_Students.LastLogin                                        AS LastLogin,
-                    GetStudentsProgress.AnsweredQuestionCount                       AS AnsweredQuestionCount
-                FROM 
-                    Users_Students
-                LEFT JOIN Users_StudentGroups
-                    ON Users_Students.GroupID = Users_StudentGroups.GroupID
-                LEFT JOIN _VIEW_GetUsersTestResults
-                    ON Users_Students.StudentID = _VIEW_GetUsersTestResults.StudentID
-                LEFT JOIN GetStudentsProgress
-                    ON Users_Students.StudentID = GetStudentsProgress.StudentID
-                ORDER BY Users_Students.StudentID DESC
-            )
-
-            SELECT
-                json_group_array(
-                    json_object(
-                        'id',                       ID,
-                        'username',                 Username,
-                        
-                        'questioncount',            QuestionCount,
-                        'answeredquestioncount',    AnsweredQuestionCount,
-
-                        'testgrade',                TestGrade,
-
-                        'isfinished',               IsFinished,
-                        'lastseen',                 LastLogin
-                    )
-                )
-            FROM 
-                GetTable
-        ''', [])
-        return Response(json.dumps(json.loads(sqlFetchData.fetchone()[0]), indent=4), mimetype='application/json')
-
-
-
-
-
-
 @phishing_test_bp.route('/api/admin/students/<int:studentID>/answers', methods=['GET'])
 @login_required
 def studentAnswers_HTTPGET(studentID=None):
@@ -438,9 +367,6 @@ def studentAnswers_HTTPGET(studentID=None):
 
 
 
-
-
-
 @phishing_test_bp.route('/api/admin/studentgroups', methods=['GET'])
 @login_required
 def studentGroupsList_HTTPGET():
@@ -475,9 +401,6 @@ def studentGroupsList_HTTPGET():
                 GetTable
         ''', [])
         return Response(json.dumps(json.loads(sqlFetchData.fetchone()[0]), indent=4), mimetype='application/json')
-
-
-
 
 
 
@@ -548,6 +471,8 @@ def phishingPictures_HTTPGET(questionID):
         return Response(pictureBinary, mimetype=mimetype)
 
 
+
+
 @phishing_test_bp.route('/api/phishingpictures/<int:questionID>/links', methods=['GET', 'POST'])
 @login_required
 def phishingPicturesLinks_HTTPGET(questionID):
@@ -595,6 +520,8 @@ def phishingPicturesLinks_HTTPGET(questionID):
                 return 'OK'
             return 'Error'
         return 'OK'
+
+
 
 
 
@@ -676,6 +603,9 @@ def questionsList_HTTPGET():
                 GetQuestionsSumary
         ''')
         return Response(json.dumps(json.loads(sqlFetchData.fetchone()[0]), indent=4), mimetype='application/json')
+
+
+
 
 
 

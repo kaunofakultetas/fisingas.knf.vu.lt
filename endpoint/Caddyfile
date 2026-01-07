@@ -5,7 +5,7 @@
         default-src 'self';
         script-src 'self' 'unsafe-inline' 'unsafe-eval';
         style-src 'self' 'unsafe-inline';
-        img-src 'self' data:;
+        img-src 'self' data: blob:;
         font-src 'self' data:;
         connect-src 'self';
         frame-ancestors 'self';
@@ -20,13 +20,23 @@
 
 
 
-    # Filebrowser Endpoint
-    redir /filebrowser /filebrowser/
-    handle /filebrowser/* {
+    # Dropbox Endpoint
+    redir /filebrowser/dropbox /filebrowser/dropbox/
+    handle /filebrowser/dropbox/* {
         forward_auth fisingas-backend:8080 {
             uri /api/checkauth/admin
         }
-        reverse_proxy fisingas-filebrowser:80
+        reverse_proxy fisingas-filebrowser-dropbox:80
+    }
+
+
+    # Slides Endpoint
+    redir /filebrowser/slides /filebrowser/slides/
+    handle /filebrowser/slides/* {
+        forward_auth fisingas-backend:8080 {
+            uri /api/checkauth/admin
+        }
+        reverse_proxy fisingas-filebrowser-slides:80
     }
 
 

@@ -11,6 +11,11 @@ import KeyboardDoubleArrowRightIcon from '@mui/icons-material/KeyboardDoubleArro
 // Pagrindinis
 import DashboardIcon from "@mui/icons-material/Dashboard";
 
+// Prezentacija
+import SlideshowIcon from '@mui/icons-material/Slideshow';
+import ImageIcon from '@mui/icons-material/Image';
+import LeaderboardIcon from '@mui/icons-material/Leaderboard';
+
 
 // Sąrašai
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
@@ -79,12 +84,12 @@ const AdminSidebar = () => {
               {open? <span>Studentai</span>:<></>}
             </li>
           </Link>
-          <Link href="/admin/studentgroups" style={{ textDecoration: "none" }}>
+          {/* <Link href="/admin/studentgroups" style={{ textDecoration: "none" }}>
             <li>
               <GroupsIcon className={styles.icon} />
               {open? <span>Studentų Grupės</span>:<></>}
             </li>
-          </Link>
+          </Link> */}
           <Link href="/admin/questions" style={{ textDecoration: "none" }}>
             <li>
               <QuestionMarkIcon className={styles.icon} />
@@ -101,6 +106,31 @@ const AdminSidebar = () => {
           
 
           {/* ---- */}
+          {open? <p className={styles.title}>PREZENTACIJA</p>:<p className={styles.title}>-----</p>}
+          <Link href="/slides" target="_blank" style={{ textDecoration: "none" }}>
+            <li>
+              <SlideshowIcon className={styles.icon} />
+              {open? <span>Skaidrės (Paleisti)</span>:<></>}
+            </li>
+          </Link>
+
+          <Link href="/filebrowser/slides" target="_blank" style={{ textDecoration: "none" }}>
+            <li>
+              <ImageIcon className={styles.icon} />
+              {open? <span>Skaidrės (Failai)</span>:<></>}
+            </li>
+          </Link>
+
+          <Link href="/leaderboard" target="_blank" style={{ textDecoration: "none" }}>
+            <li>
+              <LeaderboardIcon className={styles.icon} />
+              {open? <span>Leaderboard'as</span>:<></>}
+            </li>
+          </Link>
+
+
+
+
           {open? <p className={styles.title}>SISTEMA</p>:<p className={styles.title}>-----</p>}
           <Link href="/admin/administrators" style={{ textDecoration: "none" }}>
             <li>
@@ -109,10 +139,10 @@ const AdminSidebar = () => {
             </li>
           </Link>
 
-          <Link href="/filebrowser" style={{ textDecoration: "none" }} target="_blank" rel="noopener noreferrer">
+          <Link href="/filebrowser/dropbox" style={{ textDecoration: "none" }} target="_blank" rel="noopener noreferrer">
             <li>
               <UploadFileIcon className={styles.icon} />
-              {open? <span>Failų Dropbox</span>:<></>}
+              {open? <span>Failų Dropbox'as</span>:<></>}
             </li>
           </Link>
 
