@@ -11,12 +11,9 @@ const InteractiveImage = ({ src, clickableAreasUrl, clickablAreaColor='rgba(255,
     offsetX: 0,
     offsetY: 0,
   });
-  const [imageLoaded, setImageLoaded] = useState(false);
-
-
-  useEffect(() => {
-    setImageLoaded(false);
-  }, [src]);
+  // Track which src is loaded instead of boolean - avoids race condition
+  const [loadedSrc, setLoadedSrc] = useState(null);
+  const imageLoaded = loadedSrc === src;
 
 
   // **Fetch clickable areas from the provided URL**
@@ -79,7 +76,7 @@ const InteractiveImage = ({ src, clickableAreasUrl, clickablAreaColor='rgba(255,
         style={{ ...imageStyle, filter: imageLoaded === false ? 'blur(3px)' : undefined}}
         onLoad={() => {
           updateImageDimensions();
-          setImageLoaded(true);
+          setLoadedSrc(src);
         }}
       />
 
