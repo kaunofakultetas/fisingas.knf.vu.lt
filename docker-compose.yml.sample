@@ -56,7 +56,7 @@ services:
 
   fisingas-dbgate:
     container_name: fisingas-dbgate
-    image: dbgate/dbgate:6.6.0
+    image: dbgate/dbgate:6.6.12
     environment:
       WEB_ROOT: /dbgate
 
@@ -71,17 +71,38 @@ services:
 
 
 
-  fisingas-filebrowser:
-    container_name: fisingas-filebrowser
-    image: fisingas-filebrowser
+  fisingas-filebrowser-dropbox:
+    container_name: fisingas-filebrowser-dropbox
+    image: fisingas-filebrowser-dropbox
     build:
       context: ./filebrowser
       dockerfile: Dockerfile
+      args:
+        - FILEBROWSER_TITLE=Fišingo Dropbox'as
+        - FILEBROWSER_BASE_URL=/filebrowser/dropbox
     read_only: false
     volumes:
-      - ./filebrowser/data:/data
+      - ./_DATA/dropbox:/data
     environment:
       - PUID=1000
       - PGID=1000
     restart: unless-stopped
 
+
+
+  fisingas-filebrowser-slides:
+    container_name: fisingas-filebrowser-slides
+    image: fisingas-filebrowser-slides
+    build:
+      context: ./filebrowser
+      dockerfile: Dockerfile
+      args:
+        - FILEBROWSER_TITLE=Fišingo Skaidrės
+        - FILEBROWSER_BASE_URL=/filebrowser/slides
+    read_only: false
+    volumes:
+      - ./_DATA/slides:/data
+    environment:
+      - PUID=1000
+      - PGID=1000
+    restart: unless-stopped
