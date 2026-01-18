@@ -13,7 +13,7 @@ services:
 
 
 
-  # Pull from Docker hub
+  # Frontend (Pull Docker hub)
   fisingas-nextjs:
     container_name: fisingas-nextjs
     image: vuknf/fisingas-nextjs:latest
@@ -21,7 +21,7 @@ services:
       - BACKEND_API_URL=http://fisingas-backend:8080                        # Dev
     restart: unless-stopped
 
-  # # Self build
+  # # Frontend (Self-built)
   # fisingas-nextjs:
   #   container_name: fisingas-nextjs
   #   image: fisingas-nextjs
@@ -38,19 +38,41 @@ services:
 
 
 
+
+  # Backend (Pull Docker hub)
   fisingas-backend:
     container_name: fisingas-backend
-    image: fisingas-backend
-    build: ./backend
+    image: vuknf/fisingas-backend:latest
+    read_only: true
     environment:
       - TMPDIR=/tmp/backend
-      # - APP_DEBUG=true          # Dev
       - DB_PATH=/DATABASE/fisingas.db
-    read_only: true
+      - SLIDES_DIRECTORY=/SLIDES
     volumes:
-      - ./DATABASE:/DATABASE
-      - ./backend:/app
+      - /etc/localtime:/etc/localtime:ro
+      - ./_DATA/database:/database
+      - ./_DATA/slides:/slides
     restart: unless-stopped
+
+  # # Backend (Self-built)
+  # fisingas-backend:
+  #   container_name: fisingas-backend
+  #   image: fisingas-backend
+  #   build: ./backend
+  #   environment:
+  #     - TMPDIR=/tmp/backend
+  #     - DB_PATH=/DATABASE/fisingas.db
+  #     - SLIDES_DIRECTORY=/SLIDES
+  #     # - APP_DEBUG=true                                                    # Dev
+  #   read_only: true
+  #   volumes:
+  #     - /etc/localtime:/etc/localtime:ro
+  #     - ./_DATA/database:/database
+  #     - ./_DATA/slides:/slides
+  #     # - ./backend:/app                                                    # Dev
+  #   restart: unless-stopped
+
+
 
 
 
