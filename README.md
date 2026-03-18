@@ -4,6 +4,11 @@ A web-based platform for testing and teaching phishing email recognition skills.
 
 Built for **Vilnius University, Kaunas Faculty (VU KnF)**.
 
+<br>
+
+<img width="1440" alt="Image1" src="_DOCS/images/image1.png" />
+
+
 <br/>
 
 ## How It Works
