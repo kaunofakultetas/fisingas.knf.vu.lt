@@ -26,7 +26,9 @@
         forward_auth fisingas-backend:8080 {
             uri /api/checkauth/admin
         }
-        reverse_proxy fisingas-filebrowser-dropbox:80
+        reverse_proxy fisingas-filebrowser-dropbox:80 {
+            header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+        }
     }
 
 
@@ -36,7 +38,9 @@
         forward_auth fisingas-backend:8080 {
             uri /api/checkauth/admin
         }
-        reverse_proxy fisingas-filebrowser-slides:80
+        reverse_proxy fisingas-filebrowser-slides:80 {
+            header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+        }
     }
 
 
@@ -46,14 +50,30 @@
         forward_auth fisingas-backend:8080 {
             uri /api/checkauth/admin
         }
-        reverse_proxy fisingas-dbgate:3000
+        reverse_proxy fisingas-dbgate:3000 {
+            header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+        }
+    }
+
+    # Swagger UI
+    handle /swagger* {
+        forward_auth fisingas-backend:8080 {
+            uri /api/checkauth/admin
+        }
+        reverse_proxy fisingas-swagger:8080 {
+            header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+        }
     }
 
 
     # Backend Endpoint
-    reverse_proxy /api/* fisingas-backend:8080
+    reverse_proxy /api/* fisingas-backend:8080 {
+        header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+    }
 
 
     # NextJS Frontend
-    reverse_proxy /* fisingas-nextjs:3000
+    reverse_proxy /* fisingas-nextjs:3000 {
+        header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+    }
 }

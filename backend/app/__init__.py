@@ -1,12 +1,15 @@
 ############################################################
 # Author:           Tomas Vanagas
-# Updated:          2025-06-29
+# Updated:          2026-03-18
 # Version:          1.0
 # Description:      App Initialization
 ############################################################
 
 
 from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+
 import random
 import os
 import hashlib
@@ -21,13 +24,20 @@ APP_DEBUG = os.getenv('APP_DEBUG', 'false').lower() == "true"
 
 def create_app():
 
-    # Initialize database
+    ############# Database Initialization #############
     from .database.db_init import init_db
     init_db()
 
+    ###################################################
 
-    # Initialize Flask app
+
+
+
+    ############# Flask App Initialization ############
     app = Flask(__name__)
+
+    # Trust X-Forwarded-For headers from reverse proxy
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 
     # Initialize Flask extensions
@@ -42,8 +52,12 @@ def create_app():
     from .auth.user import login_manager
     login_manager.init_app(app)
 
+    ###################################################
+
+
+
     
-    # Register blueprints
+    ################## UI Blueprints ##################
     from .auth.routes import auth_bp
     app.register_blueprint(auth_bp, url_prefix='')
     
@@ -53,6 +67,7 @@ def create_app():
     from .leaderboard.routes import leaderboard_bp
     app.register_blueprint(leaderboard_bp, url_prefix='')
 
+    ###################################################
 
     
     return app
