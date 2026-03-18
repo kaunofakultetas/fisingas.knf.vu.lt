@@ -27,6 +27,7 @@ import FilterIcon from '@mui/icons-material/Filter';
 // Sistema
 import BadgeIcon from '@mui/icons-material/Badge';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
+import ApiIcon from '@mui/icons-material/Api';
 import StorageIcon from '@mui/icons-material/Storage';
 import ExitToAppIcon from "@mui/icons-material/ExitToApp";
 
@@ -143,6 +144,13 @@ const AdminSidebar = () => {
             <li>
               <UploadFileIcon className={styles.icon} />
               {open? <span>Failų Dropbox'as</span>:<></>}
+            </li>
+          </Link>
+
+          <Link href="/swagger" style={{ textDecoration: "none" }} target="_blank" rel="noopener noreferrer">
+            <li>
+              <ApiIcon className={styles.icon} />
+              {open? <span>API Dokumentacija</span>:<></>}
             </li>
           </Link>
 
