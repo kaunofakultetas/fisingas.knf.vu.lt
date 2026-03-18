@@ -1,6 +1,6 @@
 {
   "port": 80,
-  "baseURL": "FILEBROWSER_BASE_URL",
+  "baseURL": "/filebrowser/dropbox",
   "address": "",
   "log": "stdout",
   "database": "/filebrowser.db",
