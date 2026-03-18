@@ -1,0 +1,1135 @@
+openapi: 3.0.3
+info:
+  title: Fisingas API
+  description: |
+    Phishing Recognition Test Platform API.
+
+    Authentication is session-based using cookies. Log in via `POST /api/login` to receive a session cookie,
+    which is then sent automatically with subsequent requests.
+
+    The system has two user roles:
+    - **Admin** -- identified by an email address (contains `@`)
+    - **Student** -- identified by a username (no `@`)
+  version: 1.0.0
+  contact:
+    name: Vilnius University, Kaunas Faculty
+
+servers:
+  - url: /
+    description: Same-origin (behind Caddy reverse proxy)
+
+tags:
+  - name: Authentication
+    description: Login and session management
+  - name: Student Registration
+    description: Public student registration
+  - name: Phishing Test
+    description: Student test-taking endpoints
+  - name: Questions (Admin)
+    description: Admin question management
+  - name: Question Images
+    description: Image upload and retrieval for questions
+  - name: Students (Admin)
+    description: Admin student management
+  - name: Administrators
+    description: Admin account management
+  - name: Student Groups
+    description: Student group management
+  - name: Dashboard
+    description: Admin dashboard and settings
+  - name: Leaderboard
+    description: Public leaderboard and slides
+
+paths:
+
+  # ──────────────────────────────────────────────
+  # Authentication
+  # ──────────────────────────────────────────────
+
+  /api/login:
+    post:
+      tags: [Authentication]
+      summary: Log in
+      description: |
+        Log in as admin or student. The system distinguishes the two by whether
+        the username contains `@` (admin) or not (student).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  description: Email (admin) or username (student)
+                  example: admin@admin.com
+                password:
+                  type: string
+                  description: Password (admin) or access code (student)
+                  example: admin
+      responses:
+        "200":
+          description: Login result
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+          headers:
+            Set-Cookie:
+              description: Session cookie (set on success)
+              schema:
+                type: string
+
+  /api/checkauth:
+    get:
+      tags: [Authentication]
+      summary: Check current session
+      description: |
+        Returns the current user's identity. Also updates the last-login timestamp.
+
+        - `id` is the login name (email for admin, username for student)
+        - `userid` is the database primary key (integer)
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Current user info
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/AdminAuth"
+                  - $ref: "#/components/schemas/StudentAuth"
+              examples:
+                admin:
+                  summary: Admin user
+                  value:
+                    id: admin@admin.com
+                    userid: 1
+                    admin: 1
+                student:
+                  summary: Student user
+                  value:
+                    id: JOHN_DOE
+                    userid: 5
+                    admin: 0
+                    passcode: "48291037"
+                    phishingtestfinished: 0
+        "401":
+          description: Not authenticated
+
+  /api/checkauth/admin:
+    get:
+      tags: [Authentication]
+      summary: Check admin session
+      description: |
+        Same as `/api/checkauth` but returns 401 if the user is not an admin.
+        Used by Caddy for forward authentication on admin-only tools.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Admin user info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAuth"
+        "401":
+          description: Not an admin or not authenticated
+
+  # ──────────────────────────────────────────────
+  # Student Registration
+  # ──────────────────────────────────────────────
+
+  /api/student/register:
+    post:
+      tags: [Student Registration]
+      summary: Register a new student
+      description: |
+        Register a new student account. Usernames are auto-uppercased and
+        restricted to `A-Z`, `0-9`, and `_`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username:
+                  type: string
+                  example: John_Doe
+      responses:
+        "200":
+          description: Registration result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [OK, error]
+                  username:
+                    type: string
+                    example: JOHN_DOE
+                  accessCode:
+                    type: string
+                    description: 8-digit access code (only returned on success)
+                    example: "48291037"
+                  error:
+                    type: string
+                    description: Error message (only returned on failure)
+              examples:
+                success:
+                  summary: Successful registration
+                  value:
+                    status: OK
+                    username: JOHN_DOE
+                    accessCode: "48291037"
+                duplicate:
+                  summary: Username already taken
+                  value:
+                    status: error
+                    error: Vartotojas tokiu vardu jau registruotas
+
+  # ──────────────────────────────────────────────
+  # Phishing Test (Student)
+  # ──────────────────────────────────────────────
+
+  /api/student/questions:
+    get:
+      tags: [Phishing Test]
+      summary: Get assigned test questions
+      description: |
+        Returns the student's assigned test questions. On the first call, the system
+        randomly assigns questions based on the configured test size.
+
+        Returns `{}` if the test is already finished.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: List of questions (or empty object if test is finished)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StudentQuestion"
+
+    post:
+      tags: [Phishing Test]
+      summary: Save answers
+      description: |
+        Save the student's answers. Can be called multiple times -- answers are upserted.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: object
+                required: [questionid, selectedanswer, questionoptions]
+                properties:
+                  questionid:
+                    type: integer
+                  selectedanswer:
+                    type: integer
+                    nullable: true
+                    description: "`1` = Phishing, `0` = Real, `null` = not answered"
+                  questionoptions:
+                    type: array
+                    items:
+                      type: object
+                      required: [answeroptionid, isselected]
+                      properties:
+                        answeroptionid:
+                          type: integer
+                        isselected:
+                          type: integer
+                          nullable: true
+                          description: "`1` = selected, `0` or `null` = not selected"
+      responses:
+        "200":
+          description: Answers saved
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+
+  /api/student/finish:
+    get:
+      tags: [Phishing Test]
+      summary: Finish the test
+      description: |
+        Marks the student's test as finished. **This is irreversible.**
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Test marked as finished
+          content:
+            application/json:
+              schema:
+                type: object
+                example: {}
+
+  # ──────────────────────────────────────────────
+  # Questions (Admin)
+  # ──────────────────────────────────────────────
+
+  /api/admin/questions:
+    get:
+      tags: [Questions (Admin)]
+      summary: List all questions
+      description: Returns all questions with their options and a summary.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Questions with summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  questioncount:
+                    type: integer
+                    description: Total number of questions
+                  phishingcount:
+                    type: integer
+                    description: Number of phishing questions
+                  goodcount:
+                    type: integer
+                    description: Number of real (non-phishing) questions
+                  questions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AdminQuestion"
+
+  /api/admin/questions/createnewoption:
+    post:
+      tags: [Questions (Admin)]
+      summary: Add a new option to a question
+      description: Creates a new empty answer option for the specified question.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [questionid]
+              properties:
+                questionid:
+                  type: integer
+      responses:
+        "200":
+          description: New option created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  new_option_id:
+                    type: integer
+
+  /api/admin/questions/updatequestion:
+    post:
+      tags: [Questions (Admin)]
+      summary: Update a question
+      description: Update a question's text, phishing flag, and answer options.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [questionid, questiontext, isphishing, questionoptions]
+              properties:
+                questionid:
+                  type: integer
+                questiontext:
+                  type: string
+                isphishing:
+                  type: integer
+                  description: "`1` = phishing, `0` = real"
+                questionoptions:
+                  type: array
+                  items:
+                    type: object
+                    required: [optionid, optiontext, rightoptionanswer]
+                    properties:
+                      optionid:
+                        type: integer
+                      optiontext:
+                        type: string
+                      rightoptionanswer:
+                        type: integer
+                        description: "`1` = correct, `0` = incorrect"
+      responses:
+        "200":
+          description: Question updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  # ──────────────────────────────────────────────
+  # Question Images
+  # ──────────────────────────────────────────────
+
+  /api/phishingpictures:
+    post:
+      tags: [Question Images]
+      summary: Upload image (creates a new question)
+      description: |
+        Create a new question by uploading an image. The question is created with
+        default values (empty text, `isphishing = 0`). Edit the question afterwards
+        to fill in the details.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Image file (PNG, JPG, GIF). Max 5 MB.
+      responses:
+        "200":
+          description: Image uploaded, question created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    example: ok
+                  message:
+                    type: string
+                    example: Image uploaded successfully
+        "400":
+          description: Invalid file or file too large
+        "403":
+          description: Not an admin
+
+  /api/phishingpictures/{questionID}:
+    get:
+      tags: [Question Images]
+      summary: Get question image
+      description: Returns the question's image as a binary response with the correct MIME type.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: questionID
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Image binary
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/gif:
+              schema:
+                type: string
+                format: binary
+
+  /api/phishingpictures/{questionID}/links:
+    get:
+      tags: [Question Images]
+      summary: Get clickable areas
+      description: |
+        Returns clickable areas defined on the question image.
+        Coordinates are returned as percentage strings (e.g. `"15%"`).
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: questionID
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of clickable areas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/QuestionLink"
+
+    post:
+      tags: [Question Images]
+      summary: Update clickable areas
+      description: |
+        Replace all clickable areas for a question image.
+        Existing areas are deleted first.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: questionID
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [areas]
+              properties:
+                areas:
+                  type: array
+                  items:
+                    type: object
+                    required: [url, x, y, width, height]
+                    properties:
+                      url:
+                        type: string
+                        example: http://example.com
+                      x:
+                        type: number
+                        format: float
+                        description: X position (0.0 to 1.0)
+                        example: 0.15
+                      y:
+                        type: number
+                        format: float
+                        description: Y position (0.0 to 1.0)
+                        example: 0.42
+                      width:
+                        type: number
+                        format: float
+                        description: Width (0.0 to 1.0)
+                        example: 0.20
+                      height:
+                        type: number
+                        format: float
+                        description: Height (0.0 to 1.0)
+                        example: 0.03
+      responses:
+        "200":
+          description: Areas updated
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+
+  # ──────────────────────────────────────────────
+  # Students (Admin)
+  # ──────────────────────────────────────────────
+
+  /api/admin/students:
+    get:
+      tags: [Students (Admin)]
+      summary: List all students
+      description: Returns all students with progress and test statistics.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: List of students
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StudentDetail"
+
+  /api/admin/students/{studentID}:
+    get:
+      tags: [Students (Admin)]
+      summary: Get student details
+      description: |
+        Returns detailed info for a specific student.
+        Accessible by admins or by the student themselves.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: studentID
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Student details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudentDetail"
+
+  /api/admin/students/{studentID}/answers:
+    get:
+      tags: [Students (Admin)]
+      summary: Get student answers
+      description: |
+        Returns the student's detailed answers with correctness, points, and selected options.
+        Accessible by admins or by the student themselves.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: studentID
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Student answers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StudentAnswer"
+
+  # ──────────────────────────────────────────────
+  # Administrators
+  # ──────────────────────────────────────────────
+
+  /api/admin/administrators:
+    get:
+      tags: [Administrators]
+      summary: List all administrators
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: List of administrator accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Administrator"
+
+    post:
+      tags: [Administrators]
+      summary: Create, update, or delete an administrator
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - title: Create or Update
+                  type: object
+                  required: [action, id, email, password, enabled]
+                  properties:
+                    action:
+                      type: string
+                      enum: [insertupdate]
+                    id:
+                      type: string
+                      description: "Empty string `\"\"` to create, existing ID to update"
+                    email:
+                      type: string
+                      format: email
+                    password:
+                      type: string
+                      description: Required for create. When updating, empty string keeps existing password.
+                    enabled:
+                      type: integer
+                      description: "`1` = enabled, `0` = disabled"
+                - title: Delete
+                  type: object
+                  required: [action, id]
+                  properties:
+                    action:
+                      type: string
+                      enum: [delete]
+                    id:
+                      type: string
+            examples:
+              create:
+                summary: Create new admin
+                value:
+                  action: insertupdate
+                  id: ""
+                  email: new@admin.com
+                  password: secret
+                  enabled: 1
+              update:
+                summary: Update existing admin
+                value:
+                  action: insertupdate
+                  id: "5"
+                  email: updated@admin.com
+                  password: ""
+                  enabled: 1
+              delete:
+                summary: Delete admin
+                value:
+                  action: delete
+                  id: "5"
+      responses:
+        "200":
+          description: Operation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [ok, error]
+                  reason:
+                    type: string
+
+  # ──────────────────────────────────────────────
+  # Student Groups
+  # ──────────────────────────────────────────────
+
+  /api/admin/studentgroups:
+    get:
+      tags: [Student Groups]
+      summary: List all student groups
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: List of student groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StudentGroup"
+
+  # ──────────────────────────────────────────────
+  # Dashboard
+  # ──────────────────────────────────────────────
+
+  /api/admin/home:
+    get:
+      tags: [Dashboard]
+      summary: Get dashboard statistics
+      description: |
+        Returns dashboard statistics and a list of students active in the last 30 minutes.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardData"
+
+  /api/admin/update/phishingtestsize:
+    post:
+      tags: [Dashboard]
+      summary: Update test size
+      description: Update the number of questions randomly assigned to each student.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phishingtestsize]
+              properties:
+                phishingtestsize:
+                  type: integer
+                  description: New test size
+                  example: 9
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  # ──────────────────────────────────────────────
+  # Leaderboard
+  # ──────────────────────────────────────────────
+
+  /api/leaderboard:
+    get:
+      tags: [Leaderboard]
+      summary: Get leaderboard
+      description: Returns all students ranked by test score. No authentication required.
+      responses:
+        "200":
+          description: Leaderboard entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LeaderboardEntry"
+
+  /api/leaderboard/nextslide:
+    get:
+      tags: [Leaderboard]
+      summary: Get a random slide image
+      description: |
+        Returns a random slide image from the slides directory as a binary response.
+        Supports PNG, JPG, GIF, and WEBP.
+      responses:
+        "200":
+          description: Slide image
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: No slides available
+
+# ──────────────────────────────────────────────────
+# Components
+# ──────────────────────────────────────────────────
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session cookie set by `POST /api/login`
+
+  schemas:
+
+    AdminAuth:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Admin email (login name)
+          example: admin@admin.com
+        userid:
+          type: integer
+          description: Database primary key
+          example: 1
+        admin:
+          type: integer
+          enum: [1]
+          example: 1
+
+    StudentAuth:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Student username (login name)
+          example: JOHN_DOE
+        userid:
+          type: integer
+          description: Database primary key
+          example: 5
+        admin:
+          type: integer
+          enum: [0]
+          example: 0
+        passcode:
+          type: string
+          description: Student's access code
+          example: "48291037"
+        phishingtestfinished:
+          type: integer
+          description: "`0` = in progress, `1` = finished"
+          example: 0
+
+    StudentQuestion:
+      type: object
+      properties:
+        questionid:
+          type: integer
+        selectedanswer:
+          type: integer
+          nullable: true
+          description: "`1` = Phishing, `0` = Real, `null` = not answered"
+        question:
+          type: string
+          description: Question text
+        questionoptions:
+          type: array
+          items:
+            type: object
+            properties:
+              answeroptionid:
+                type: integer
+              answeroption:
+                type: string
+                description: Option text
+              isselected:
+                type: integer
+                nullable: true
+        questionlinks:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+              content:
+                type: string
+                description: Link URL
+              x:
+                type: string
+              y:
+                type: string
+
+    AdminQuestion:
+      type: object
+      properties:
+        questionid:
+          type: integer
+        isphishing:
+          type: integer
+          description: "`1` = phishing, `0` = real"
+        questiontext:
+          type: string
+        questionoptions:
+          type: array
+          items:
+            type: object
+            properties:
+              optionid:
+                type: integer
+              optiontext:
+                type: string
+              rightoptionanswer:
+                type: integer
+                description: "`1` = correct, `0` = incorrect"
+        created:
+          type: string
+          description: Creation timestamp
+          example: "2025-01-15 14:30:00"
+
+    QuestionLink:
+      type: object
+      properties:
+        id:
+          type: integer
+        url:
+          type: string
+          example: http://example.com
+        x:
+          type: string
+          description: X position as percentage
+          example: "15%"
+        y:
+          type: string
+          description: Y position as percentage
+          example: "42%"
+        width:
+          type: string
+          description: Width as percentage
+          example: "20%"
+        height:
+          type: string
+          description: Height as percentage
+          example: "3%"
+
+    StudentDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Student ID
+        username:
+          type: string
+        passcode:
+          type: string
+        groupname:
+          type: string
+          nullable: true
+        questioncount:
+          type: integer
+          description: Total assigned questions
+        answeredquestioncount:
+          type: integer
+          description: Questions answered so far
+        totalidentifiedcorrectly:
+          type: integer
+          description: Questions where the Real/Phishing answer was correct
+        fullycorrectcount:
+          type: integer
+          description: Questions where both main answer and all options were correct
+        fullycorrectpercentage:
+          type: integer
+        totaloptionscount:
+          type: integer
+        totalcorrectoptionscount:
+          type: integer
+        testgrade:
+          type: string
+          description: Grade out of 10 (e.g. `"7.50"`)
+        isfinished:
+          type: integer
+          description: "`0` = in progress, `1` = finished"
+        lastseen:
+          type: string
+          description: Last login timestamp
+        status:
+          type: integer
+
+    StudentAnswer:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Question ID
+        questiontext:
+          type: string
+        isphishinganswer:
+          type: integer
+          nullable: true
+          description: Student's answer (`1` = Phishing, `0` = Real)
+        isphishing:
+          type: integer
+          description: Correct answer (`1` = phishing, `0` = real)
+        totaloptionscount:
+          type: integer
+        correctoptionscount:
+          type: integer
+        answerpoints:
+          type: string
+          description: Points for this question (e.g. `"1.00"`)
+        answeredoptions:
+          type: array
+          items:
+            type: object
+            properties:
+              optiontext:
+                type: string
+              rightansweroption:
+                type: integer
+                description: Correct value (`1` or `0`)
+              selectedansweroption:
+                type: integer
+                description: Student's selection (`1` or `0`)
+
+    Administrator:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          format: email
+        enabled:
+          type: integer
+          description: "`1` = enabled, `0` = disabled"
+        lastseen:
+          type: string
+          description: Last login timestamp
+
+    StudentGroup:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        showanswers:
+          type: integer
+          description: "`0` = hidden, `1` = visible after finishing"
+        timelimit:
+          type: integer
+          description: Time limit in minutes (`0` = no limit)
+
+    DashboardData:
+      type: object
+      properties:
+        studentscount:
+          type: integer
+          description: Total registered students
+        enabledquestionscount:
+          type: integer
+          description: Number of enabled questions
+        totalquestionscount:
+          type: integer
+          description: Total questions (enabled + disabled)
+        phishingtestsize:
+          type: integer
+          description: Current test size setting
+        studentsprogress:
+          type: array
+          description: Students active in the last 30 minutes
+          items:
+            type: object
+            properties:
+              studentid:
+                type: integer
+              username:
+                type: string
+              questioncount:
+                type: integer
+              answeredquestioncount:
+                type: integer
+              isfinished:
+                type: integer
+              lastlogin:
+                type: string
+
+    LeaderboardEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Student ID
+        username:
+          type: string
+        questioncount:
+          type: integer
+        answeredquestioncount:
+          type: integer
+        testgrade:
+          type: string
+          description: Grade out of 10 (e.g. `"8.50"`)
+        isfinished:
+          type: integer
+          description: "`0` = in progress, `1` = finished"
+        lastseen:
+          type: string
+          description: Last login timestamp

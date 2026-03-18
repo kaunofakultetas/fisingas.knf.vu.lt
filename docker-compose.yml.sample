@@ -4,6 +4,7 @@ services:
   fisingas-endpoint:
     container_name: fisingas-endpoint
     image: caddy:2-alpine
+    user: 1000:1000
     read_only: true
     volumes:
       - ./endpoint/Caddyfile:/etc/caddy/Caddyfile
@@ -128,3 +129,18 @@ services:
       - PUID=1000
       - PGID=1000
     restart: unless-stopped
+
+
+  fisingas-swagger:
+    container_name: fisingas-swagger
+    image: swaggerapi/swagger-ui:v5.29.5
+    user: 1000:1000
+    read_only: false
+    volumes:
+      - ./swagger/swagger.yaml:/swagger.yaml:ro
+    environment:
+      - SWAGGER_JSON=/swagger.yaml
+      - BASE_URL=/swagger
+    restart: unless-stopped
+
+
