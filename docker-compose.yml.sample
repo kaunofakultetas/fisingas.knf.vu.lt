@@ -4,7 +4,7 @@ services:
   fisingas-endpoint:
     container_name: fisingas-endpoint
     image: caddy:2-alpine
-    user: 1000:1000
+    # user: 1000:1000
     read_only: true
     volumes:
       - ./endpoint/Caddyfile:/etc/caddy/Caddyfile
@@ -96,45 +96,34 @@ services:
 
   fisingas-filebrowser-dropbox:
     container_name: fisingas-filebrowser-dropbox
-    image: fisingas-filebrowser-dropbox
-    build:
-      context: ./filebrowser
-      dockerfile: Dockerfile
-      args:
-        - FILEBROWSER_TITLE=Fišingo Dropbox'as
-        - FILEBROWSER_BASE_URL=/filebrowser/dropbox
+    image: vuknf/filebrowser-noauth:latest
     read_only: false
     volumes:
+      - ./filebrowser/dropbox.json:/config/settings.json:ro
       - ./_DATA/dropbox:/data
-    environment:
-      - PUID=1000
-      - PGID=1000
+    # environment:
+    #   - PUID=1000
+    #   - PGID=1000
     restart: unless-stopped
-
 
 
   fisingas-filebrowser-slides:
     container_name: fisingas-filebrowser-slides
-    image: fisingas-filebrowser-slides
-    build:
-      context: ./filebrowser
-      dockerfile: Dockerfile
-      args:
-        - FILEBROWSER_TITLE=Fišingo Skaidrės
-        - FILEBROWSER_BASE_URL=/filebrowser/slides
+    image: vuknf/filebrowser-noauth:latest
     read_only: false
     volumes:
+      - ./filebrowser/slides.json:/config/settings.json:ro
       - ./_DATA/slides:/data
-    environment:
-      - PUID=1000
-      - PGID=1000
+    # environment:
+    #   - PUID=1000
+    #   - PGID=1000
     restart: unless-stopped
 
 
   fisingas-swagger:
     container_name: fisingas-swagger
     image: swaggerapi/swagger-ui:v5.29.5
-    user: 1000:1000
+    # user: 1000:1000
     read_only: false
     volumes:
       - ./swagger/swagger.yaml:/swagger.yaml:ro
