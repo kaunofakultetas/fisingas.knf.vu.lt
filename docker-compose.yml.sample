@@ -79,7 +79,7 @@ services:
 
   fisingas-dbgate:
     container_name: fisingas-dbgate
-    image: dbgate/dbgate:6.6.12
+    image: dbgate/dbgate:7.1.4
     environment:
       WEB_ROOT: /dbgate
 
