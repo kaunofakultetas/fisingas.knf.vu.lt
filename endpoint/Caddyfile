@@ -1,87 +1,101 @@
 :80 {
+    route {
 
-    # SECURITY: Restricts the app in the browser from communicating with external sources
-    header Content-Security-Policy "
-        default-src 'self';
-        script-src 'self' 'unsafe-inline' 'unsafe-eval';
-        style-src 'self' 'unsafe-inline';
-        img-src 'self' data: blob:;
-        font-src 'self' data:;
-        connect-src 'self';
-        frame-ancestors 'self';
-        frame-src 'self';
-        child-src 'self';
-        form-action 'self';
-        worker-src 'self' blob:;
-        base-uri 'self';
-        block-all-mixed-content;
-    "
+        # ------------------------------------------------------------
+        #                         Security headers
+        # ------------------------------------------------------------
+        # SECURITY: Block other applications from accessing the application at the Caddy level
+        @foreign expression `{http.request.header.Origin} != "" && !{http.request.header.Origin}.endsWith("://" + {http.request.host})`
+        respond @foreign 403
+
+        # SECURITY: Restricts the scripts in the browser from communicating with external sources
+        header Content-Security-Policy "
+            default-src         'self';
+            script-src          'self' 'unsafe-inline' 'unsafe-eval';
+            style-src           'self' 'unsafe-inline';
+            img-src             'self' data:;
+            font-src            'self' data:;
+            connect-src         'self';
+            frame-ancestors     'self';
+            frame-src           'self';
+            child-src           'self';
+            form-action         'self';
+            base-uri            'self';
+            worker-src          'self';
+            upgrade-insecure-requests;
+        "
+
+        # SECURITY: Force HTTPS for this domain
+        header Strict-Transport-Security "max-age=31536000"
+
+        # ------------------------------------------------------------
+        # ------------------------------------------------------------
+        # ------------------------------------------------------------
 
 
 
-
-    # Dropbox Endpoint
-    redir /filebrowser/dropbox /filebrowser/dropbox/
-    handle /filebrowser/dropbox/* {
-        forward_auth fisingas-backend:8080 {
-            uri /api/checkauth/admin
+        # Dropbox Endpoint
+        redir /filebrowser/dropbox /filebrowser/dropbox/
+        handle /filebrowser/dropbox/* {
+            forward_auth fisingas-backend:8080 {
+                uri /api/checkauth/admin
+            }
+            reverse_proxy fisingas-filebrowser-dropbox:80 {
+                header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+            }
         }
-        reverse_proxy fisingas-filebrowser-dropbox:80 {
+
+
+        # Slides Endpoint
+        redir /filebrowser/slides /filebrowser/slides/
+        handle /filebrowser/slides/* {
+            forward_auth fisingas-backend:8080 {
+                uri /api/checkauth/admin
+            }
+            reverse_proxy fisingas-filebrowser-slides:80 {
+                header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+            }
+        }
+
+
+        # DBGate Endpoint
+        redir /dbgate /dbgate/
+        handle /dbgate/* {
+            forward_auth fisingas-backend:8080 {
+                uri /api/checkauth/admin
+            }
+            reverse_proxy fisingas-dbgate:3000 {
+                header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+            }
+        }
+
+        # Swagger UI
+        handle /swagger* {
+            forward_auth fisingas-backend:8080 {
+                uri /api/checkauth/admin
+            }
+            reverse_proxy fisingas-swagger:8080 {
+                header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+            }
+        }
+
+
+        # Backend Endpoint
+        reverse_proxy /api/* fisingas-backend:8080 {
             header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
         }
-    }
 
 
-    # Slides Endpoint
-    redir /filebrowser/slides /filebrowser/slides/
-    handle /filebrowser/slides/* {
-        forward_auth fisingas-backend:8080 {
-            uri /api/checkauth/admin
-        }
-        reverse_proxy fisingas-filebrowser-slides:80 {
+        # NextJS Frontend
+        reverse_proxy /* fisingas-nextjs:3000 {
             header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
         }
+
+        # # Vite Frontend
+        # reverse_proxy /* fisingas-vite:80 {
+        #     header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+        # }
+
+
     }
-
-
-    # DBGate Endpoint
-    redir /dbgate /dbgate/
-    handle /dbgate/* {
-        forward_auth fisingas-backend:8080 {
-            uri /api/checkauth/admin
-        }
-        reverse_proxy fisingas-dbgate:3000 {
-            header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
-        }
-    }
-
-    # Swagger UI
-    handle /swagger* {
-        forward_auth fisingas-backend:8080 {
-            uri /api/checkauth/admin
-        }
-        reverse_proxy fisingas-swagger:8080 {
-            header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
-        }
-    }
-
-
-    # Backend Endpoint
-    reverse_proxy /api/* fisingas-backend:8080 {
-        header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
-    }
-
-
-    # NextJS Frontend
-    reverse_proxy /* fisingas-nextjs:3000 {
-        header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
-    }
-
-    # # Vite Frontend
-    # reverse_proxy /* fisingas-vite:80 {
-    #     header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
-    # }
-
-
-
 }
