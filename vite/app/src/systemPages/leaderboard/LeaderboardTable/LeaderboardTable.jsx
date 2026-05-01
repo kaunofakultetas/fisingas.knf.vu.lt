@@ -76,7 +76,7 @@ const StudentsLeaderboard = () => {
                           borderRadius: "10px",
                           backgroundColor: "rgba(0,0,0,0.1)",
                           "& .MuiLinearProgress-bar": {
-                            backgroundColor: row.isfinished === 1 ? "rgb(123, 0, 63)" : "blue",
+                            backgroundColor: row.isfinished === 1 ? "primary.main" : "blue",
                             borderRadius: "10px",
                           },
                         }}

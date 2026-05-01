@@ -27,7 +27,8 @@ const Navbar = () => {
         <div className="flex items-center">
           <Button
             variant="contained"
-            style={{ background: 'rgb(123, 0, 63)', width: "100%", border: '1px solid rgba(255, 255, 255, 1)' }}
+            color="primary"
+            sx={{ width: "100%", border: '1px solid rgba(255, 255, 255, 1)' }}
             onClick={() => { window.location.href = "/login" }}
           >
             Atsijungti

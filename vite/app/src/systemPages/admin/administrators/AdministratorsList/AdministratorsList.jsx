@@ -1,83 +1,33 @@
 
-import { DataGrid, GridToolbarQuickFilter, GridLogicOperator, GridToolbarColumnsButton } from "@mui/x-data-grid";
+import { DataGrid, Toolbar, QuickFilter, QuickFilterControl, GridLogicOperator } from "@mui/x-data-grid";
 import React, { useState } from "react";
-import { Box, Button, LinearProgress, Paper } from '@mui/material';
+import { Box, LinearProgress, Paper } from '@mui/material';
 import AddCircleOutlinedIcon from '@mui/icons-material/AddCircleOutlined';
 import useFetchData from "@/hooks/useFetchData";
 
 import AdminPageLayout from "@/systemPages/admin/AdminPageLayout";
 
+import ColumnsButton from '@/components/DatagridCustomComponents/ColumnsButton';
+import ToolbarButton from '@/components/DatagridCustomComponents/ToolbarButton';
 import CustomPagination from '@/components/other/ButtonsPagination/ButtonsPagination';
 import AddEditAdministrator from "./AddEditAdministrator/AddEditAdministrator";
-import { useTheme } from '@mui/material';
-
-
-
 
 
 
 
 function QuickSearchToolbar({ triggerAddNew }) {
-  const theme = useTheme();
-
-  const handleSwitchChange = (event) => {
-    if (event.target.checked)
-      passState(1);
-    else
-      passState(0);
-  }
-
   return (
-    <>
-      <Box
-        sx={{
-          p: 0.5,
-          pb: 0,
-        }}
-
+    <Toolbar sx={{ justifyContent: 'flex-start' }}>
+      <QuickFilter
+        expanded
+        parser={(searchInput) => [searchInput.trim()]}
+        formatter={(quickFilterValues) => quickFilterValues.join('')}
       >
-        <GridToolbarQuickFilter // style={{}}
-          quickFilterParser={(searchInput) =>
-            searchInput
-              .split(',')
-              .map((value) => value.trim())
-              .filter((value) => value !== '')
-          }
-          placeholder="Ieškoti..."
-        />
-        <GridToolbarColumnsButton
-          sx={{
-            marginLeft: '10px',
-            paddingLeft: '15px',
-            paddingRight: '10px',
-            color: 'white',
-            backgroundColor: 'rgb(123, 0, 63)',
-            "&:hover": {
-              backgroundColor: 'rgb(230, 65, 100)',
-            },
-          }}
-        />
-
-        <Button 
-          variant="contained"
-          sx={{
-            marginLeft: '10px',
-            paddingLeft: '15px',
-            paddingRight: '10px',
-            height: 30,
-            backgroundColor: 'rgb(123, 0, 63)',
-            "&:hover": {
-              backgroundColor: 'rgb(230, 65, 100)',
-            },
-          }}
-          onClick={() => { triggerAddNew() }}
-          >
-            <AddCircleOutlinedIcon style={{paddingRight: 8, fontSize: '22px'}}/>
-            Įterpti Naują
-        </Button>
-        
-      </Box>
-    </>
+        <QuickFilterControl placeholder="Ieškoti..." size="small" />
+      </QuickFilter>
+      <ColumnsButton />
+      <ToolbarButton label="Įterpti Naują" icon={AddCircleOutlinedIcon} onClick={() => { triggerAddNew() }} />
+    </Toolbar>
   );
 }
 
@@ -102,31 +52,18 @@ const AdministratorsList = () => {
     {
       field: "enabled",
       headerName: "Įjungtas?",
-      width: 90,
+      width: 110,
 
       renderCell: (params) => {
-        function selectColor(statusID){
-          if(statusID === 0){        // Turned OFF
-            return 'grey';
-          }
-          else if(statusID === 1){   // Turned ON
-            return 'green';
-          }
-        }
-  
-        function selectText(statusID){
-          if(statusID === 0){        // Turned OFF
-            return 'Išjungtas';
-          }
-          else if(statusID === 1){   // Turned ON
-            return 'Įjungtas';
-          }
-        }
-  
-
+        const isEnabled = params.row.enabled === 1;
         return (
-          <div style={{backgroundColor: selectColor(params.row.enabled), padding: 5, borderRadius: 9, width: 80, textAlign: 'center'}}>
-            {selectText(params.row.enabled)}
+          <div 
+            className="px-1 mr-1 rounded w-fit"
+            style={{
+              backgroundColor: isEnabled ? 'green' : 'grey',
+            }}
+          >
+            {isEnabled ? 'Įjungtas' : 'Išjungtas'}
           </div>
         );
       },
@@ -141,15 +78,6 @@ const AdministratorsList = () => {
 
 
 
-
-
-
-  
-
-
-
-
-  // Edit or Add line
   const [userLineData, setUserLineData] = React.useState();
 
   const handleRowClick = (params) => {
@@ -187,23 +115,31 @@ const AdministratorsList = () => {
               width: '100%',
               display: 'flex',
               padding: 0,
+              '& .MuiDataGrid-row:hover': {
+                backgroundColor: 'rgba(123, 0, 63, 0.08)',
+              },
             }}
             rows={data}
             columns={AdministratorsTable_Columns}
-            pageSize={100}
-            rowsPerPageOptions={[100]}
+            pageSizeOptions={[100]}
             rowHeight={30}
+            showToolbar
             onRowClick={handleRowClick}
-
-            localeText={{
-              toolbarColumns: "STULPELIAI",
-              toolbarExport: "EXPORTUOTI"
-            }}
+            loading={loadingData}
 
             initialState={{
               columns: {
-                columnVisibilityModel: {
+                columnVisibilityModel: {},
+              },
+              filter: {
+                filterModel: {
+                  items: [],
+                  quickFilterLogicOperator: GridLogicOperator.Or,
+                  quickFilterExcludeHiddenColumns: false,
                 },
+              },
+              pagination: {
+                paginationModel: { pageSize: 100 },
               },
             }}
 
@@ -213,24 +149,21 @@ const AdministratorsList = () => {
               pagination: CustomPagination,
             }}
 
-            loading={loadingData}
-
             slotProps={{
+              panel: { placement: 'bottom-start' },
               toolbar: {
                 triggerAddNew: triggerAddNew
               }
             }}
           />
         </Box>
-        {openBackdrop? 
+        {openBackdrop && (
           <AddEditAdministrator 
             rowData={userLineData}
             setOpen={setOpenBackdrop} 
             getData={getData}
           /> 
-        :
-          <></> 
-        }
+        )}
       </Paper>
     </AdminPageLayout>
   );

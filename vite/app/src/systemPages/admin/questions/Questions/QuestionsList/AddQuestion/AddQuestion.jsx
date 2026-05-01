@@ -119,14 +119,9 @@ export default function UploadImageComponent({ setOpen, getData }) {
                 <Button
                   type="submit"
                   variant="contained"
-                  style={{
-                    backgroundColor: 'rgb(123, 0, 63)',
-                    color: 'white',
-                    boxShadow: '0px 8px 15px rgba(0, 0, 0, 0.1)',
-                    width: '100%',
-                    fontSize: '1rem',
-                    padding: '10px 0',
-                  }}
+                  color="primary"
+                  fullWidth
+                  sx={{ fontSize: '1rem', padding: '10px 0' }}
                   onClick={handleUpload}
                 >
                   Įkelti Paveikslėlį

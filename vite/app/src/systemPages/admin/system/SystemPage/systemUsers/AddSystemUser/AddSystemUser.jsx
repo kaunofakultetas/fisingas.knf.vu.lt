@@ -93,11 +93,8 @@ export default function AddSystemUser({ userLineData, setOpen }) {
             <Button 
               type="submit" 
               variant="contained"
-              style={{
-                backgroundColor: 'rgb(123, 0, 63)', 
-                color: 'white', 
-                boxShadow: '0px 8px 15px rgba(0, 0, 0, 0.1)'
-              }}>
+              color="primary"
+              fullWidth>
               Išsaugoti
             </Button>
           </Stack>

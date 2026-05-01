@@ -1,5 +1,6 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import Providers from '@/providers';
 
 import Login from '@/systemPages/login/Login';
 import Home from '@/systemPages/admin/home/Home';
@@ -15,11 +16,10 @@ import TestFinish from '@/systemPages/student/TestFinish/TestFinish';
 import LeaderboardPage from '@/systemPages/leaderboard/LeaderboardPage';
 import SlidesPage from '@/systemPages/slides/SlidesPage';
 
-export default function App() {
+function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/admin" replace />} />
-      <Route path="/login" element={<Login />} />
       <Route path="/admin" element={<Home />} />
       <Route path="/admin/students" element={<StudentsList />} />
       <Route path="/admin/students/:studentID" element={<StudentInformation />} />
@@ -33,5 +33,19 @@ export default function App() {
       <Route path="/leaderboard" element={<LeaderboardPage />} />
       <Route path="/slides" element={<SlidesPage />} />
     </Routes>
+  );
+}
+
+export default function App() {
+  const { pathname } = useLocation();
+
+  if (pathname === '/login') {
+    return <Login />;
+  }
+
+  return (
+    <Providers>
+      <AppRoutes />
+    </Providers>
   );
 }

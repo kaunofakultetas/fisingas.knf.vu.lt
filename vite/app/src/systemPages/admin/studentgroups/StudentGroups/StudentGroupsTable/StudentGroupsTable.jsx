@@ -1,11 +1,12 @@
 
-import { DataGrid, GridToolbarQuickFilter, GridLogicOperator, GridToolbarColumnsButton } from "@mui/x-data-grid";
+import { DataGrid, Toolbar, QuickFilter, QuickFilterControl, GridLogicOperator } from "@mui/x-data-grid";
 import React, { useState } from "react";
-import { Box, LinearProgress, FormGroup, FormControlLabel } from '@mui/material';
+import { useNavigate } from "react-router-dom";
+import { Box, LinearProgress } from '@mui/material';
 import useFetchData from "@/hooks/useFetchData";
 
+import ColumnsButton from '@/components/DatagridCustomComponents/ColumnsButton';
 import CustomPagination from '@/components/other/ButtonsPagination/ButtonsPagination';
-import IOSSwitch from '@/components/other/IOSSwitch/IOSSwitch';
 
 
 const StudentGroups_Columns = [
@@ -39,80 +40,30 @@ const StudentGroups_Columns = [
 
 
 
-function QuickSearchToolbar({passState}) {
-
-  const handleSwitchChange = (event) => {
-    if(event.target.checked)
-      passState(1);
-    else
-      passState(0);
-  }
-
+function QuickSearchToolbar() {
   return (
-    <Box sx={{ p: 0.5, pb: 0 }}>
-      <GridToolbarQuickFilter 
-        quickFilterParser={(searchInput) =>
-          searchInput
-            .split(',')
-            .map((value) => value.trim())
-            .filter((value) => value !== '')
-        }
-        sx={{
-          '& .MuiInput-root:after': {
-            borderBottom: '2px solid #E64164'
-          },
-        }}
-        placeholder="Ieškoti..."
-      />
-      <GridToolbarColumnsButton
-        sx={{
-          marginLeft: '10px',
-          paddingLeft: '15px',
-          paddingRight: '10px',
-          color: 'white',
-          backgroundColor: 'rgb(123, 0, 63)',
-          "&:hover": {
-            backgroundColor: 'rgb(230, 65, 100)',
-          },
-        }}
-      />
-
-      {/* <FormGroup
-        sx={{
-          marginLeft: '20px',
-          display: 'inline'
-        }}
+    <Toolbar sx={{ justifyContent: 'flex-start' }}>
+      <QuickFilter
+        expanded
+        parser={(searchInput) => [searchInput.trim()]}
+        formatter={(quickFilterValues) => quickFilterValues.join('')}
       >
-        <FormControlLabel
-          sx={{
-            margin: 'auto',
-            paddingLeft: '50px',
-          }}
-          control={
-            <IOSSwitch
-              // defaultUnchecked={true}
-              sx={{
-                marginRight: '10px'
-              }}
-              onChange={handleSwitchChange.bind(this)}
-            />}
-          label="Prisijungę Per Paskutinį Mėn." 
-        />
-      </FormGroup> */}
-
-    </Box>
+        <QuickFilterControl placeholder="Ieškoti..." size="small" />
+      </QuickFilter>
+      <ColumnsButton />
+    </Toolbar>
   );
 }
 
 
 
 const StudentGroupsTable = () => {
+  const navigate = useNavigate();
   const { data, loadingData } = useFetchData("/api/admin/studentgroups");
 
 
   const handleRowClick = (params) => {
-    //console.log(params['id']);
-    window.location.href="/admin/students/" + params['id'];
+    navigate("/admin/students/" + params['id']);
   };
 
 
@@ -136,18 +87,19 @@ const StudentGroupsTable = () => {
         Studentų Grupių Sąrašas
       </Box>
       <DataGrid
+        sx={{
+          cursor: 'pointer',
+          '& .MuiDataGrid-row:hover': {
+            backgroundColor: 'rgba(123, 0, 63, 0.08)',
+          },
+        }}
         rows={rows}
         columns={StudentGroups_Columns}
-        pageSize={100}
-        rowsPerPageOptions={[100]}
+        pageSizeOptions={[100]}
         rowHeight={30}
+        showToolbar
         onRowClick={handleRowClick}
-
-        localeText={{
-          toolbarColumns: "STULPELIAI",
-          toolbarExport: "EXPORTUOTI"
-        }}
-
+        loading={loadingData}
 
         initialState={{
           columns: {
@@ -157,14 +109,15 @@ const StudentGroupsTable = () => {
               percentage: false,
             },
           },
-          // sorting: {
-          //   sortModel: [{ field: 'id', sort: 'desc' }],
-          // },
           filter: {
             filterModel: {
               items: [],
               quickFilterLogicOperator: GridLogicOperator.Or,
+              quickFilterExcludeHiddenColumns: false,
             },
+          },
+          pagination: {
+            paginationModel: { pageSize: 100 },
           },
         }}
 
@@ -173,27 +126,13 @@ const StudentGroupsTable = () => {
           loadingOverlay: LinearProgress,
           pagination: CustomPagination,
         }}
-        
-        loading={loadingData}
-        
 
         slotProps={{
-          panel: {
-            sx: {
-              '& .MuiTypography-root': {
-                color: 'dodgerblue',
-                fontSize: 20,
-              },
-              '& .MuiDataGrid-filterForm': {
-                bgcolor: 'lightblue',
-              },
-            },
-          },
+          panel: { placement: 'bottom-start' },
           toolbar: { 
             passState: setFilterValue
           } 
         }}
-        
       />
     </Box>
   );

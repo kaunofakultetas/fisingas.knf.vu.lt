@@ -1,9 +1,5 @@
-
-import Sidebar from "@/components/Admin/Sidebar/Sidebar";
-// import Navbar from "@/components/Navbar/Navbar"
 import LeaderboardTable from "./LeaderboardTable/LeaderboardTable"
 import { Link } from "react-router-dom";
-import { Button, Checkbox } from '@mui/material';
 
 
 

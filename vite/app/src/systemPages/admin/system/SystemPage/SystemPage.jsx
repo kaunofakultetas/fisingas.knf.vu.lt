@@ -21,38 +21,37 @@ const SystemPage = () => {
       <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%', padding: 1 }}>
         <Box>
           <Tabs
-            style={{
-              borderStyle: "solid",
-              borderWidth: "2px",
-              borderRadius: "20px",
-              borderColor: "rgb(123, 0, 63)"
-            }}
-
+            className="border-2 border-solid rounded-[20px] border-[rgb(123,0,63)]"
             indicatorColor="primary"
             value={tabIndex}
             onChange={handleTabChange}
-
             TabIndicatorProps={{
               style: {
                 backgroundColor: "rgb(123, 0, 63)",
                 height: "100%",
-                zIndex: -1,
                 borderRadius: "15px",
-                textColor: "black"
               }
             }}
-
             variant="fullWidth"
             sx={{
-              '& .MuiTabs-indicator': { backgroundColor: "rgb(123, 0, 63) !important" },
-              '& .Mui-selected': { color: "white !important"}
+              position: 'relative',
+              '& .MuiTabs-indicator': { 
+                backgroundColor: "rgb(123, 0, 63) !important",
+                zIndex: 0
+              },
+              '& .MuiTab-root': {
+                zIndex: 1,
+                color: "black",
+                fontWeight: "bold",
+                flex: 1,
+                maxWidth: 'none',
+              },
+              '& .Mui-selected': { 
+                color: "white !important" 
+              }
             }}
           >
-
-            {/* <Tab value={0} style={{color: "black", fontWeight: "bold"}} disableRipple label="Subsistemų Statusas"/> */}
-            <Tab value={1} style={{color: "black", fontWeight: "bold"}} disableRipple label="Sistemos Naudotojai"/>
-            {/* <Tab value={2} style={{color: "black", fontWeight: "bold"}} disableRipple label="Duomenų Bazės Dydis"/> */}
-
+            <Tab value={1} disableRipple label="Sistemos Naudotojai"/>
           </Tabs>
         </Box>
 

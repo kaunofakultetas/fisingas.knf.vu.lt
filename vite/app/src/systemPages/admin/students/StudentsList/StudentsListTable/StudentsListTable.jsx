@@ -1,9 +1,11 @@
 
-import { DataGrid, GridToolbarQuickFilter, GridLogicOperator, GridToolbarColumnsButton } from "@mui/x-data-grid";
+import { DataGrid, Toolbar, QuickFilter, QuickFilterControl, GridLogicOperator } from "@mui/x-data-grid";
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Box, LinearProgress, FormGroup, FormControlLabel } from '@mui/material';
 import useFetchData from "@/hooks/useFetchData";
 
+import ColumnsButton from '@/components/DatagridCustomComponents/ColumnsButton';
 import CustomPagination from '@/components/other/ButtonsPagination/ButtonsPagination';
 import IOSSwitch from '@/components/other/IOSSwitch/IOSSwitch';
 
@@ -37,16 +39,14 @@ const AD_Users_Columns = [
   {
     field: "isfinished",
     headerName: "Baigta?",
-    width: 80,
+    width: 100,
     renderCell: (params) => {
       if(params.row.isfinished === 1){
         return (
-          <div className="p-[5px] mr-[5px] rounded-[5px]" style={{backgroundColor: 'green'}}>BAIGTA</div>
+          <div className="px-1 mr-1 rounded w-fit" style={{backgroundColor: 'green'}}>BAIGTA</div>
         );
       }
-      else {
-        return (<></>);
-      }
+      return null;
     },
   },
   {
@@ -69,33 +69,15 @@ function QuickSearchToolbar({passState}) {
   }
 
   return (
-    <Box sx={{ p: 0.5, pb: 0 }}>
-      <GridToolbarQuickFilter 
-        quickFilterParser={(searchInput) =>
-          searchInput
-            .split(',')
-            .map((value) => value.trim())
-            .filter((value) => value !== '')
-        }
-        sx={{
-          '& .MuiInput-root:after': {
-            borderBottom: '2px solid #E64164'
-          },
-        }}
-        placeholder="Ieškoti..."
-      />
-      <GridToolbarColumnsButton
-        sx={{
-          marginLeft: '10px',
-          paddingLeft: '15px',
-          paddingRight: '10px',
-          color: 'white',
-          backgroundColor: 'rgb(123, 0, 63)',
-          "&:hover": {
-            backgroundColor: 'rgb(230, 65, 100)',
-          },
-        }}
-      />
+    <Toolbar sx={{ justifyContent: 'flex-start' }}>
+      <QuickFilter
+        expanded
+        parser={(searchInput) => [searchInput.trim()]}
+        formatter={(quickFilterValues) => quickFilterValues.join('')}
+      >
+        <QuickFilterControl placeholder="Ieškoti..." size="small" />
+      </QuickFilter>
+      <ColumnsButton />
 
       <FormGroup
         sx={{
@@ -114,25 +96,25 @@ function QuickSearchToolbar({passState}) {
               sx={{
                 marginRight: '10px'
               }}
-              onChange={handleSwitchChange.bind(this)}
+              onChange={handleSwitchChange}
             />}
           label="Per Paskutinį Mėnesį" 
         />
       </FormGroup>
 
-    </Box>
+    </Toolbar>
   );
 }
 
 
 
 const StudentsListTable = () => {
+  const navigate = useNavigate();
   const { data, loadingData } = useFetchData("/api/admin/students", 5);
 
 
   const handleRowClick = (params) => {
-    //console.log(params['id']);
-    window.location.href="/admin/students/" + params['id'];
+    navigate("/admin/students/" + params['id']);
   };
 
 
@@ -159,18 +141,19 @@ const StudentsListTable = () => {
         Studentų Sąrašas
       </Box>
       <DataGrid
+        sx={{
+          cursor: 'pointer',
+          '& .MuiDataGrid-row:hover': {
+            backgroundColor: 'rgba(123, 0, 63, 0.08)',
+          },
+        }}
         rows={rows}
         columns={AD_Users_Columns}
-        pageSize={100}
-        rowsPerPageOptions={[100]}
+        pageSizeOptions={[100]}
         rowHeight={30}
+        showToolbar
         onRowClick={handleRowClick}
-
-        localeText={{
-          toolbarColumns: "STULPELIAI",
-          toolbarExport: "EXPORTUOTI"
-        }}
-
+        loading={loadingData}
 
         initialState={{
           columns: {
@@ -178,14 +161,15 @@ const StudentsListTable = () => {
               groupname: false,
             },
           },
-          // sorting: {
-          //   sortModel: [{ field: 'id', sort: 'desc' }],
-          // },
           filter: {
             filterModel: {
               items: [],
               quickFilterLogicOperator: GridLogicOperator.Or,
+              quickFilterExcludeHiddenColumns: false,
             },
+          },
+          pagination: {
+            paginationModel: { pageSize: 100 },
           },
         }}
 
@@ -194,22 +178,9 @@ const StudentsListTable = () => {
           loadingOverlay: LinearProgress,
           pagination: CustomPagination,
         }}
-        
-        loading={loadingData}
-        
 
         slotProps={{
-          panel: {
-            sx: {
-              '& .MuiTypography-root': {
-                color: 'dodgerblue',
-                fontSize: 20,
-              },
-              '& .MuiDataGrid-filterForm': {
-                bgcolor: 'lightblue',
-              },
-            },
-          },
+          panel: { placement: 'bottom-start' },
           toolbar: { 
             passState: setFilterValue
           } 

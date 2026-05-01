@@ -175,12 +175,8 @@ export default function AddEditAdministrator({ rowData, highestRowID, setOpen, g
                 <Button
                   type="submit"
                   variant="contained"
-                  style={{
-                    backgroundColor: disableSave ? 'grey' : 'rgb(123, 0, 63)',
-                    color: 'white',
-                    boxShadow: '0px 8px 15px rgba(0, 0, 0, 0.1)',
-                    width: '100%',
-                  }}
+                  color="primary"
+                  fullWidth
                   onClick={() => handleSaveButton()}
                   disabled={disableSave}
                 >

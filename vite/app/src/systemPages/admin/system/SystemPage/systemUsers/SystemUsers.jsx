@@ -1,17 +1,13 @@
-import { DataGrid, GridToolbarQuickFilter, GridLogicOperator, GridToolbarColumnsButton } from "@mui/x-data-grid";
+import { DataGrid, Toolbar, QuickFilter, QuickFilterControl, GridLogicOperator } from "@mui/x-data-grid";
 
-import React from "react";
+import React, { useState } from "react";
+import { LinearProgress } from '@mui/material';
 import useFetchData from "@/hooks/useFetchData";
 
-
-
+import ColumnsButton from '@/components/DatagridCustomComponents/ColumnsButton';
+import ToolbarButton from '@/components/DatagridCustomComponents/ToolbarButton';
 import AddSystemUser from './AddSystemUser/AddSystemUser';
 import CustomPagination from '@/components/other/ButtonsPagination/ButtonsPagination';
-
-
-
-// Tabs
-import { Box, Tab, Tabs, Paper, LinearProgress } from '@mui/material';
 
 
 
@@ -45,75 +41,21 @@ const SystemUsers_Columns = [
 
 
 
-function QuickSearchToolbar({}) {
-
-  // Single User Selection
-  const [open, setOpen] = React.useState(false);
-  const [userLineData, setUserLineData] = React.useState();
-
-
-  const openAddSystemUser = (params) => {
-    setUserLineData(params);
-    // console.log(params);
-    setOpen(true);
-  };
-
-
-
+function QuickSearchToolbar({ triggerAddNew }) {
   return (
-    <Box sx={{p: 0, pb: 0 }} >
-      <Box
-        sx={{
-          paddingLeft: '15px',
-          pb: 0,
-        }}
+    <Toolbar sx={{ justifyContent: 'flex-start' }}>
+      <QuickFilter
+        expanded
+        parser={(searchInput) => [searchInput.trim()]}
+        formatter={(quickFilterValues) => quickFilterValues.join('')}
       >
-
-
-        <GridToolbarQuickFilter style={{}}
-          quickFilterParser={(searchInput) =>
-            searchInput
-              .split(',')
-              .map((value) => value.trim())
-              .filter((value) => value !== '')
-          }
-          sx={{
-            '& .MuiInput-root:after': {
-              borderBottom: '2px solid #E64164'
-            },
-          }}
-          placeholder="Ieškoti..."
-        />
-
-
-        <GridToolbarColumnsButton
-          sx={{
-            marginLeft: '10px',
-            paddingLeft: '15px',
-            paddingRight: '10px',
-            color: 'white',
-            backgroundColor: 'rgb(123, 0, 63)',
-            "&:hover": {
-              backgroundColor: 'rgb(230, 65, 100)',
-            },
-          }}
-        />
-
-        <div
-          className="no-underline text-green-600 text-base font-normal border border-green-600 py-1 px-1 mt-1.5 rounded-[5px] cursor-pointer ml-5 w-max inline-flex"
-          onClick={openAddSystemUser}
-        >
-          Pridėti Naują
-        </div>
-
-        {open? <AddSystemUser userLineData={userLineData} setOpen={setOpen}/>:<></>}
-
-      </Box>
-    </Box>
+        <QuickFilterControl placeholder="Ieškoti..." size="small" />
+      </QuickFilter>
+      <ColumnsButton />
+      <ToolbarButton label="Pridėti Naują" onClick={() => { triggerAddNew() }} />
+    </Toolbar>
   );
 }
-
-
 
 
 
@@ -122,47 +64,57 @@ const SystemUsers = () => {
 
   const { data, loadingData } = useFetchData("/api/systemusers");
 
+  const [openModal, setOpenModal] = useState(false);
+  const [userLineData, setUserLineData] = useState(undefined);
 
-
-  
+  const triggerAddNew = () => {
+    setUserLineData(undefined);
+    setOpenModal(true);
+  };
 
   return (
-    <DataGrid
-      rows={data}
-      columns={SystemUsers_Columns}
-      pageSize={100}
-      rowsPerPageOptions={[100]}
-      rowHeight={30}
-      // onRowClick={handleRowClick}
+    <>
+      <DataGrid
+        rows={data}
+        columns={SystemUsers_Columns}
+        showToolbar
+        pageSizeOptions={[100]}
+        rowHeight={30}
+        loading={loadingData}
 
-      initialState={{
-        columns: {
-          columnVisibilityModel: {
+        initialState={{
+          columns: {
+            columnVisibilityModel: {},
           },
-        },
-        filter: {
-          filterModel: {
-            items: [],
-            quickFilterLogicOperator: GridLogicOperator.Or,
+          filter: {
+            filterModel: {
+              items: [],
+              quickFilterLogicOperator: GridLogicOperator.Or,
+              quickFilterExcludeHiddenColumns: false,
+            },
           },
-        },
-      }}
+          pagination: {
+            paginationModel: { pageSize: 100 },
+          },
+        }}
 
-      localeText={{
-        toolbarColumns: "STULPELIAI",
-        toolbarExport: "EXPORTUOTI"
-      }}
+        slots={{
+          toolbar: QuickSearchToolbar,
+          loadingOverlay: LinearProgress,
+          pagination: CustomPagination,
+        }}
+        slotProps={{
+          panel: { placement: 'bottom-start' },
+          toolbar: {
+            triggerAddNew: triggerAddNew
+          }
+        }}
+      />
 
-      loading={loadingData}
-      slots={{
-        toolbar: QuickSearchToolbar,
-        loadingOverlay: LinearProgress,
-        pagination: CustomPagination,
-      }}
-      slotProps={{
-        toolbar: {}
-      }}
-    />
+      {openModal && (
+        <AddSystemUser userLineData={userLineData} setOpen={setOpenModal} />
+      )}
+    </>
   );
 };
 

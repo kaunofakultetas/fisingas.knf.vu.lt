@@ -3,6 +3,8 @@ import React from "react";
 import { Box, LinearProgress } from '@mui/material';
 import useFetchData from "@/hooks/useFetchData";
 
+import CustomPagination from '@/components/other/ButtonsPagination/ButtonsPagination';
+
 
 const columns = [
   { 
@@ -19,7 +21,7 @@ const columns = [
     width: 150,
     renderCell: (params) => {
       return (
-        <div style={{ border: "1px solid lightgrey", padding: 5, borderRadius: 5 }}> {/* Container div to handle overflow */}
+        <div style={{ border: "1px solid lightgrey", padding: 5, borderRadius: 5 }}>
           <img 
             src={"/api/phishingpictures/" + params.row.id} 
             alt=""
@@ -35,18 +37,17 @@ const columns = [
     }
   },
   {
-    // field: "",
     headerName: "Identifikuota",
     width: 180,
     renderCell: (params) => {
       if(params.row.isphishinganswer === params.row.isphishing){
         return (
-          <div className="p-[5px] mr-[5px] rounded-[5px]" style={{backgroundColor: 'green', width: 100, textAlign: 'center'}}>TEISINGAI</div>
+          <span style={{backgroundColor: 'green', padding: '8px 16px', borderRadius: 5}}>TEISINGAI</span>
         );
       }
       else {
         return (
-          <div className="p-[5px] mr-[5px] rounded-[5px]" style={{backgroundColor: 'red', width: 100, textAlign: 'center'}}>NETEISINGAI</div>
+          <span style={{backgroundColor: 'red', padding: '8px 16px', borderRadius: 5}}>NETEISINGAI</span>
         );
       }
     },
@@ -68,12 +69,9 @@ const columns = [
       }
   
       return (
-        <div 
-          className="p-[5px] mr-[5px] rounded-[5px]"
-          style={{backgroundColor: color, width: 50, textAlign: 'center'}}
-        >
+        <span style={{backgroundColor: color, padding: '8px 16px', borderRadius: 5}}>
           {params.row.correctoptionscount} / {params.row.totaloptionscount}
-        </div>
+        </span>
       )
     },
   },
@@ -95,9 +93,9 @@ const columns = [
       }
   
       return (
-        <div className="p-[5px] mr-[5px] rounded-[5px]" style={{backgroundColor: color, width: 50, textAlign: 'center'}}>
+        <span style={{backgroundColor: color, padding: '8px 16px', borderRadius: 5}}>
           {params.row.answerpoints} tšk.
-        </div>
+        </span>
       )
     },
   },
@@ -106,56 +104,8 @@ const columns = [
 
 
 
-// function QuickSearchToolbar({passState}) {
-
-//   return (
-//     <Box
-//       sx={{
-//         p: 0.5,
-//         pb: 0,
-//       }}
-      
-//     >
-//       <GridToolbarQuickFilter style={{}}
-//         quickFilterParser={(searchInput) =>
-//           searchInput
-//             .split(',')
-//             .map((value) => value.trim())
-//             .filter((value) => value !== '')
-//         }
-//         sx={{
-//           '& .MuiInput-root:after': {
-//             borderBottom: '2px solid #E64164'
-//           },
-//         }}
-//         placeholder="Ieškoti..."
-//       />
-//       <GridToolbarColumnsButton
-//         sx={{
-//           marginLeft: '10px',
-//           paddingLeft: '15px',
-//           paddingRight: '10px',
-//           color: 'white',
-//           backgroundColor: 'rgb(123, 0, 63)',
-//           "&:hover": {
-//             backgroundColor: 'rgb(230, 65, 100)',
-//           },
-//         }}
-//       />
-
-//     </Box>
-//   );
-// }
-
-
-
 const StudentTestSummaryTable = ({studentID}) => {
   const { data, loadingData } = useFetchData("/api/admin/students/" + studentID + "/answers");
-
-
-  const handleRowClick = (params) => {
-    // window.location.href="/admin/students/" + params['id'];
-  };
 
 
 
@@ -164,57 +114,34 @@ const StudentTestSummaryTable = ({studentID}) => {
       <DataGrid
         rows={data}
         columns={columns}
-        pageSize={100}
-        rowsPerPageOptions={[100]}
+        pageSizeOptions={[100]}
         rowHeight={110}
-        onRowClick={handleRowClick}
-
-        localeText={{
-          toolbarColumns: "STULPELIAI",
-          toolbarExport: "EXPORTUOTI"
-        }}
-
+        loading={loadingData}
 
         initialState={{
           columns: {
-            columnVisibilityModel: {
-              
-            },
+            columnVisibilityModel: {},
           },
           filter: {
             filterModel: {
               items: [],
               quickFilterLogicOperator: GridLogicOperator.Or,
+              quickFilterExcludeHiddenColumns: false,
             },
+          },
+          pagination: {
+            paginationModel: { pageSize: 100 },
           },
         }}
 
         slots={{ 
-          // toolbar: QuickSearchToolbar,
           loadingOverlay: LinearProgress,
-          pagination: undefined,
+          pagination: CustomPagination,
         }}
-        
-        loading={loadingData}
-        
 
         slotProps={{
-          panel: {
-            sx: {
-              '& .MuiTypography-root': {
-                color: 'dodgerblue',
-                fontSize: 20,
-              },
-              '& .MuiDataGrid-filterForm': {
-                bgcolor: 'lightblue',
-              },
-            },
-          },
-          toolbar: { 
-            // passState: setFilterValue
-          } 
+          panel: { placement: 'bottom-start' },
         }}
-        
       />
     </Box>
   );

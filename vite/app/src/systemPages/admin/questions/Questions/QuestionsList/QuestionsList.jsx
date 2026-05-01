@@ -174,7 +174,7 @@ const QuestionRow = ({ fetchedQuestionData, triggerQuestionListUpdate }) => { //
 
       <FullScreenImageLinkEditor
         isModalOpen={isLinkEditorOpen}
-        setIsModalOpen={() => {setIsLinkEditorOpen(); triggerQuestionListUpdate(); }}
+        setIsModalOpen={() => {setIsLinkEditorOpen(false); triggerQuestionListUpdate(); }}
         src={`/api/phishingpictures/${question.questionid}`}
         initialAreasUrl={`/api/phishingpictures/${question.questionid}/links`}
       />
@@ -197,18 +197,14 @@ const QuestionRow = ({ fetchedQuestionData, triggerQuestionListUpdate }) => { //
           }}
         />
         <Button
+          variant="contained"
+          color="primary"
           sx={{
-            color: "white",
             width: '100%',
             fontSize: 20,
             marginBottom: 30,
-            background: "rgb(123, 0, 63)",
-            "&:hover": {
-              backgroundColor: "rgb(230, 65, 100)",
-            },
           }}
           onClick={() => {
-            // setEditingQuestionId(question.questionid);
             setIsLinkEditorOpen(true);
           }}
         >
@@ -277,10 +273,11 @@ const QuestionRow = ({ fetchedQuestionData, triggerQuestionListUpdate }) => { //
                     margin: 1,
                     marginBottom: 5,
                     "& .MuiInputLabel-root.Mui-focused": {
-                      color: "#E64164",
+                      color: "primary.dark",
                     },
                     "& .MuiInputBase-root:after": {
-                      borderBottom: "2px solid #E64164",
+                      borderBottom: "2px solid",
+                      borderBottomColor: "primary.dark",
                     },
                   }}
                 />
@@ -289,11 +286,8 @@ const QuestionRow = ({ fetchedQuestionData, triggerQuestionListUpdate }) => { //
                 <Checkbox
                   checked={question.isphishing}
                   onChange={(e) => handleIsPhishingChange(e.target.checked)}
+                  color="primary"
                   sx={{
-                    color: "rgb(123, 0, 63)",
-                    '&.Mui-checked': {
-                      color: "rgb(123, 0, 63)",
-                    },
                     '& .MuiSvgIcon-root': { 
                       fontSize: 60, 
                     },
@@ -317,10 +311,11 @@ const QuestionRow = ({ fetchedQuestionData, triggerQuestionListUpdate }) => { //
                       flexGrow: 1,
                       margin: 1,
                       "& .MuiInputLabel-root.Mui-focused": {
-                        color: "#E64164",
+                        color: "primary.dark",
                       },
                       "& .MuiInputBase-root:after": {
-                        borderBottom: "2px solid #E64164",
+                        borderBottom: "2px solid",
+                        borderBottomColor: "primary.dark",
                       },
                     }}
                   />
@@ -348,9 +343,7 @@ const QuestionRow = ({ fetchedQuestionData, triggerQuestionListUpdate }) => { //
                     onChange={(e) =>
                       handleOptionCheckboxChange(index, e.target.checked)
                     }
-                    style={{
-                      color: "rgb(123, 0, 63)",
-                    }}
+                    color="primary"
                   />
                 </td>
               </tr>
@@ -359,15 +352,12 @@ const QuestionRow = ({ fetchedQuestionData, triggerQuestionListUpdate }) => { //
             <tr>
               <td style={{ textAlign: "center" }}>
                 <Button
+                  variant="contained"
+                  color="primary"
                   sx={{
-                    color: "white",
                     margin: 1,
                     width: '100%',
                     fontSize: 20,
-                    background: "rgb(123, 0, 63)",
-                    "&:hover": {
-                      backgroundColor: "rgb(230, 65, 100)",
-                    },
                   }}
                   onClick={handleAddOption}
                 >
@@ -394,7 +384,7 @@ const QuestionsList = ({ data, triggerQuestionListUpdate }) => {
   const [isAddQuestionModelOpen, setAddQuestionModalOpen] = useState(false);
 
 
-  if (data.length === 0) {
+  if (!data.questions || data.questions.length === 0) {
     return ( 
       <div>Kraunasi...</div>
     );
@@ -429,6 +419,7 @@ const QuestionsList = ({ data, triggerQuestionListUpdate }) => {
       >
         <Button 
           variant="contained"
+          color="primary"
           onClick={() => setAddQuestionModalOpen(true)}
           sx={{ 
             fontSize: 30,
@@ -436,10 +427,6 @@ const QuestionsList = ({ data, triggerQuestionListUpdate }) => {
             paddingRight: 20,
             marginTop: 5,
             marginBottom: 5,
-            background: 'rgb(123, 0, 63)',
-            "&:hover": {
-              backgroundColor: 'rgb(230, 65, 100)',
-            },
           }}>
           Sukurti Naują Klausimą <AddCircleOutlinedIcon sx={{fontSize: 32, marginLeft: 2}}/>
         </Button>

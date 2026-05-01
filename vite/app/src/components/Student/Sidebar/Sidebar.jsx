@@ -1,8 +1,10 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import Grid from '@mui/material/Grid';
 import Button from '@mui/material/Button';
 
 const StudentSidebar = ({ currentQuestionIndex, setCurrentQuestionIndex, questionsData }) => {
+  const navigate = useNavigate();
 
   return (
     <div className="w-1/5 max-w-[250px] border border-gray-300 bg-[#f9f9f9] pt-[150px] pb-[150px] px-10">
@@ -14,13 +16,14 @@ const StudentSidebar = ({ currentQuestionIndex, setCurrentQuestionIndex, questio
             <Grid size={4} key={questionNumber} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
               <Button
                 variant="contained"
+                color="primary"
                 onClick={() => (setCurrentQuestionIndex(index))}
-                style={{
-                  background: questionsData[index].selectedanswer !== null ? 'grey' : 'rgb(123, 0, 63)',
+                sx={{
+                  bgcolor: questionsData[index].selectedanswer !== null ? 'grey' : 'primary.main',
                   width: '100%',
                   minWidth: 0,
                   minHeight: 0,
-                  padding: 2
+                  padding: '2px',
                 }}
               >
                 <div style={currentQuestionIndex === index ? {border: '1px solid white', padding: 0, borderRadius: '50%', width: 23} : {padding: 1, } }>
@@ -34,8 +37,8 @@ const StudentSidebar = ({ currentQuestionIndex, setCurrentQuestionIndex, questio
       <Button
         variant="contained"
         color="primary"
-        style={{ background: 'rgb(123, 0, 63)', marginTop: 30, width: "100%" }}
-        onClick={() => { window.location.href = "/student/finish" }}
+        sx={{ marginTop: '30px', width: "100%" }}
+        onClick={() => navigate("/student/finish")}
       >
         Užbaigti testą
       </Button>

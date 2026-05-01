@@ -134,7 +134,8 @@ const TestHome = () => {
 
                   <div style={{ margin: 15 }}>
                     <Button
-                      style={{ background: 'rgb(123, 0, 63)', color: 'white' }}
+                      variant="contained"
+                      color="primary"
                       onClick={() => handleQuestionAnswerClick(0)}
                     >
                       <BsHandThumbsUp style={{ fontSize: 30, padding: 10 }} />
@@ -149,7 +150,8 @@ const TestHome = () => {
 
                   <div style={{ margin: 15 }}>
                     <Button
-                      style={{ background: 'rgb(123, 0, 63)', color: 'white' }}
+                      variant="contained"
+                      color="primary"
                       onClick={() => handleQuestionAnswerClick(1)}
                     >
                       <MdPhishing style={{ fontSize: 30, padding: 10 }} />
@@ -196,7 +198,7 @@ const TestHome = () => {
                           <Checkbox
                             checked={questionOption.isselected === 1}
                             onClick={() => handleQuestionOptionClick(index)}
-                            style={{ color: "rgb(123, 0, 63)" }}
+                            color="primary"
                           />
                         </td>
                       </tr>
