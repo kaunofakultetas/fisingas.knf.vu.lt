@@ -1,5 +1,6 @@
-import React from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import Providers from '@/providers';
 
 import Login from '@/systemPages/login/Login';
@@ -16,18 +17,60 @@ import TestFinish from '@/systemPages/student/TestFinish/TestFinish';
 import LeaderboardPage from '@/systemPages/leaderboard/LeaderboardPage';
 import SlidesPage from '@/systemPages/slides/SlidesPage';
 
+function AuthRedirect() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    axios.get('/api/checkauth', { withCredentials: true })
+      .then((response) => {
+        if (response.data.admin === 1) {
+          navigate('/admin', { replace: true });
+        } else {
+          navigate('/student', { replace: true });
+        }
+      })
+      .catch(() => {
+        window.location.href = '/login';
+      });
+  }, []);
+
+  return null;
+}
+
+function AdminGuard({ children }) {
+  const [authorized, setAuthorized] = useState(null);
+
+  useEffect(() => {
+    axios.get('/api/checkauth', { withCredentials: true })
+      .then((response) => {
+        if (response.data.admin === 1) {
+          setAuthorized(true);
+        } else {
+          setAuthorized(false);
+        }
+      })
+      .catch(() => {
+        setAuthorized(false);
+      });
+  }, []);
+
+  if (authorized === null) return null;
+  if (!authorized) return <Navigate to="/student" replace />;
+  return children;
+}
+
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/admin" replace />} />
-      <Route path="/admin" element={<Home />} />
-      <Route path="/admin/students" element={<StudentsList />} />
-      <Route path="/admin/students/:studentID" element={<StudentInformation />} />
-      <Route path="/admin/questions" element={<Questions />} />
-      <Route path="/admin/questions/:questionID" element={<EditQuestion />} />
-      <Route path="/admin/administrators" element={<AdministratorsList />} />
-      <Route path="/admin/studentgroups" element={<StudentGroups />} />
-      <Route path="/admin/system" element={<SystemPage />} />
+      <Route path="/" element={<AuthRedirect />} />
+      <Route path="/admin" element={<AdminGuard><Home /></AdminGuard>} />
+      <Route path="/admin/students" element={<AdminGuard><StudentsList /></AdminGuard>} />
+      <Route path="/admin/students/:studentID" element={<AdminGuard><StudentInformation /></AdminGuard>} />
+      <Route path="/admin/questions" element={<AdminGuard><Questions /></AdminGuard>} />
+      <Route path="/admin/questions/:questionID" element={<AdminGuard><EditQuestion /></AdminGuard>} />
+      <Route path="/admin/administrators" element={<AdminGuard><AdministratorsList /></AdminGuard>} />
+      <Route path="/admin/studentgroups" element={<AdminGuard><StudentGroups /></AdminGuard>} />
+      <Route path="/admin/system" element={<AdminGuard><SystemPage /></AdminGuard>} />
       <Route path="/student" element={<TestHome />} />
       <Route path="/student/finish" element={<TestFinish />} />
       <Route path="/leaderboard" element={<LeaderboardPage />} />

@@ -333,7 +333,7 @@ const QuestionRow = ({ fetchedQuestionData, triggerQuestionListUpdate }) => { //
                     disabled
                     onClick={() => handleDeleteOption(index)}
                   >
-                    <DeleteIcon sx={{ fontSize: 24, color: "grey", padding: 1 }} />
+                    <DeleteIcon sx={{ fontSize: 34, color: "grey" }} />
                   </Button>
                 </td>
 
@@ -506,11 +506,13 @@ const FullScreenImageLinkEditor = ({ isModalOpen, setIsModalOpen, src, initialAr
               display: 'flex',
             }}
           >
-            <EditableInteractiveImage
-              src={src}
-              initialAreasUrl={initialAreasUrl}
-              onSaveButtonClick={() => setIsModalOpen(false)}
-            />
+            <div style={{ width: '100%' }}>
+              <EditableInteractiveImage
+                src={src}
+                initialAreasUrl={initialAreasUrl}
+                onSaveButtonClick={() => setIsModalOpen(false)}
+              />
+            </div>
           </div>
         </div>
       )}

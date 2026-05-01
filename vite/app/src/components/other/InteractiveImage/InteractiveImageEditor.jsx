@@ -59,34 +59,39 @@ const EditableInteractiveImage = ({
   // Handle image load and calculate dimensions
   const handleImageLoad = () => {
     if (imageRef.current) {
-      const rect = imageRef.current.getBoundingClientRect();
-      const offsetX = imageRef.current.offsetLeft;
-      const offsetY = imageRef.current.offsetTop;
+      const imageContainer = imageRef.current.parentNode;
+      const containerRect = imageContainer.getBoundingClientRect();
+      const imageRect = imageRef.current.getBoundingClientRect();
+
+      const offsetX = imageRect.left - containerRect.left;
+      const offsetY = imageRect.top - containerRect.top;
 
       setImageDimensions({
-        width: rect.width,
-        height: rect.height,
-        offsetX: offsetX,
-        offsetY: offsetY,
-      });
-
-      setImageLoaded(true);
-
-      console.log('Image dimensions:', {
-        width: rect.width,
-        height: rect.height,
+        width: imageRect.width,
+        height: imageRect.height,
         offsetX,
         offsetY,
       });
+
+      setImageLoaded(true);
     }
   };
 
   useEffect(() => {
-    const handleResize = () => {
-      handleImageLoad();
-    };
+    const handleResize = () => handleImageLoad();
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+
+    const box = imageRef.current?.parentNode;
+    let observer;
+    if (box) {
+      observer = new ResizeObserver(() => handleImageLoad());
+      observer.observe(box);
+    }
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (observer) observer.disconnect();
+    };
   }, []);
 
 

@@ -83,9 +83,10 @@ export default function TestFinish() {
                   textAlign: 'center',
                   padding: '30px',
                   fontSize: '15px',
+                  verticalAlign: 'top',
                 }}
               >
-                <SchoolIcon style={{fontSize: 50, backgroundColor: 'lightgrey', borderRadius: '15px', padding: '10px'}}/>
+                <SchoolIcon style={{fontSize: 80, backgroundColor: 'lightgrey', borderRadius: '15px', padding: '10px', display: 'block', margin: '0 auto'}}/>
                 <span 
                   style={{
                     fontSize: 24, 
@@ -112,9 +113,10 @@ export default function TestFinish() {
                   textAlign: 'center',
                   padding: '30px',
                   fontSize: '15px',
+                  verticalAlign: 'top',
                 }}
               >
-                <PiHandsClappingLight style={{fontSize: 50, backgroundColor: 'lightgrey', borderRadius: '15px', padding: '10px'}}/>
+                <PiHandsClappingLight size={80} style={{backgroundColor: 'lightgrey', borderRadius: '15px', padding: '10px', display: 'block', margin: '0 auto'}}/>
                 <span style={{display: 'block'}}>
                   Viskas <br/>Teisinga:
                 </span>
@@ -130,9 +132,10 @@ export default function TestFinish() {
                   textAlign: 'center',
                   padding: '30px',
                   fontSize: '15px',
+                  verticalAlign: 'top',
                 }}
               >
-                <BsHandThumbsUp style={{ fontSize: 50, backgroundColor: 'lightgrey', borderRadius: '15px', padding: '10px' }} />
+                <BsHandThumbsUp size={80} style={{backgroundColor: 'lightgrey', borderRadius: '15px', padding: '10px', display: 'block', margin: '0 auto'}} />
                 <span style={{display: 'block'}}>Teisingai<br/>Identifikuota:</span>
                 <br/>
                 <span style={{display: 'block'}}>{data.totalidentifiedcorrectly || 0} / {data.questioncount || 0}</span>
@@ -146,9 +149,10 @@ export default function TestFinish() {
                   textAlign: 'center',
                   padding: '30px',
                   fontSize: '15px',
+                  verticalAlign: 'top',
                 }}
               >
-                <GrCheckboxSelected style={{fontSize: 50, backgroundColor: 'lightgrey', borderRadius: '15px', padding: '10px'}}/>
+                <GrCheckboxSelected size={80} style={{backgroundColor: 'lightgrey', borderRadius: '15px', padding: '10px', display: 'block', margin: '0 auto'}}/>
                 <span style={{display: 'block'}}>Tesingos <br/>Opcijos:</span>
                 <br/>
                 <span style={{display: 'block'}}>{data.totalcorrectoptionscount || 0} / {data.totaloptionscount || 0}</span>

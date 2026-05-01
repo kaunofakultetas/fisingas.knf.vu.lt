@@ -134,32 +134,30 @@ const TestHome = () => {
 
                   <div style={{ margin: 15 }}>
                     <Button
-                      variant="contained"
-                      color="primary"
+                      sx={{ background: 'rgb(123, 0, 63)', color: 'white', '&:hover': { backgroundColor: 'rgb(230, 65, 100)' } }}
                       onClick={() => handleQuestionAnswerClick(0)}
                     >
-                      <BsHandThumbsUp style={{ fontSize: 30, padding: 10 }} />
+                      <BsHandThumbsUp style={{ fontSize: 40, padding: 5 }} />
                       <div style={{ fontSize: 25, marginRight: 15 }}>Tikras</div>
                       {questionsData[currentQuestionIndex].selectedanswer === 0 ? (
-                        <CheckBoxOutlinedIcon style={{ fontSize: 30, padding: 10 }} />
+                        <CheckBoxOutlinedIcon style={{ fontSize: 40, padding: 5 }} />
                       ) : (
-                        <CheckBoxOutlineBlankIcon style={{ fontSize: 30, padding: 10 }} />
+                        <CheckBoxOutlineBlankIcon style={{ fontSize: 40, padding: 5 }} />
                       )}
                     </Button>
                   </div>
 
                   <div style={{ margin: 15 }}>
                     <Button
-                      variant="contained"
-                      color="primary"
+                      sx={{ background: 'rgb(123, 0, 63)', color: 'white', '&:hover': { backgroundColor: 'rgb(230, 65, 100)' } }}
                       onClick={() => handleQuestionAnswerClick(1)}
                     >
-                      <MdPhishing style={{ fontSize: 30, padding: 10 }} />
+                      <MdPhishing style={{ fontSize: 40, padding: 5 }} />
                       <div style={{ fontSize: 25, marginRight: 15 }}>Fišingas</div>
                       {questionsData[currentQuestionIndex].selectedanswer === 1 ? (
-                        <CheckBoxOutlinedIcon style={{ fontSize: 30, padding: 10 }} />
+                        <CheckBoxOutlinedIcon style={{ fontSize: 40, padding: 5 }} />
                       ) : (
-                        <CheckBoxOutlineBlankIcon style={{ fontSize: 30, padding: 10 }} />
+                        <CheckBoxOutlineBlankIcon style={{ fontSize: 40, padding: 5 }} />
                       )}
                     </Button>
                   </div>
@@ -198,7 +196,7 @@ const TestHome = () => {
                           <Checkbox
                             checked={questionOption.isselected === 1}
                             onClick={() => handleQuestionOptionClick(index)}
-                            color="primary"
+                            style={{ color: "rgb(123, 0, 63)" }}
                           />
                         </td>
                       </tr>
