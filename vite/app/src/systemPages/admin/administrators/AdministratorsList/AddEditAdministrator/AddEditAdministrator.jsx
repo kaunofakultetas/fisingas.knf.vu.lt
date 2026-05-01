@@ -2,9 +2,11 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 
 import { Button, Dialog, DialogContent, Stack, Typography, TextField, Box, FormControl, Grid, MenuItem } from "@mui/material";
+import DeleteIcon from '@mui/icons-material/Delete';
 
 import CancelIcon from '@mui/icons-material/Cancel';
 import toast from 'react-hot-toast';
+import { LongPressDeleteButton } from '@/components/LongPressButton';
 
 export default function AddEditAdministrator({ rowData, highestRowID, setOpen, getData }) {
   const [data, setData] = useState(undefined);
@@ -186,18 +188,15 @@ export default function AddEditAdministrator({ rowData, highestRowID, setOpen, g
 
               {rowData !== undefined && (
                 <Grid size={6}>
-                  <Button
-                    variant="contained"
-                    style={{
-                      backgroundColor: 'blue',
-                      color: 'white',
-                      boxShadow: '0px 8px 15px rgba(0, 0, 0, 0.1)',
-                      width: '100%',
-                    }}
-                    onClick={() => handleDeleteButton()}
+                  <LongPressDeleteButton
+                    fullWidth
+                    onComplete={handleDeleteButton}
+                    completedToastMessage="Įrašas ištrintas"
+                    uncompletedToastMessage="Laikykite nuspaudę, kad ištrintumėte"
                   >
+                    <DeleteIcon sx={{ mr: 1 }} />
                     Ištrinti Įrašą
-                  </Button>
+                  </LongPressDeleteButton>
                 </Grid>
               )}
 

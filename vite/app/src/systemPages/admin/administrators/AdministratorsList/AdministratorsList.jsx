@@ -1,7 +1,7 @@
 
 import { DataGrid, Toolbar, QuickFilter, QuickFilterControl, GridLogicOperator } from "@mui/x-data-grid";
 import React, { useState } from "react";
-import { Box, LinearProgress, Paper } from '@mui/material';
+import { Box, LinearProgress } from '@mui/material';
 import AddCircleOutlinedIcon from '@mui/icons-material/AddCircleOutlined';
 import useFetchData from "@/hooks/useFetchData";
 
@@ -94,77 +94,63 @@ const AdministratorsList = () => {
 
 
   return (
-    <AdminPageLayout backgroundColor="#EBECEF">
-      <Paper sx={{ height: 'calc(100vh - 105px)', width: '100%', paddingRight: 4, borderRadius: 0 }}>
-        <Box
-          sx={{
-            fontSize: '24px',
-            color: 'gray',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            display: 'inline-block!important',
-            margin: 2,
-            width: '100%', 
-          }}
-        >
+    <AdminPageLayout>
+      <Box className="h-[calc(100vh-85px)] p-2.5 pb-[50px] w-full">
+        <Box className="text-2xl text-gray-500 mb-2.5 flex items-center justify-between">
           Administratorių Sąrašas
-          <DataGrid
-            sx={{
-              height: 'calc(100vh - 160px)',
-              cursor:'pointer',
-              width: '100%',
-              display: 'flex',
-              padding: 0,
-              '& .MuiDataGrid-row:hover': {
-                backgroundColor: 'rgba(123, 0, 63, 0.08)',
-              },
-            }}
-            rows={data}
-            columns={AdministratorsTable_Columns}
-            pageSizeOptions={[100]}
-            rowHeight={30}
-            showToolbar
-            onRowClick={handleRowClick}
-            loading={loadingData}
-
-            initialState={{
-              columns: {
-                columnVisibilityModel: {},
-              },
-              filter: {
-                filterModel: {
-                  items: [],
-                  quickFilterLogicOperator: GridLogicOperator.Or,
-                  quickFilterExcludeHiddenColumns: false,
-                },
-              },
-              pagination: {
-                paginationModel: { pageSize: 100 },
-              },
-            }}
-
-            slots={{
-              toolbar: QuickSearchToolbar,
-              loadingOverlay: LinearProgress,
-              pagination: CustomPagination,
-            }}
-
-            slotProps={{
-              panel: { placement: 'bottom-start' },
-              toolbar: {
-                triggerAddNew: triggerAddNew
-              }
-            }}
-          />
         </Box>
-        {openBackdrop && (
-          <AddEditAdministrator 
-            rowData={userLineData}
-            setOpen={setOpenBackdrop} 
-            getData={getData}
-          /> 
-        )}
-      </Paper>
+        <DataGrid
+          sx={{
+            cursor: 'pointer',
+            '& .MuiDataGrid-row:hover': {
+              backgroundColor: 'rgba(123, 0, 63, 0.08)',
+            },
+          }}
+          rows={data}
+          columns={AdministratorsTable_Columns}
+          pageSizeOptions={[100]}
+          rowHeight={30}
+          showToolbar
+          onRowClick={handleRowClick}
+          loading={loadingData}
+
+          initialState={{
+            columns: {
+              columnVisibilityModel: {},
+            },
+            filter: {
+              filterModel: {
+                items: [],
+                quickFilterLogicOperator: GridLogicOperator.Or,
+                quickFilterExcludeHiddenColumns: false,
+              },
+            },
+            pagination: {
+              paginationModel: { pageSize: 100 },
+            },
+          }}
+
+          slots={{
+            toolbar: QuickSearchToolbar,
+            loadingOverlay: LinearProgress,
+            pagination: CustomPagination,
+          }}
+
+          slotProps={{
+            panel: { placement: 'bottom-start' },
+            toolbar: {
+              triggerAddNew: triggerAddNew
+            }
+          }}
+        />
+      </Box>
+      {openBackdrop && (
+        <AddEditAdministrator 
+          rowData={userLineData}
+          setOpen={setOpenBackdrop} 
+          getData={getData}
+        /> 
+      )}
     </AdminPageLayout>
   );
 };

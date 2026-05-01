@@ -136,7 +136,7 @@ const StudentsListTable = () => {
 
 
   return (
-    <Box className="h-[calc(100vh-165px)] p-2.5 pb-[50px] w-full">
+    <Box className="h-[calc(100vh-85px)] p-2.5 pb-[50px] w-full">
       <Box className="text-2xl text-gray-500 mb-2.5 flex items-center justify-between">
         Studentų Sąrašas
       </Box>
