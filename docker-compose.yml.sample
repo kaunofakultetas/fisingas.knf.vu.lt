@@ -15,26 +15,25 @@ services:
 
 
   # Frontend (Pull Docker hub)
-  fisingas-nextjs:
-    container_name: fisingas-nextjs
-    image: vuknf/fisingas-nextjs:latest
-    environment:                                                            # Dev
-      - BACKEND_API_URL=http://fisingas-backend:8080                        # Dev
+  fisingas-vite:
+    container_name: fisingas-vite
+    image: vuknf/fisingas-vite:latest
+    user: 1000:1000
+    read_only: true
     restart: unless-stopped
 
   # # Frontend (Self-built)
-  # fisingas-nextjs:
-  #   container_name: fisingas-nextjs
-  #   image: fisingas-nextjs
+  # fisingas-vite:
+  #   container_name: fisingas-vite
+  #   image: fisingas-vite
   #   user: 1000:1000
   #   build:
-  #     context: ./nextjs
-  #     # dockerfile: Dockerfile                                                # Prod
-  #     dockerfile: Dockerfile.dev                                            # Dev
-  #   environment:                                                            # Dev
-  #     - BACKEND_API_URL=http://fisingas-backend:8080                        # Dev
-  #   volumes:                                                                # Dev
-  #     - ./nextjs:/app                                                       # Dev
+  #     context: ./vite
+  #     dockerfile: Dockerfile                                                # Prod
+  #     # dockerfile: Dockerfile.dev                                            # Dev
+  #   read_only: true                                                         # Prod
+  #   # volumes:                                                                # Dev
+  #   #   - ./vite/app:/app                                                     # Dev
   #   restart: unless-stopped
 
 

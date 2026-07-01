@@ -1,5 +1,27 @@
+// -----------------------------------------------------------
+//  [*] Admin — Sidebar
+//
+//  Left navigation of the admin pages, collapsible (the state
+//  persists in localStorage under "sidebarOpen"). While
+//  collapsed only the icons remain and labels show up as
+//  tooltips.
+//
+//  Sections:
+//    - PAGRINDINIS   — dashboard
+//    - SĄRAŠAI       — students, questions
+//    - PREZENTACIJA  — slides, slide files, leaderboard
+//    - SISTEMA       — administrators, dropbox, swagger,
+//                      dbgate, logout
+//
+//  Split into (main component last):
+//
+//    SectionTitle    — grey group label
+//    MenuItemContent — icon + label + collapsed tooltip
+//    MenuItem        — router <Link> or external <a>
+//    AdminSidebar    — the sidebar itself (default export)
+// -----------------------------------------------------------
 
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import Tooltip from '@mui/material/Tooltip';
 
@@ -27,14 +49,47 @@ import StorageIcon from '@mui/icons-material/Storage';
 import ExitToAppIcon from "@mui/icons-material/ExitToApp";
 
 
-const SectionTitle = ({ title, open }) => (
-  <p className="text-[10px] font-bold text-[#999] mt-[15px] mb-[2px] whitespace-pre-wrap">
-    {open ? title : '-----'}
-  </p>
-);
 
 
-const MenuItemContent = ({ icon: Icon, label, open }) => {
+
+
+
+// -----------------------------------------------------------
+// SectionTitle
+// -----------------------------------------------------------
+//
+// Grey uppercase label above a group of menu items; shrinks
+// to a dashed placeholder while the sidebar is collapsed.
+// -----------------------------------------------------------
+
+function SectionTitle({ title, open }) {
+  return (
+    <p className="text-[10px] font-bold text-[#999] mt-[15px] mb-[2px] whitespace-pre-wrap">
+      {open ? title : '-----'}
+    </p>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MenuItemContent
+// -----------------------------------------------------------
+//
+// One row of the menu: burgundy icon + label. While the
+// sidebar is collapsed the label is hidden and shown as a
+// black tooltip on hover instead.
+//
+// Used by:
+//   - MenuItem (below)
+// -----------------------------------------------------------
+
+function MenuItemContent({ icon: Icon, label, open }) {
+
   const [hovered, setHovered] = useState(false);
 
   return (
@@ -58,9 +113,25 @@ const MenuItemContent = ({ icon: Icon, label, open }) => {
       </li>
     </Tooltip>
   );
-};
+}
 
-const MenuItem = ({ href, icon: Icon, label, open, external = false }) => {
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MenuItem
+// -----------------------------------------------------------
+//
+// Wraps MenuItemContent in a router <Link>, or in a plain
+// <a target="_blank"> for the external tools (filebrowser,
+// swagger, dbgate, presentation pages).
+// -----------------------------------------------------------
+
+function MenuItem({ href, icon: Icon, label, open, external = false }) {
+
   if (external) {
     return (
       <a href={href} className="no-underline" target="_blank" rel="noopener noreferrer">
@@ -74,34 +145,45 @@ const MenuItem = ({ href, icon: Icon, label, open, external = false }) => {
       <MenuItemContent icon={Icon} label={label} open={open} />
     </Link>
   );
-};
+}
 
 
-const AdminSidebar = ({ authData }) => {
-  const sidebarRef = useRef(null);
-  const [open, setopen] = useState(() => localStorage.getItem("sidebarOpen") !== "false");
 
-  useEffect(() => {
-    setopen(localStorage.getItem("sidebarOpen") !== "false");
-  }, []);
+
+
+
+
+// -----------------------------------------------------------
+// AdminSidebar (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - AdminPageLayout — every admin page
+// -----------------------------------------------------------
+
+export default function AdminSidebar() {
+
+  // Collapsed/expanded — remembered across page loads
+  const [open, setOpen] = useState(() => localStorage.getItem("sidebarOpen") !== "false");
 
   const toggleOpen = () => {
     const sidebarOpenNewValue = !open;
-    setopen(sidebarOpenNewValue);
+    setOpen(sidebarOpenNewValue);
     localStorage.setItem('sidebarOpen', sidebarOpenNewValue);
   };
 
+
   return (
-    <div ref={sidebarRef} className="border-r border-r-white bg-white min-h-full overflow-y-auto transition-all duration-500 ease-in-out">
+    <div className="border-r border-r-white bg-white min-h-full overflow-y-auto transition-all duration-500 ease-in-out">
       <div className="px-[10px]">
         <ul className="list-none m-0 p-0">
-          
+
           {/* Collapse Button */}
           <button
             className="text-[#B2BAC2] bg-[rgb(123,0,63)] cursor-pointer mt-5 border-0 rounded-lg w-full"
             onClick={toggleOpen}
           >
-            {open 
+            {open
               ? <KeyboardDoubleArrowLeftIcon style={{ verticalAlign: 'middle' }} />
               : <KeyboardDoubleArrowRightIcon style={{ verticalAlign: 'middle' }} />
             }
@@ -134,6 +216,4 @@ const AdminSidebar = ({ authData }) => {
       </div>
     </div>
   );
-};
-
-export default AdminSidebar;
+}

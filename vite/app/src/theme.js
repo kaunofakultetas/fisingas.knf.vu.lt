@@ -1,28 +1,27 @@
-import { createTheme } from '@mui/material/styles';
-import { green, grey } from '@mui/material/colors';
+// -----------------------------------------------------------
+//  [*] MUI theme — the VU KnF burgundy palette
+//
+//  Single light theme used across the whole app:
+//    - primary.main — the VU KnF burgundy (buttons, links,
+//      table accents, sidebar icons)
+//    - primary.dark — the hover/focus pink used all over the
+//      admin pages
+//
+//  The login page styles itself and skips the theme entirely
+//  (see providers.jsx / excludedPaths).
+// -----------------------------------------------------------
 
-const getTheme = (mode) => createTheme({
+import { createTheme } from '@mui/material/styles';
+
+const theme = createTheme({
   palette: {
-    mode,
-    ...(mode === 'light' ? {
-        primary: { 
-          main: "#7B003F",
-          dark: '#E64164',
-          accent: green[500]
-        },
-        secondary: { 
-          main: grey[50] 
-        },
-        delete: {
-          main: '#f00000',
-          dark: '#AD0000',
-          contrastText: '#fff',
-        },
-      } : {
-        // Dark mode
-      }
-    ),
+    mode: 'light',
+    primary: {
+      main: '#7B003F',    // rgb(123, 0, 63)
+      dark: '#E64164',    // rgb(230, 65, 100)
+      contrastText: '#ffffff',
+    },
   },
 });
 
-export default getTheme;
+export default theme;

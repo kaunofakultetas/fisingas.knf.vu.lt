@@ -1,49 +1,49 @@
-import { useState, useMemo, createContext, useEffect } from 'react';
+// -----------------------------------------------------------
+//  [*] Providers — MUI theme wrapper
+//
+//  Wraps the app in the MUI ThemeProvider (theme built by
+//  src/theme.js) and resets browser styles with CssBaseline.
+//
+//  Special cases:
+//    - paths in excludedPaths (App passes /login) skip the
+//      theme entirely — those pages style themselves
+//
+//  The app is light-only (no dark mode), so there is no
+//  color-mode context here.
+// -----------------------------------------------------------
+
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import getTheme from '@/theme';
+import { useLocation } from 'react-router-dom';
+import theme from '@/theme';
 
-export const ColorModeContext = createContext({ 
-  toggleColorMode: () => {},
-  mode: 'light'
-});
 
-export default function Providers({ children }) {
-  const [mode, setMode] = useState('light');
-  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-    const savedMode = localStorage.getItem('theme-mode');
-    if (savedMode === 'light' || savedMode === 'dark') {
-      setMode(savedMode);
-    }
-  }, []);
 
-  const colorMode = useMemo(
-    () => ({
-      mode,
-      toggleColorMode: () => {
-        const newMode = mode === 'light' ? 'dark' : 'light';
-        setMode(newMode);
-        localStorage.setItem('theme-mode', newMode);
-      },
-    }),
-    [mode]
-  );
 
-  const theme = useMemo(() => getTheme(mode), [mode]);
 
-  if (!mounted) {
-    return null;
+
+// -----------------------------------------------------------
+// Providers (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - App.jsx — wraps AppRoutes, with excludedPaths=['/login']
+// -----------------------------------------------------------
+
+export default function Providers({ children, excludedPaths = [] }) {
+
+  const { pathname } = useLocation();
+
+  // Excluded pages (login) render without any theme wrapper
+  if (excludedPaths.includes(pathname)) {
+    return children;
   }
 
   return (
-    <ColorModeContext.Provider value={colorMode}>
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        {children}
-      </ThemeProvider>
-    </ColorModeContext.Provider>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      {children}
+    </ThemeProvider>
   );
 }

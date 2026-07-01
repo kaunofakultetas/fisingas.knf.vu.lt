@@ -59,7 +59,7 @@ The application will be available at `http://<server-ip>`.
 ```
 fisingas.knf.vu.lt/
 ├── backend/            # Flask API server
-├── nextjs/             # Next.js frontend
+├── vite/               # React (Vite) frontend
 ├── endpoint/           # Caddy reverse proxy config
 ├── filebrowser/        # Configuration for filebrowser services
 ├── docker-compose.yml  # Docker Compose configuration

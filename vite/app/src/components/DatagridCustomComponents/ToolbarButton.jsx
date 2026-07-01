@@ -1,16 +1,36 @@
+// -----------------------------------------------------------
+//  [*] DataGrid custom components — ToolbarButton
+//
+//  Generic action button for DataGrid toolbars: small contained
+//  button with an optional icon and a label, wired to whatever
+//  onClick the caller provides. Unlike ColumnsButton it has no
+//  grid logic of its own, so it works anywhere.
+// -----------------------------------------------------------
+
 import { Button } from '@mui/material';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ToolbarButton (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - AdministratorsList — "Įterpti Naują" button that opens
+//     the add-administrator dialog
+//   - SystemUsers — "Pridėti Naują" button
+// -----------------------------------------------------------
 
 export default function ToolbarButton({ onClick, label, icon: Icon }) {
   return (
     <Button
       variant="contained"
       color="primary"
-      sx={{
-        marginLeft: '10px',
-        paddingLeft: '15px',
-        paddingRight: '15px',
-        height: 30,
-      }}
+      sx={{ ml: 1, px: 2, height: 30 }}
       onClick={onClick}
     >
       {Icon && <Icon style={{ paddingRight: 8, fontSize: '22px' }} />}

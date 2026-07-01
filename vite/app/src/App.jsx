@@ -1,94 +1,181 @@
-import React, { useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import Providers from '@/providers';
+// -----------------------------------------------------------
+//  [*] App — routing and global providers
+//
+//  The root of the React app: sets up the router, auth and
+//  theme providers, and declares every route.
+//
+//  Route groups:
+//    - public pages  — login, leaderboard, slides
+//    - student pages — the phishing test, behind the
+//                      `securedStudent` guard (session
+//                      required; admins go to /admin)
+//    - admin pages   — behind the `securedAdmin` guard
+//                      (admin session required; students go
+//                      to /student, anonymous to /login)
+//
+//  Split into (root component last):
+//
+//    RootRedirect — "/" → the user's home by role
+//    AppRoutes    — the <Routes> table + guards
+//    App          — provider stack (default export)
+// -----------------------------------------------------------
 
-import Login from '@/systemPages/login/Login';
-import Home from '@/systemPages/admin/home/Home';
-import StudentsList from '@/systemPages/admin/students/StudentsList/StudentsList';
-import StudentInformation from '@/systemPages/admin/students/StudentInformation/StudentInformation';
-import Questions from '@/systemPages/admin/questions/Questions/Questions';
-import EditQuestion from '@/systemPages/admin/questions/Questions/QuestionsList/EditQuestion/EditQuestion';
-import AdministratorsList from '@/systemPages/admin/administrators/AdministratorsList/AdministratorsList';
-import StudentGroups from '@/systemPages/admin/studentgroups/StudentGroups/StudentGroups';
-import SystemPage from '@/systemPages/admin/system/SystemPage/SystemPage';
-import TestHome from '@/systemPages/student/TestHome/TestHome';
-import TestFinish from '@/systemPages/student/TestFinish/TestFinish';
-import LeaderboardPage from '@/systemPages/leaderboard/LeaderboardPage';
-import SlidesPage from '@/systemPages/slides/SlidesPage';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './auth/AuthProvider';
+import Providers from './providers';
 
-function AuthRedirect() {
-  const navigate = useNavigate();
+// Public pages
+import LoginPage from '@/systemPages/PublicPages/Login/Login';
+import LeaderboardPage from '@/systemPages/PublicPages/Leaderboard/Leaderboard';
+import SlidesPage from '@/systemPages/PublicPages/Slides/Slides';
 
-  useEffect(() => {
-    axios.get('/api/checkauth', { withCredentials: true })
-      .then((response) => {
-        if (response.data.admin === 1) {
-          navigate('/admin', { replace: true });
-        } else {
-          navigate('/student', { replace: true });
-        }
-      })
-      .catch(() => {
-        window.location.href = '/login';
-      });
-  }, []);
+// Student pages (the phishing test)
+import TestHomePage from '@/systemPages/StudentPages/TestHome/TestHome';
+import TestFinishPage from '@/systemPages/StudentPages/TestFinish/TestFinish';
 
-  return null;
+// Admin pages
+import AdminHomePage from '@/systemPages/AdminPages/Home/Home';
+import StudentsListPage from '@/systemPages/AdminPages/StudentsList/StudentsList';
+import StudentInformationPage from '@/systemPages/AdminPages/StudentInformation/StudentInformation';
+import QuestionsPage from '@/systemPages/AdminPages/Questions/Questions';
+import EditQuestionPage from '@/systemPages/AdminPages/Questions/QuestionsList/EditQuestion/EditQuestion';
+import AdministratorsListPage from '@/systemPages/AdminPages/AdministratorsList/AdministratorsList';
+import StudentGroupsPage from '@/systemPages/AdminPages/StudentGroups/StudentGroups';
+import SystemPage from '@/systemPages/AdminPages/SystemPage/SystemPage';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RootRedirect
+// -----------------------------------------------------------
+//
+// Sends "/" to the right place by role: admins to /admin,
+// students to their test (or straight to the results when
+// they already finished), anonymous visitors to /login.
+//
+// Used by:
+//   - AppRoutes (below) — route /
+// -----------------------------------------------------------
+
+function RootRedirect() {
+  const { authData, loading } = useAuth();
+
+  if (loading) return null;
+  if (!authData) return <Navigate to="/login" replace />;
+  if (authData.admin === 1) return <Navigate to="/admin" replace />;
+  if (authData.phishingtestfinished === 1) return <Navigate to="/student/finish" replace />;
+  return <Navigate to="/student" replace />;
 }
 
-function AdminGuard({ children }) {
-  const [authorized, setAuthorized] = useState(null);
 
-  useEffect(() => {
-    axios.get('/api/checkauth', { withCredentials: true })
-      .then((response) => {
-        if (response.data.admin === 1) {
-          setAuthorized(true);
-        } else {
-          setAuthorized(false);
-        }
-      })
-      .catch(() => {
-        setAuthorized(false);
-      });
-  }, []);
 
-  if (authorized === null) return null;
-  if (!authorized) return <Navigate to="/student" replace />;
-  return children;
-}
+
+
+
+
+// -----------------------------------------------------------
+// AppRoutes
+// -----------------------------------------------------------
+//
+// The route table. Both guards render nothing while the
+// session check is still running (so a logged-in user isn't
+// bounced to /login before the check finishes) and pass
+// authData on to the page.
+//
+// Used by:
+//   - App (below)
+// -----------------------------------------------------------
 
 function AppRoutes() {
+
+  const { authData, loading } = useAuth();
+
+  // Admin route guard
+  const securedAdmin = (Component) => {
+    if (loading) return null;
+    if (!authData) return <Navigate to="/login" replace />;
+    if (authData.admin !== 1) return <Navigate to="/student" replace />;
+    return <Component authData={authData} />;
+  };
+
+  // Student route guard — admins are sent to their own home
+  const securedStudent = (Component) => {
+    if (loading) return null;
+    if (!authData) return <Navigate to="/login" replace />;
+    if (authData.admin === 1) return <Navigate to="/admin" replace />;
+    return <Component authData={authData} />;
+  };
+
+  // The test itself — students who already finished only get
+  // their results page (matches the old Next.js behavior)
+  const securedTest = () => {
+    if (!loading && authData?.phishingtestfinished === 1) {
+      return <Navigate to="/student/finish" replace />;
+    }
+    return securedStudent(TestHomePage);
+  };
+
+
   return (
     <Routes>
-      <Route path="/" element={<AuthRedirect />} />
-      <Route path="/admin" element={<AdminGuard><Home /></AdminGuard>} />
-      <Route path="/admin/students" element={<AdminGuard><StudentsList /></AdminGuard>} />
-      <Route path="/admin/students/:studentID" element={<AdminGuard><StudentInformation /></AdminGuard>} />
-      <Route path="/admin/questions" element={<AdminGuard><Questions /></AdminGuard>} />
-      <Route path="/admin/questions/:questionID" element={<AdminGuard><EditQuestion /></AdminGuard>} />
-      <Route path="/admin/administrators" element={<AdminGuard><AdministratorsList /></AdminGuard>} />
-      <Route path="/admin/studentgroups" element={<AdminGuard><StudentGroups /></AdminGuard>} />
-      <Route path="/admin/system" element={<AdminGuard><SystemPage /></AdminGuard>} />
-      <Route path="/student" element={<TestHome />} />
-      <Route path="/student/finish" element={<TestFinish />} />
+
+      {/* Login page */}
+      <Route path="/login" element={<LoginPage />} />
+
+      {/* Role-based home */}
+      <Route path="/" element={<RootRedirect />} />
+
+      {/* Student pages — session required */}
+      <Route path="/student" element={securedTest()} />
+      <Route path="/student/finish" element={securedStudent(TestFinishPage)} />
+
+      {/* Admin pages — admin session required */}
+      <Route path="/admin" element={securedAdmin(AdminHomePage)} />
+      <Route path="/admin/students" element={securedAdmin(StudentsListPage)} />
+      <Route path="/admin/students/:studentID" element={securedAdmin(StudentInformationPage)} />
+      <Route path="/admin/questions" element={securedAdmin(QuestionsPage)} />
+      <Route path="/admin/questions/:questionID" element={securedAdmin(EditQuestionPage)} />
+      <Route path="/admin/administrators" element={securedAdmin(AdministratorsListPage)} />
+      <Route path="/admin/studentgroups" element={securedAdmin(StudentGroupsPage)} />
+      <Route path="/admin/system" element={securedAdmin(SystemPage)} />
+
+      {/* Presentation pages — public, shown on the projector */}
       <Route path="/leaderboard" element={<LeaderboardPage />} />
       <Route path="/slides" element={<SlidesPage />} />
+
     </Routes>
   );
 }
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// App (default export)
+// -----------------------------------------------------------
+//
+// The provider stack, outermost first: router → auth → theme
+// (Providers skips theming on /login, which styles itself).
+//
+// Used by:
+//   - main.jsx — mounted into #root
+// -----------------------------------------------------------
+
 export default function App() {
-  const { pathname } = useLocation();
-
-  if (pathname === '/login') {
-    return <Login />;
-  }
-
   return (
-    <Providers>
-      <AppRoutes />
-    </Providers>
+    <BrowserRouter>
+      <AuthProvider>
+        <Providers excludedPaths={['/login']}>
+          <AppRoutes />
+        </Providers>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
