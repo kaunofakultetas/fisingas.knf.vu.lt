@@ -11,7 +11,7 @@ import StudentsListTable from "./StudentsListTable/StudentsListTable";
 
 export default function StudentsList() {
   return (
-    <AdminPageLayout>
+    <AdminPageLayout backgroundColor="#EBECEF">
       <StudentsListTable/>
     </AdminPageLayout>
   );

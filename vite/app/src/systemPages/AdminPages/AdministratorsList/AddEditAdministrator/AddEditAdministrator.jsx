@@ -1,242 +1,300 @@
 // -----------------------------------------------------------
-//  [*] Admin — AddEditAdministrator
+//  [*] Admin — AddEditAdministrator modal
 //
-//  The add/edit administrator dialog. Editing an existing
-//  admin (rowData set) shows their email/enabled state with
-//  an optional "Keisti Slaptažodį" flow; adding a new one
-//  (rowData undefined) requires the password up front.
+//  Create / edit dialog for the administrators list. One
+//  form, two modes:
+//    - edit   — rowData given (a grid row): fields prefilled,
+//               Delete (hold to confirm) shown, password
+//               fields hidden behind a "Keisti Slaptažodį"
+//               button
+//    - create — rowData undefined: empty form, password
+//               required from the start
 //
-//  Save/insert/delete all go to POST /api/admin/administrators
-//  with an `action` field; deletion is behind a long-press
-//  button so it can't happen by accident. Afterwards the
-//  parent list is refreshed via `getData`.
+//  Everything posts to /api/admin/administrators:
+//    { action: 'insertupdate', ... }  — save / create
+//    { action: 'delete', id }         — delete
+//  On success it refetches the grid (getData) and closes.
 //
-//  Used by:
-//    - AdministratorsList.jsx — row click (edit) and the
-//      toolbar's "Įterpti Naują" (add)
+//  Split into (main component last):
+//
+//    ActionButtons          — modal footer: Save/Create + Delete
+//    AccountFields          — email / enabled inputs
+//    PasswordSection        — change-password button + inputs
+//    AddEditAdministrator   — state + API calls (default export)
 // -----------------------------------------------------------
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import axios from "axios";
 import toast from 'react-hot-toast';
 
-import { Button, Dialog, DialogContent, Stack, Typography, TextField, Box, FormControl, Grid, MenuItem } from "@mui/material";
+import { Button, Stack, TextField, MenuItem } from "@mui/material";
+
+import { UniversalModal } from "@/components/Other/UniversalModal";
+import { LongPressDeleteButton } from "@/components/Other/LongPressButton";
+
+import SaveIcon from '@mui/icons-material/Save';
+import AddCircleOutlinedIcon from '@mui/icons-material/AddCircleOutlined';
 import DeleteIcon from '@mui/icons-material/Delete';
-import CancelIcon from '@mui/icons-material/Cancel';
 
-import { LongPressDeleteButton } from '@/components/Other/LongPressButton/LongPressButton';
 
+
+
+
+
+
+// -----------------------------------------------------------
+// ActionButtons
+// -----------------------------------------------------------
+//
+// Modal footer: the Save (edit) / Create button, and — in
+// edit mode only — the hold-to-confirm Delete button.
+//
+// Used by:
+//   - AddEditAdministrator (below) — the modal's `actions` slot
+// -----------------------------------------------------------
+
+function ActionButtons({ isEditing, disableSave, onSave, onDelete }) {
+  return (
+    <div className="flex gap-2">
+      <Button
+        variant="contained"
+        fullWidth
+        sx={{ flex: 1, backgroundColor: 'primary.main', '&:hover': { backgroundColor: 'primary.dark' } }}
+        onClick={onSave}
+        disabled={disableSave}
+      >
+        {isEditing ? (
+          <><SaveIcon sx={{ mr: 1 }} />Išsaugoti</>
+        ) : (
+          <><AddCircleOutlinedIcon sx={{ mr: 1 }} />Įterpti</>
+        )}
+      </Button>
+
+      {isEditing && (
+        <LongPressDeleteButton
+          fullWidth
+          sx={{ flex: 1 }}
+          onComplete={onDelete}
+          completedToastMessage="Įrašas ištrintas"
+          uncompletedToastMessage="Laikykite nuspaudę, kad ištrintumėte"
+        >
+          <DeleteIcon sx={{ mr: 1 }} />
+          Ištrinti
+        </LongPressDeleteButton>
+      )}
+    </div>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AccountFields
+// -----------------------------------------------------------
+//
+// The always-visible inputs: email plus the Įjungtas? yes/no
+// select. Reads/writes the parent's form state via
+// form / onChange(field).
+//
+// Used by:
+//   - AddEditAdministrator (below)
+// -----------------------------------------------------------
+
+function AccountFields({ form, onChange }) {
+  return (
+    <>
+      <TextField required fullWidth type="email" label="El. Paštas" value={form.email} onChange={onChange('email')} />
+
+      <TextField select fullWidth label="Įjungtas?" value={form.enabled} onChange={onChange('enabled')}>
+        <MenuItem value={1}>Taip</MenuItem>
+        <MenuItem value={0}>Ne</MenuItem>
+      </TextField>
+    </>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// PasswordSection
+// -----------------------------------------------------------
+//
+// In edit mode the password inputs start collapsed behind a
+// "Keisti Slaptažodį" button; in create mode they are open
+// from the start. The repeat field shows a mismatch error as
+// soon as both fields have content.
+//
+// Used by:
+//   - AddEditAdministrator (below)
+// -----------------------------------------------------------
+
+function PasswordSection({ form, onChange, isEditing, changePassword, onShowPasswordFields, passwordsMatch }) {
+
+  if (isEditing && !changePassword) {
+    return (
+      <Button
+        variant="outlined"
+        fullWidth
+        sx={{ color: 'black', borderColor: 'black' }}
+        onClick={onShowPasswordFields}
+      >
+        Keisti Slaptažodį
+      </Button>
+    );
+  }
+
+  return (
+    <>
+      <TextField
+        required
+        fullWidth
+        type="password"
+        label="Slaptažodis"
+        value={form.password}
+        onChange={onChange('password')}
+      />
+      {/* Mismatch error only once the repeat field has content,
+          so the user isn't flagged red while still typing */}
+      <TextField
+        required
+        fullWidth
+        type="password"
+        label="Pakartoti Slaptažodį"
+        value={form.confirmPassword}
+        error={!passwordsMatch && form.confirmPassword !== ''}
+        helperText={!passwordsMatch && form.confirmPassword !== '' ? 'Slaptažodžiai nesutampa' : ''}
+        onChange={onChange('confirmPassword')}
+      />
+    </>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AddEditAdministrator (default export)
+// -----------------------------------------------------------
+//
+// Holds the form state and the API calls; the visual pieces
+// above are purely presentational.
+//
+// Used by:
+//   - AdministratorsList — opened on row click (edit) or the
+//     toolbar's "Įterpti Naują" button (create)
+// -----------------------------------------------------------
 
 export default function AddEditAdministrator({ rowData, setOpen, getData }) {
 
-  const [data, setData] = useState(undefined);
-  const [changePassword, setChangePassword] = useState(false);
+  // rowData is the DataGrid's row-click params — the admin itself is under .row
+  const isEditing = rowData !== undefined;
+
+  // id '' tells the backend to INSERT instead of UPDATE;
+  // enabled is a 1/0 int, as stored in the DB
+  const [form, setForm] = useState({
+    id:              isEditing ? rowData.row.id      : '',
+    email:           isEditing ? rowData.row.email   : '',
+    enabled:         isEditing ? rowData.row.enabled : 1,
+    password:        '',
+    confirmPassword: '',
+  });
+
+  // When editing, password fields stay hidden until requested
+  const [changePassword, setChangePassword] = useState(!isEditing);
+
+  // Curried: updateField('email') returns the onChange handler for that field
+  const updateField = (field) => (e) => setForm(prev => ({ ...prev, [field]: e.target.value }));
 
 
-  // Editing → prefill from the clicked row; adding → empty form
-  // with the password fields shown right away
-  useEffect(() => {
-    if (rowData !== undefined) {
-      setData({
-        id: rowData.row.id,
-        email: rowData.row.email,
-        enabled: rowData.row.enabled,
-        password: '',
-        confirmPassword: '',
-      });
-      setChangePassword(false);
-    } else {
-      setData({
-        id: '',
-        email: '',
-        enabled: 1,
-        password: '',
-        confirmPassword: '',
-      });
-      setChangePassword(true);
-    }
-  }, [rowData]);
-
-
+  // POST to the administrators endpoint; on success refetch the
+  // grid and close. withCredentials sends the Flask session
+  // cookie (admin-only endpoint).
   async function sendData(postData) {
-    const response = await axios.post("/api/admin/administrators", postData, { withCredentials: true });
+    try {
+      const response = await axios.post("/api/admin/administrators", postData, { withCredentials: true });
 
-    if (response.data.type === 'ok') {
-      toast.success(<b>Išsaugota</b>, { duration: 3000 });
-    } else if (response.data.type === 'error') {
-      toast.error(<b>Nepavyko:<br/>{response.data.reason}</b>, { duration: 8000 });
-    } else {
-      toast.error(<b>Nepavyko:<br/>Neaiškus atsakymas.</b>, { duration: 8000 });
+      if (response.data.type === 'ok') {
+        toast.success(<b>Išsaugota</b>, { duration: 3000 });
+        getData();
+        setOpen(false);
+      } else if (response.data.type === 'error') {
+        toast.error(<b>Nepavyko:<br/>{response.data.reason}</b>, { duration: 8000 });
+      } else {
+        toast.error(<b>Nepavyko:<br/>Neaiškus atsakymas.</b>, { duration: 8000 });
+      }
+    } catch (error) {
+      toast.error(<b>Nepavyko:<br/>Serverio klaida.</b>, { duration: 8000 });
     }
-    getData();
-    setOpen(false);
   }
-
 
   function handleSaveButton() {
+    // password is always sent; an empty string means "keep the current
+    // password" — the backend only rehashes when it's non-empty
     sendData({
       action: 'insertupdate',
-      id: data.id,
-      email: data.email,
-      enabled: data.enabled,
-      password: data.password,
+      id: form.id,
+      email: form.email,
+      enabled: form.enabled,
+      password: form.password,
     });
   }
-
 
   function handleDeleteButton() {
-    sendData({
-      action: 'delete',
-      id: data.id,
-    });
+    sendData({ action: 'delete', id: form.id });
   }
 
 
-  if (data === undefined) {
-    return null;
-  }
-
-
-  const passwordsMatch = data.password === data.confirmPassword;
+  // Save is blocked on empty email or an incomplete/mismatched password
+  const passwordsMatch = form.password === form.confirmPassword;
 
   const disableSave =
-    (changePassword && (!passwordsMatch || data.password === '' || data.confirmPassword === '')) ||
-    (data.email.trim() === '');
+    (changePassword && (!passwordsMatch || form.password === '' || form.confirmPassword === '')) ||
+    (form.email.trim() === '');
 
 
   return (
-    <Dialog open={true} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
-      <DialogContent sx={{ p: 3 }}>
+    <UniversalModal
+      open={true}   // always open — the parent mounts/unmounts this component instead
+      onClose={() => setOpen(false)}
+      title={isEditing ? 'Redaguoti Administratorių' : 'Naujas Administratorius'}
+      maxWidth={500}
+      fullWidth
+      showCancel={false}    // stock modal buttons replaced
+      showConfirm={false}   // by the custom ActionButtons footer
+      actions={
+        <ActionButtons
+          isEditing={isEditing}
+          disableSave={disableSave}
+          onSave={handleSaveButton}
+          onDelete={handleDeleteButton}
+        />
+      }
+    >
+      <Stack spacing={3}>
 
-        {/* Title + close button */}
-        <Box style={{ marginBottom: 20 }}>
-          <Grid container direction="row">
-            <Grid size={10} sx={{ textAlign: "left" }}>
-              <Typography component="h2" variant="h6" sx={{ mb: '30px' }}>
-                Administratorius
-              </Typography>
-            </Grid>
+        <AccountFields form={form} onChange={updateField} />
 
-            <Grid size={2} sx={{ textAlign: "right" }}>
-              <Button
-                onClick={() => setOpen(false)}
-                style={{ padding: 0, borderRadius: '50%', backgroundColor: 'transparent', outline: 'transparent' }}
-              >
-                <CancelIcon style={{ color: 'red' }} />
-              </Button>
-            </Grid>
-          </Grid>
-        </Box>
+        <PasswordSection
+          form={form}
+          onChange={updateField}
+          isEditing={isEditing}
+          changePassword={changePassword}
+          onShowPasswordFields={() => setChangePassword(true)}
+          passwordsMatch={passwordsMatch}
+        />
 
-        <Stack spacing={3}>
-
-          <FormControl size="medium" color="primary">
-            <TextField
-              disabled
-              style={{
-                backgroundColor: "lightgrey",
-              }}
-              label="ID"
-              value={data.id}
-            />
-          </FormControl>
-
-          <FormControl size="medium" color="primary">
-            <TextField
-              type="email"
-              required
-              label="El. Paštas"
-              value={data.email}
-              onChange={(e) => setData(prevData => ({ ...prevData, email: e.target.value }))}
-            />
-          </FormControl>
-
-          <FormControl size="medium" color="primary">
-            <TextField
-              select
-              label="Įjungtas?"
-              value={data.enabled}
-              onChange={(e) => setData(prevData => ({ ...prevData, enabled: e.target.value }))}
-            >
-              <MenuItem value={1}>Taip</MenuItem>
-              <MenuItem value={0}>Ne</MenuItem>
-            </TextField>
-          </FormControl>
-
-          {/* Password — hidden behind a button when editing */}
-          {rowData !== undefined && !changePassword && (
-            <Box>
-              <Button
-                variant="outlined"
-                onClick={() => setChangePassword(true)}
-                style={{ width: '100%', color: 'black', marginBottom: '10px' }}
-              >
-                Keisti Slaptažodį
-              </Button>
-            </Box>
-          )}
-
-          {(changePassword || rowData === undefined) && (
-            <>
-              <FormControl size="medium" color="primary">
-                <TextField
-                  type="password"
-                  label="Slaptažodis"
-                  value={data.password}
-                  onChange={(e) => setData(prevData => ({ ...prevData, password: e.target.value }))}
-                />
-              </FormControl>
-
-              <FormControl size="medium" color="primary">
-                <TextField
-                  type="password"
-                  label="Pakartoti Slaptažodį"
-                  value={data.confirmPassword}
-                  error={!passwordsMatch && data.confirmPassword !== ''}
-                  helperText={!passwordsMatch && data.confirmPassword !== '' ? 'Slaptažodžiai nesutampa' : ''}
-                  onChange={(e) => setData(prevData => ({ ...prevData, confirmPassword: e.target.value }))}
-                />
-              </FormControl>
-            </>
-          )}
-
-          <div style={{ marginTop: '100px' }}></div>
-
-          {/* Save + (when editing) long-press delete */}
-          <Box>
-            <Grid container spacing={1} sx={{ textAlign: "center" }} direction="row">
-              <Grid size={rowData !== undefined ? 6 : 12}>
-                <Button
-                  type="submit"
-                  variant="contained"
-                  color="primary"
-                  fullWidth
-                  onClick={() => handleSaveButton()}
-                  disabled={disableSave}
-                >
-                  {rowData !== undefined ? 'Išsaugoti' : 'Įterpti'}
-                </Button>
-              </Grid>
-
-              {rowData !== undefined && (
-                <Grid size={6}>
-                  <LongPressDeleteButton
-                    fullWidth
-                    onComplete={handleDeleteButton}
-                    completedToastMessage="Įrašas ištrintas"
-                    uncompletedToastMessage="Laikykite nuspaudę, kad ištrintumėte"
-                  >
-                    <DeleteIcon sx={{ mr: 1 }} />
-                    Ištrinti Įrašą
-                  </LongPressDeleteButton>
-                </Grid>
-              )}
-
-            </Grid>
-          </Box>
-
-        </Stack>
-      </DialogContent>
-    </Dialog>
+      </Stack>
+    </UniversalModal>
   );
 }

@@ -11,6 +11,11 @@
 //  Data comes from GET /api/admin/questions; `refetch` is
 //  passed down so the list can refresh itself after adding
 //  a question or editing link areas.
+//
+//  Split into (root component last):
+//
+//    SummaryTile — one icon + label + value tile
+//    Questions   — the page itself (default export)
 // -----------------------------------------------------------
 
 import useFetchData from "@/hooks/useFetchData";
@@ -24,26 +29,32 @@ import { GrCheckboxSelected } from 'react-icons/gr';
 import { MdPhishing } from 'react-icons/md';
 
 
-const CARD_SHADOW_STYLE = {
-  WebkitBoxShadow: '2px 4px 10px 1px rgba(0, 0, 0, 0.47)',
-  boxShadow: '2px 4px 10px 1px rgba(201, 201, 201, 0.47)',
-};
 
-const TILE_STYLE = {
-  display: 'table-cell',
-  textAlign: 'center',
-  padding: '30px',
-  fontSize: '15px',
-  verticalAlign: 'top',
-};
 
-const TILE_ICON_STYLE = {
-  backgroundColor: 'lightgrey',
-  borderRadius: '15px',
-  padding: '10px',
-  display: 'block',
-  margin: '0 auto',
-};
+
+
+
+// -----------------------------------------------------------
+// SummaryTile
+// -----------------------------------------------------------
+//
+// One cell of the summary strip: a big icon, a two-line
+// label and a value underneath.
+//
+// Used by:
+//   - Questions (below) — all four tiles
+// -----------------------------------------------------------
+
+function SummaryTile({ icon, label, value }) {
+  return (
+    <div className="table-cell text-center p-[30px] text-[15px] align-top">
+      {icon}
+      <span className="block">{label}</span>
+      <br/>
+      <span className="block">{value}</span>
+    </div>
+  );
+}
 
 
 
@@ -76,13 +87,10 @@ export default function Questions() {
         <div className="p-5 flex gap-5">
 
           {/* Left — title card */}
-          <div
-            className="flex-1 p-5 relative rounded-[10px]"
-            style={CARD_SHADOW_STYLE}
-          >
+          <div className="flex-1 p-5 relative rounded-[10px] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
             <div className="flex gap-5">
-              <div style={{ backgroundColor: '#E8E8E8', padding: '10px', height: 'fit-content', borderRadius: '15px' }}>
-                <MdPhishing size={170} style={{ borderRadius: '15px', padding: '10px' }} />
+              <div className="bg-[#E8E8E8] p-2.5 h-fit rounded-[15px]">
+                <MdPhishing size={170} className="rounded-[15px] p-2.5" />
               </div>
 
               <div className="flex-1 flex flex-col">
@@ -92,47 +100,37 @@ export default function Questions() {
           </div>
 
           {/* Right — summary tiles */}
-          <div
-            className="relative rounded-[10px]"
-            style={{
-              display: 'table',
-              width: '65%',
-              tableLayout: 'fixed',
-              ...CARD_SHADOW_STYLE,
-            }}
-          >
-            <div style={TILE_STYLE}>
-              <FaQuestion size={50} style={TILE_ICON_STYLE} />
-              <span className="block">Viso <br/> Klausimų:</span>
-              <br/>
-              <span className="block">{data.questioncount}</span>
-            </div>
+          <div className="relative rounded-[10px] table w-[65%] table-fixed shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
 
-            <div style={TILE_STYLE}>
-              <BsHandThumbsUp size={50} style={TILE_ICON_STYLE} />
-              <span className="block">Tikri<br/>Pavyzdžiai:</span>
-              <br/>
-              <span className="block">{data.goodcount} / {(data.goodcount * 100 / data.questioncount).toFixed(2)}%</span>
-            </div>
+            <SummaryTile
+              icon={<FaQuestion size={50} className="bg-[lightgrey] rounded-[15px] p-2.5 block mx-auto" />}
+              label={<>Viso <br/> Klausimų:</>}
+              value={data.questioncount}
+            />
 
-            <div style={TILE_STYLE}>
-              <MdPhishing size={50} style={TILE_ICON_STYLE} />
-              <span className="block">Fišingo<br/>Pavyzdžiai:</span>
-              <br/>
-              <span className="block">{data.phishingcount} / {(data.phishingcount * 100 / data.questioncount).toFixed(2)}%</span>
-            </div>
+            <SummaryTile
+              icon={<BsHandThumbsUp size={50} className="bg-[lightgrey] rounded-[15px] p-2.5 block mx-auto" />}
+              label={<>Tikri<br/>Pavyzdžiai:</>}
+              value={`${data.goodcount} / ${(data.goodcount * 100 / data.questioncount).toFixed(2)}%`}
+            />
 
-            <div style={TILE_STYLE}>
-              <GrCheckboxSelected size={50} style={TILE_ICON_STYLE} />
-              <span className="block">Opcijų<br/>Skaičius:</span>
-              <br/>
-              <span className="block">XXX</span>
-            </div>
+            <SummaryTile
+              icon={<MdPhishing size={50} className="bg-[lightgrey] rounded-[15px] p-2.5 block mx-auto" />}
+              label={<>Fišingo<br/>Pavyzdžiai:</>}
+              value={`${data.phishingcount} / ${(data.phishingcount * 100 / data.questioncount).toFixed(2)}%`}
+            />
+
+            <SummaryTile
+              icon={<GrCheckboxSelected size={50} className="bg-[lightgrey] rounded-[15px] p-2.5 block mx-auto" />}
+              label={<>Opcijų<br/>Skaičius:</>}
+              value="XXX"
+            />
+
           </div>
         </div>
 
         {/* The question list with inline editors */}
-        <div className="rounded-[10px] p-5 pb-2.5 mx-5 my-2.5" style={{ ...CARD_SHADOW_STYLE, minHeight: 'calc(100vh - 353px)' }}>
+        <div className="rounded-[10px] p-5 pb-2.5 mx-5 my-2.5 min-h-[calc(100vh-353px)] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
           <QuestionsList data={data} triggerQuestionListUpdate={triggerQuestionListUpdate}/>
         </div>
 

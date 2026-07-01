@@ -108,7 +108,7 @@ function MenuItemContent({ icon: Icon, label, open }) {
         onClick={() => setHovered(false)}
         className="flex items-center py-[3px] pl-[6px] pr-[10px] cursor-pointer whitespace-nowrap rounded-[3px] hover:bg-[#999] transition-colors"
       >
-        <Icon style={{ fontSize: '17px', color: 'rgb(123, 0, 63)' }} />
+        <Icon className="text-[17px] text-[rgb(123,0,63)]" />
         {open && <span className="text-[13px] font-semibold text-[rgb(65,65,65)] ml-[10px]">{label}</span>}
       </li>
     </Tooltip>
@@ -184,8 +184,8 @@ export default function AdminSidebar() {
             onClick={toggleOpen}
           >
             {open
-              ? <KeyboardDoubleArrowLeftIcon style={{ verticalAlign: 'middle' }} />
-              : <KeyboardDoubleArrowRightIcon style={{ verticalAlign: 'middle' }} />
+              ? <KeyboardDoubleArrowLeftIcon className="align-middle" />
+              : <KeyboardDoubleArrowRightIcon className="align-middle" />
             }
           </button>
 

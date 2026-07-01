@@ -19,18 +19,18 @@ import { Button } from '@mui/material';
 
 export default function Navbar() {
   return (
-    <div className="h-[75px] flex items-center text-sm bg-[rgb(123,0,63)] relative w-full" style={{ borderBottom: '0.5px solid rgb(231, 228, 228)' }}>
+    <div className="h-[75px] flex items-center text-sm bg-[rgb(123,0,63)] relative w-full border-b-[0.5px] border-[rgb(231,228,228)]">
 
       {/* VU logo */}
-      <Link to="/" style={{ textDecoration: "none", marginLeft: 30, marginRight: 30 }}>
+      <Link to="/" className="no-underline mx-[30px]">
         <img src="/img/vulogo.png" alt="VU logotipas" />
       </Link>
 
       <div className="w-full p-5 flex items-center justify-between">
 
         {/* App title */}
-        <Link to="/" style={{ textDecoration: "none" }}>
-          <div style={{ borderStyle: 'solid', borderWidth: 1, borderRadius: 15, color: 'white', borderColor: 'white', padding: 8, paddingLeft: 12, paddingRight: 12 }}>
+        <Link to="/" className="no-underline">
+          <div className="border border-solid border-white rounded-[15px] text-white py-2 px-3">
             Fišingo atakų atpažinimo testas
           </div>
         </Link>

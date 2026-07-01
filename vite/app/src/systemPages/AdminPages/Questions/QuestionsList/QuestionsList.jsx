@@ -19,6 +19,9 @@
 //  Split into (root component last):
 //
 //    FullScreenImageLinkEditor — fullscreen link-area editor
+//    QuestionImageCell         — screenshot + link editor button
+//    IsPhishingEditorRow       — question text + phishing flag
+//    OptionEditorRow           — one editable checkbox option
 //    QuestionRow               — one self-saving question
 //    QuestionsList             — the list (default export)
 // -----------------------------------------------------------
@@ -31,24 +34,11 @@ import { Button, Checkbox, TextField } from '@mui/material';
 import AddCircleOutlinedIcon from '@mui/icons-material/AddCircleOutlined';
 import AddLinkIcon from '@mui/icons-material/AddLink';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 import InteractiveImage from "@/components/Other/InteractiveImage/InteractiveImage";
 import InteractiveImageEditor from '@/components/Other/InteractiveImage/InteractiveImageEditor';
 import AddQuestion from './AddQuestion/AddQuestion';
-
-
-// TextField underline/label in the theme color when focused
-const TEXT_FIELD_SX = {
-  flexGrow: 1,
-  margin: 1,
-  "& .MuiInputLabel-root.Mui-focused": {
-    color: "primary.dark",
-  },
-  "& .MuiInputBase-root:after": {
-    borderBottom: "2px solid",
-    borderBottomColor: "primary.dark",
-  },
-};
 
 
 
@@ -60,12 +50,14 @@ const TEXT_FIELD_SX = {
 // FullScreenImageLinkEditor
 // -----------------------------------------------------------
 //
-// A fullscreen overlay wrapping InteractiveImageEditor: grey
-// top bar with an "Atgal" button, the editor filling the rest
-// of the screen. Saving inside the editor also closes it.
+// A fullscreen overlay wrapping InteractiveImageEditor: a
+// burgundy top bar with the title and an "Atgal" button, the
+// editor filling the rest of the screen. Saving inside the
+// editor also closes it.
 //
 // Used by:
-//   - QuestionRow (below) — the "Redaguoti Nuorodas" button
+//   - QuestionImageCell (below) — the "Redaguoti Nuorodas"
+//     button
 // -----------------------------------------------------------
 
 function FullScreenImageLinkEditor({ isModalOpen, setIsModalOpen, src, initialAreasUrl }) {
@@ -75,60 +67,232 @@ function FullScreenImageLinkEditor({ isModalOpen, setIsModalOpen, src, initialAr
   }
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        top: 0, bottom: 0, left: 0, right: 0,
-        backgroundColor: "white",
-        zIndex: 1000,
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
-      {/* Top grey bar */}
-      <div
-        style={{
-          height: 50,
-          backgroundColor: 'darkgrey',
-          display: 'flex',
-          justifyContent: 'flex-end',
-          alignItems: 'center',
-          paddingRight: 10,
-        }}
-      >
+    <div className="fixed inset-0 z-[1000] flex flex-col bg-white">
+
+      {/* Top bar — title + back */}
+      <div className="h-[55px] bg-[rgb(123,0,63)] flex items-center justify-between px-5 text-white shrink-0">
+        <div className="flex items-center gap-2">
+          <AddLinkIcon />
+          <span className="font-semibold">Nuorodų Redagavimas</span>
+        </div>
         <button
           onClick={() => setIsModalOpen(false)}
-          style={{
-            width: 80,
-            height: 30,
-            cursor: 'pointer',
-            border: '1px solid black',
-            borderRadius: 5,
-            background: 'darkgrey',
-          }}
+          className="flex items-center gap-1.5 border border-white/60 rounded-lg px-4 py-1.5 text-sm cursor-pointer hover:bg-white/10"
         >
+          <ArrowBackIcon sx={{ fontSize: 18 }} />
           Atgal
         </button>
       </div>
 
       {/* The editor */}
-      <div
-        style={{
-          flexGrow: 1,
-          padding: '20px',
-          overflow: 'hidden',
-          display: 'flex',
-        }}
-      >
-        <div style={{ width: '100%' }}>
-          <InteractiveImageEditor
-            src={src}
-            initialAreasUrl={initialAreasUrl}
-            onSaveButtonClick={() => setIsModalOpen(false)}
-          />
-        </div>
+      <div className="grow overflow-hidden">
+        <InteractiveImageEditor
+          src={src}
+          initialAreasUrl={initialAreasUrl}
+          onSaveButtonClick={() => setIsModalOpen(false)}
+        />
       </div>
+
     </div>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// QuestionImageCell
+// -----------------------------------------------------------
+//
+// The left cell of a question row: the email screenshot with
+// its clickable link areas and the "Redaguoti Nuorodas"
+// button that opens the fullscreen link editor.
+//
+// Used by:
+//   - QuestionRow (below)
+// -----------------------------------------------------------
+
+function QuestionImageCell({ questionid, triggerQuestionListUpdate }) {
+
+  const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(false);
+
+  return (
+    <TableCell component="th" scope="row" className="align-top">
+
+      <FullScreenImageLinkEditor
+        isModalOpen={isLinkEditorOpen}
+        setIsModalOpen={() => { setIsLinkEditorOpen(false); triggerQuestionListUpdate(); }}
+        src={`/api/phishingpictures/${questionid}`}
+        initialAreasUrl={`/api/phishingpictures/${questionid}/links`}
+      />
+
+      <InteractiveImage
+        src={"/api/phishingpictures/" + questionid}
+        clickableAreasUrl={"/api/phishingpictures/" + questionid + "/links"}
+        onImageClick={(e) => e.stopPropagation()}
+        imageStyle={{
+          maxWidth: "30vw",
+          border: "1px solid lightgrey",
+          borderRadius: 5,
+          marginBottom: 5,
+          WebkitBoxShadow: "2px 4px 10px 1px rgba(0, 0, 0, 0.47)",
+          boxShadow: "2px 4px 10px 1px rgba(201, 201, 201, 0.47)",
+          marginTop: 10,
+        }}
+      />
+
+      <Button
+        variant="contained"
+        color="primary"
+        sx={{
+          width: '100%',
+          fontSize: 20,
+          marginBottom: 30,
+        }}
+        onClick={() => setIsLinkEditorOpen(true)}
+      >
+        Redaguoti Nuorodas
+        <AddLinkIcon sx={{ fontSize: 30, color: "white", marginLeft: 2 }} />
+      </Button>
+
+    </TableCell>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// IsPhishingEditorRow
+// -----------------------------------------------------------
+//
+// The headline row of the question editor: the "Ar tai
+// fišingas?" title, the extra description field and the big
+// is-phishing checkbox.
+//
+// Used by:
+//   - QuestionRow (below)
+// -----------------------------------------------------------
+
+function IsPhishingEditorRow({ question, onDescriptionChange, onIsPhishingChange }) {
+  return (
+    <tr className="border-b border-[lightgrey]">
+      <td className="py-[15px]">
+        <div className="text-2xl font-bold ml-2.5">
+          Ar tai fišingas?
+        </div>
+        <TextField
+          variant="filled"
+          label="Papildomai"
+          defaultValue={question.questiontext}
+          onChange={(e) => onDescriptionChange(e.target.value)}
+          multiline
+          sx={{
+            flexGrow: 1,
+            margin: 1,
+            width: 'calc(100% - 76px)',
+            marginBottom: 5,
+
+            // Underline/label in the theme color when focused
+            "& .MuiInputLabel-root.Mui-focused": {
+              color: "primary.dark",
+            },
+            "& .MuiInputBase-root:after": {
+              borderBottom: "2px solid",
+              borderBottomColor: "primary.dark",
+            },
+          }}
+        />
+      </td>
+      <td className="text-center content-center">
+        <Checkbox
+          checked={question.isphishing}
+          onChange={(e) => onIsPhishingChange(e.target.checked)}
+          color="primary"
+          sx={{
+            '& .MuiSvgIcon-root': {
+              fontSize: 60,
+            },
+          }}
+        />
+      </td>
+    </tr>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// OptionEditorRow
+// -----------------------------------------------------------
+//
+// One editable checkbox option: its text field, the (disabled)
+// delete button and the right-answer checkbox.
+//
+// Used by:
+//   - QuestionRow (below)
+// -----------------------------------------------------------
+
+function OptionEditorRow({ questionoption, onTextChange, onCheckboxChange }) {
+  return (
+    <tr className="border-b border-[lightgrey]">
+      <td className="flex items-center w-full">
+        <TextField
+          variant="filled"
+          label={`Opcija Nr.: ${questionoption.optionid}`}
+          defaultValue={questionoption.optiontext}
+          onChange={(e) => onTextChange(e.target.value)}
+          multiline
+          sx={{
+            flexGrow: 1,
+            margin: 1,
+
+            // Underline/label in the theme color when focused
+            "& .MuiInputLabel-root.Mui-focused": {
+              color: "primary.dark",
+            },
+            "& .MuiInputBase-root:after": {
+              borderBottom: "2px solid",
+              borderBottomColor: "primary.dark",
+            },
+          }}
+        />
+
+        {/* Deletion is not supported by the backend */}
+        <Button
+          sx={{
+            background: "lightgrey",
+            borderRadius: 2,
+            justifyContent: "center",
+            alignContent: "center",
+            "&:hover": {
+              backgroundColor: "grey",
+            },
+          }}
+          disabled
+        >
+          <DeleteIcon sx={{ fontSize: 34, color: "grey" }} />
+        </Button>
+      </td>
+
+      <td className="text-center">
+        <Checkbox
+          checked={questionoption.rightoptionanswer === 1}
+          onChange={(e) => onCheckboxChange(e.target.checked)}
+          color="primary"
+        />
+      </td>
+    </tr>
   );
 }
 
@@ -153,7 +317,6 @@ function FullScreenImageLinkEditor({ isModalOpen, setIsModalOpen, src, initialAr
 function QuestionRow({ fetchedQuestionData, triggerQuestionListUpdate }) {
 
   const [question, setQuestionData] = useState(fetchedQuestionData);
-  const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(false);
 
 
   // Auto-save: POST the whole question 500 ms after the last
@@ -241,84 +404,37 @@ function QuestionRow({ fetchedQuestionData, triggerQuestionListUpdate }) {
 
 
   return (
-    <TableRow sx={{ borderTop: '3px solid lightgrey' }}>
+    <TableRow className="border-t-[3px] border-[lightgrey]">
 
-      <FullScreenImageLinkEditor
-        isModalOpen={isLinkEditorOpen}
-        setIsModalOpen={() => { setIsLinkEditorOpen(false); triggerQuestionListUpdate(); }}
-        src={`/api/phishingpictures/${question.questionid}`}
-        initialAreasUrl={`/api/phishingpictures/${question.questionid}/links`}
+      <QuestionImageCell
+        questionid={question.questionid}
+        triggerQuestionListUpdate={triggerQuestionListUpdate}
       />
 
-      {/* Left — the email screenshot + link editor button */}
-      <TableCell component="th" scope="row" style={{ verticalAlign: "top" }}>
-        <InteractiveImage
-          src={"/api/phishingpictures/" + question.questionid}
-          clickableAreasUrl={"/api/phishingpictures/" + question.questionid + "/links"}
-          onImageClick={(e) => e.stopPropagation()}
-          imageStyle={{
-            maxWidth: "30vw",
-            border: "1px solid lightgrey",
-            borderRadius: 5,
-            marginBottom: 5,
-            WebkitBoxShadow: "2px 4px 10px 1px rgba(0, 0, 0, 0.47)",
-            boxShadow: "2px 4px 10px 1px rgba(201, 201, 201, 0.47)",
-            marginTop: 10,
-          }}
-        />
-        <Button
-          variant="contained"
-          color="primary"
-          sx={{
-            width: '100%',
-            fontSize: 20,
-            marginBottom: 30,
-          }}
-          onClick={() => setIsLinkEditorOpen(true)}
-        >
-          Redaguoti Nuorodas
-          <AddLinkIcon sx={{ fontSize: 30, color: "white", marginLeft: 2 }} />
-        </Button>
-      </TableCell>
-
       {/* Right — the question editor */}
-      <TableCell style={{ verticalAlign: "top" }}>
-        <Button
-          style={{ background: "grey", color: "white", margin: 10, marginLeft: 0 }}
-          disabled
-        >
+      <TableCell className="align-top">
+        <Button className="m-2.5 ml-0" style={{ background: "grey", color: "white" }} disabled>
           Klausimo ID: {question.questionid}
         </Button>
-        <Button
-          style={{ background: "grey", color: "white", margin: 10 }}
-          disabled
-        >
+        <Button className="m-2.5" style={{ background: "grey", color: "white" }} disabled>
           Sukurtas: {question.created}
         </Button>
 
-        <table
-          style={{
-            width: "100%",
-            tableLayout: "fixed",
-            marginBottom: 100,
-            borderCollapse: "collapse",
-            border: '1px solid lightgrey',
-          }}
-        >
+        <table className="w-full table-fixed mb-[100px] border-collapse border border-[lightgrey]">
           <colgroup>
-            <col style={{ width: "70%" }} />
-            <col style={{ width: 120 }} />
+            <col className="w-[70%]" />
+            <col className="w-[120px]" />
           </colgroup>
 
           <thead>
-            <tr style={{ borderBottom: "1px solid lightgrey" }}>
+            <tr className="border-b border-[lightgrey]">
               <td>
-                <h3 style={{ fontSize: 26, marginBottom: 0, paddingLeft: 10 }}>
+                <h3 className="text-[26px] mb-0 pl-2.5">
                   <b>Klausimas</b>
                 </h3>
               </td>
-              <td style={{ textAlign: "center", paddingRight: 200 }}>
-                <h3 style={{ fontSize: 26, marginBottom: 0 }}>
+              <td className="text-center pr-[200px]">
+                <h3 className="text-[26px] mb-0">
                   <b>Teisingas</b>
                 </h3>
               </td>
@@ -327,84 +443,24 @@ function QuestionRow({ fetchedQuestionData, triggerQuestionListUpdate }) {
 
           <tbody>
 
-            {/* "Ar tai fišingas?" + the extra description */}
-            <tr style={{ borderBottom: "1px solid lightgrey" }}>
-              <td style={{ paddingBottom: 15, paddingTop: 15 }}>
-                <div style={{ fontSize: 24, fontWeight: "bold", marginLeft: 10 }}>
-                  Ar tai fišingas?
-                </div>
-                <TextField
-                  variant="filled"
-                  label="Papildomai"
-                  defaultValue={question.questiontext}
-                  onChange={(e) => handleDescriptionChange(e.target.value)}
-                  multiline
-                  sx={{
-                    ...TEXT_FIELD_SX,
-                    width: 'calc(100% - 76px)',
-                    marginBottom: 5,
-                  }}
-                />
-              </td>
-              <td style={{ textAlign: "center", alignContent: 'center' }}>
-                <Checkbox
-                  checked={question.isphishing}
-                  onChange={(e) => handleIsPhishingChange(e.target.checked)}
-                  color="primary"
-                  sx={{
-                    '& .MuiSvgIcon-root': {
-                      fontSize: 60,
-                    },
-                  }}
-                />
-              </td>
-            </tr>
+            <IsPhishingEditorRow
+              question={question}
+              onDescriptionChange={handleDescriptionChange}
+              onIsPhishingChange={handleIsPhishingChange}
+            />
 
-            {/* The checkbox options */}
             {question.questionoptions.map((questionoption, index) => (
-              <tr style={{ borderBottom: "1px solid lightgrey" }} key={questionoption.optionid}>
-                <td
-                  style={{ display: "flex", alignItems: "center", width: "100%" }}
-                >
-                  <TextField
-                    variant="filled"
-                    label={`Opcija Nr.: ${questionoption.optionid}`}
-                    defaultValue={questionoption.optiontext}
-                    onChange={(e) => handleOptionChange(index, e.target.value)}
-                    multiline
-                    sx={TEXT_FIELD_SX}
-                  />
-
-                  {/* Deletion is not supported by the backend */}
-                  <Button
-                    sx={{
-                      background: "lightgrey",
-                      borderRadius: 2,
-                      justifyContent: "center",
-                      alignContent: "center",
-                      "&:hover": {
-                        backgroundColor: "grey",
-                      },
-                    }}
-                    disabled
-                  >
-                    <DeleteIcon sx={{ fontSize: 34, color: "grey" }} />
-                  </Button>
-                </td>
-
-                <td style={{ textAlign: "center" }}>
-                  <Checkbox
-                    checked={questionoption.rightoptionanswer === 1}
-                    onChange={(e) => handleOptionCheckboxChange(index, e.target.checked)}
-                    color="primary"
-                  />
-                </td>
-              </tr>
+              <OptionEditorRow
+                key={questionoption.optionid}
+                questionoption={questionoption}
+                onTextChange={(text) => handleOptionChange(index, text)}
+                onCheckboxChange={(checked) => handleOptionCheckboxChange(index, checked)}
+              />
             ))}
 
             {/* New option */}
             <tr>
-              <td style={{ textAlign: "center" }}>
+              <td className="text-center">
                 <Button
                   variant="contained"
                   color="primary"
@@ -419,7 +475,7 @@ function QuestionRow({ fetchedQuestionData, triggerQuestionListUpdate }) {
                   <AddCircleOutlinedIcon sx={{ fontSize: 26, marginLeft: 2 }} />
                 </Button>
               </td>
-              <td style={{ textAlign: "center" }}></td>
+              <td></td>
             </tr>
 
           </tbody>
@@ -466,12 +522,7 @@ export default function QuestionsList({ data, triggerQuestionListUpdate }) {
       }
 
       {/* New question button */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-        }}
-      >
+      <div className="flex justify-center">
         <Button
           variant="contained"
           color="primary"

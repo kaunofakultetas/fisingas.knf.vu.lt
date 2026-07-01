@@ -18,7 +18,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DataGrid, Toolbar, QuickFilter, QuickFilterControl, GridLogicOperator } from "@mui/x-data-grid";
-import { Box, LinearProgress, FormGroup, FormControlLabel } from '@mui/material';
+import { Box, LinearProgress, FormGroup, FormControlLabel, Typography } from '@mui/material';
+import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import useFetchData from "@/hooks/useFetchData";
 
 import ColumnsButton from '@/components/DatagridCustomComponents/ColumnsButton';
@@ -59,7 +60,7 @@ const STUDENT_COLUMNS = [
     renderCell: (params) => {
       if (params.row.isfinished === 1) {
         return (
-          <div className="px-1 mr-1 rounded w-fit" style={{ backgroundColor: 'green' }}>BAIGTA</div>
+          <div className="rounded-[9px] w-20 text-center bg-[green]">BAIGTA</div>
         );
       }
       return null;
@@ -174,56 +175,73 @@ export default function StudentsListTable() {
 
 
   return (
-    <Box className="h-[calc(100vh-85px)] p-2.5 pb-[50px] w-full">
-      <Box className="text-2xl text-gray-500 mb-2.5 flex items-center justify-between">
-        Studentų Sąrašas
+    <Box className="flex-1 p-5">
+
+      {/* Page heading with student count */}
+      <Box className="flex items-center gap-2 mb-4">
+        <PersonOutlineIcon sx={{ fontSize: 28, color: 'primary.main' }} />
+        <Typography variant="h5" sx={{ fontWeight: 600 }}>
+          Studentų Sąrašas
+        </Typography>
+        {!loadingData && (
+          <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+            ({rows.length})
+          </Typography>
+        )}
       </Box>
-      <DataGrid
-        sx={{
-          cursor: 'pointer',
-          '& .MuiDataGrid-row:hover': {
-            backgroundColor: 'rgba(123, 0, 63, 0.08)',
-          },
-        }}
-        rows={rows}
-        columns={STUDENT_COLUMNS}
-        pageSizeOptions={[100]}
-        rowHeight={30}
-        showToolbar
-        onRowClick={handleRowClick}
-        loading={loadingData}
 
-        initialState={{
-          columns: {
-            columnVisibilityModel: {
-              groupname: false,
+      {/* The grid */}
+      <Box className="rounded-[10px] bg-white p-4 shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
+        <DataGrid
+          sx={{
+            height: 'calc(100vh - 230px)',
+            cursor: 'pointer',
+            border: 'none',
+            '& .MuiDataGrid-row:hover': {
+              backgroundColor: 'rgba(123, 0, 63, 0.08)',
             },
-          },
-          filter: {
-            filterModel: {
-              items: [],
-              quickFilterLogicOperator: GridLogicOperator.Or,
-              quickFilterExcludeHiddenColumns: false,
+          }}
+          rows={rows}
+          columns={STUDENT_COLUMNS}
+          pageSizeOptions={[100]}
+          rowHeight={30}
+          showToolbar
+          onRowClick={handleRowClick}
+          loading={loadingData}
+
+          initialState={{
+            columns: {
+              columnVisibilityModel: {
+                groupname: false,
+              },
             },
-          },
-          pagination: {
-            paginationModel: { pageSize: 100 },
-          },
-        }}
+            filter: {
+              filterModel: {
+                items: [],
+                quickFilterLogicOperator: GridLogicOperator.Or,
+                quickFilterExcludeHiddenColumns: false,
+              },
+            },
+            pagination: {
+              paginationModel: { pageSize: 100 },
+            },
+          }}
 
-        slots={{
-          toolbar: QuickSearchToolbar,
-          loadingOverlay: LinearProgress,
-          pagination: ButtonsPagination,
-        }}
+          slots={{
+            toolbar: QuickSearchToolbar,
+            loadingOverlay: LinearProgress,
+            pagination: ButtonsPagination,
+          }}
 
-        slotProps={{
-          panel: { placement: 'bottom-start' },
-          toolbar: {
-            passState: setLastMonthOnly,
-          },
-        }}
-      />
+          slotProps={{
+            panel: { placement: 'bottom-start' },
+            toolbar: {
+              passState: setLastMonthOnly,
+            },
+          }}
+        />
+      </Box>
+
     </Box>
   );
 }

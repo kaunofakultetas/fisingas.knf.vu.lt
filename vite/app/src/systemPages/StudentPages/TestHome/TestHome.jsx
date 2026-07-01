@@ -18,8 +18,12 @@
 //
 //  Split into (root component last):
 //
-//    FullScreenImage — the zoomed-in email overlay
-//    TestHome        — the page itself (default export)
+//    FullScreenImage  — the zoomed-in email overlay
+//    AnswerButton     — one "Tikras"/"Fišingas" button
+//    OptionsList      — the question's follow-up checkboxes
+//    useTestQuestions — questions state + autosave + handlers
+//    QuestionCard     — the white card of the open question
+//    TestHome         — the page itself (default export)
 // -----------------------------------------------------------
 
 import { useState, useEffect } from "react";
@@ -28,20 +32,13 @@ import axios from "axios";
 import Navbar from "@/components/Navbar/Navbar";
 import StudentSidebar from "@/components/Student/Sidebar/Sidebar";
 import InteractiveImage from "@/components/Other/InteractiveImage/InteractiveImage";
+import Footer from "@/components/Other/Footer/Footer";
 
-import { Button, Checkbox } from '@mui/material';
-
+import { Checkbox } from '@mui/material';
 import { BsHandThumbsUp } from 'react-icons/bs';
 import { MdPhishing } from 'react-icons/md';
-import CheckBoxOutlinedIcon from '@mui/icons-material/CheckBoxOutlined';
-import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
-
-
-const ANSWER_BUTTON_SX = {
-  background: 'rgb(123, 0, 63)',
-  color: 'white',
-  '&:hover': { backgroundColor: 'rgb(230, 65, 100)' },
-};
+import ZoomInIcon from '@mui/icons-material/ZoomIn';
+import CloseIcon from '@mui/icons-material/Close';
 
 
 
@@ -53,10 +50,11 @@ const ANSWER_BUTTON_SX = {
 // FullScreenImage
 // -----------------------------------------------------------
 //
-// Fullscreen view of the current email: dark backdrop, a grey
-// top bar with an "Atgal" button, and the email centered on
-// black. Clicking anywhere closes it. Link areas keep working
-// (transparent overlays + URL tooltips).
+// Fullscreen view of the current email: near-black backdrop,
+// a floating "Atgal" pill in the top-right corner, the email
+// centered. Clicking anywhere (or pressing Escape) closes it.
+// Link areas keep working (transparent overlays + URL
+// tooltips).
 //
 // Used by:
 //   - TestHome (below)
@@ -64,64 +62,45 @@ const ANSWER_BUTTON_SX = {
 
 function FullScreenImage({ isModalOpen, setIsModalOpen, url, clickableAreasUrl }) {
 
+  // Escape closes the overlay
+  useEffect(() => {
+    if (!isModalOpen) return;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setIsModalOpen(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isModalOpen, setIsModalOpen]);
+
+
   if (!isModalOpen) {
     return null;
   }
 
   return (
     <div
-      style={{
-        position: "fixed",
-        top: 0, bottom: 0, left: 0, right: 0,
-        backgroundColor: "rgba(0,0,0,0.7)",
-        zIndex: 1000,
-        display: 'flex',
-        flexDirection: 'column',
-        cursor: 'zoom-out',
-      }}
+      className="fixed inset-0 z-[1000] bg-black/90 cursor-zoom-out"
       onClick={() => setIsModalOpen(false)}
     >
-      {/* Top grey bar */}
-      <div style={{
-        height: 50,
-        backgroundColor: 'lightgrey',
-        display: 'flex',
-        justifyContent: 'flex-end',
-        alignItems: 'center',
-        paddingRight: 10,
-      }}>
-        <button
-          onClick={() => setIsModalOpen(false)}
-          style={{
-            width: 80,
-            height: 30,
-            cursor: 'zoom-out',
-            border: '1px solid black',
-            borderRadius: 5,
-            background: 'darkgrey',
-          }}
-        >
-          Atgal
-        </button>
-      </div>
 
-      {/* Image container */}
-      <div
-        style={{
-          position: 'relative',
-          backgroundColor: 'black',
-          flexGrow: 1,
-          padding: '20px',
-          overflow: 'hidden',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-        }}
+      {/* Floating close button */}
+      <button
+        onClick={() => setIsModalOpen(false)}
+        className="absolute top-4 right-4 z-10 inline-flex items-center gap-1.5 px-4 py-2 rounded-full
+          bg-white/10 border border-white/30 text-white text-sm font-medium
+          hover:bg-white/20 transition-colors cursor-zoom-out"
       >
+        <CloseIcon fontSize="small" />
+        Atgal
+      </button>
+
+      {/* The email centered on the backdrop */}
+      <div className="relative w-full h-full p-6 overflow-hidden flex justify-center items-center">
         <InteractiveImage
           src={url}
           clickableAreasUrl={clickableAreasUrl}
-          clickablAreaColor='rgba(0, 0, 0, 0.0)'
+          clickableAreaColor='rgba(0, 0, 0, 0.0)'
           containerStyle={{
             width: '100%',
             height: '100%',
@@ -134,8 +113,89 @@ function FullScreenImage({ isModalOpen, setIsModalOpen, url, clickableAreasUrl }
             maxWidth: '100%',
             objectFit: 'contain',
             display: 'block',
+            borderRadius: '8px',
           }}
         />
+      </div>
+
+    </div>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// AnswerButton
+// -----------------------------------------------------------
+//
+// One of the two big verdict buttons. The selected one is
+// filled brand burgundy; the other stays white with a border
+// and tints on hover.
+//
+// Used by:
+//   - QuestionCard (below) — "Tikras" (0) and "Fišingas" (1)
+// -----------------------------------------------------------
+
+function AnswerButton({ icon, label, selected, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-3 px-10 py-3.5 rounded-xl border-2 text-xl font-semibold
+        transition-all cursor-pointer select-none
+        ${selected
+          ? 'bg-[rgb(123,0,63)] border-[rgb(123,0,63)] text-white shadow-[0_4px_14px_rgba(123,0,63,0.35)]'
+          : 'bg-white border-gray-300 text-gray-600 hover:border-[rgb(230,65,100)] hover:text-[rgb(123,0,63)]'
+        }`}
+    >
+      <span className="text-3xl">{icon}</span>
+      {label}
+    </button>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// OptionsList
+// -----------------------------------------------------------
+//
+// The question's follow-up checkboxes ("what gives it away")
+// under a "Klausimai" heading. The whole row is clickable and
+// highlights softly when its checkbox is ticked.
+//
+// Used by:
+//   - QuestionCard (below)
+// -----------------------------------------------------------
+
+function OptionsList({ options, onOptionClick }) {
+  return (
+    <div className="mt-6">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Klausimai</h3>
+
+      <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-hidden">
+        {options.map((questionOption, index) => (
+          <div
+            key={index}
+            onClick={() => onOptionClick(index)}
+            className={`flex items-center justify-between gap-4 px-4 py-1.5 cursor-pointer transition-colors
+              ${questionOption.isselected === 1 ? 'bg-[rgba(123,0,63,0.05)]' : 'hover:bg-gray-50'}`}
+          >
+            <span className="text-gray-700">{questionOption.answeroption}</span>
+            <Checkbox
+              checked={questionOption.isselected === 1}
+              style={{ color: "rgb(123, 0, 63)" }}
+            />
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -148,19 +208,32 @@ function FullScreenImage({ isModalOpen, setIsModalOpen, url, clickableAreasUrl }
 
 
 // -----------------------------------------------------------
-// TestHome (default export)
+// useTestQuestions
 // -----------------------------------------------------------
 //
+// The data side of the test:
+//
+//   - loads the student's questions on mount (the backend
+//     assigns each student a random subset on first request;
+//     a 401 bounces to /login)
+//   - autosaves by POSTing the whole answer state after every
+//     change, so progress survives a reload and the admin
+//     dashboard sees it live
+//   - exposes the two mutations the page needs: the
+//     "Tikras"/"Fišingas" verdict and the option toggles
+//
+// Returns { questionsData, currentQuestionIndex,
+//           setCurrentQuestionIndex, loading,
+//           answerQuestion, toggleOption }.
+//
 // Used by:
-//   - App.jsx — route /student (behind the student guard;
-//     finished students are redirected to /student/finish)
+//   - TestHome (below)
 // -----------------------------------------------------------
 
-export default function TestHome() {
+function useTestQuestions() {
 
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(undefined);
   const [questionsData, setQuestionsData] = useState([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
 
 
   // Load the student's questions (assigned server-side)
@@ -196,7 +269,7 @@ export default function TestHome() {
 
 
   // "Tikras" (0) / "Fišingas" (1) answer for the open question
-  const handleQuestionAnswerClick = (selectedanswer) => {
+  const answerQuestion = (selectedanswer) => {
     const updatedQuestionsData = [...questionsData];
     updatedQuestionsData[currentQuestionIndex].selectedanswer = selectedanswer;
     setQuestionsData(updatedQuestionsData);
@@ -207,7 +280,7 @@ export default function TestHome() {
 
 
   // Toggle one of the question's follow-up checkboxes
-  const handleQuestionOptionClick = (optionIndex) => {
+  const toggleOption = (optionIndex) => {
     const updatedQuestionsData = [...questionsData];
     updatedQuestionsData[currentQuestionIndex].questionoptions[optionIndex].isselected =
       updatedQuestionsData[currentQuestionIndex].questionoptions[optionIndex].isselected === 1 ? 0 : 1;
@@ -215,9 +288,150 @@ export default function TestHome() {
   };
 
 
-  if (questionsData.length === 0 || currentQuestionIndex === undefined) {
+  return {
+    questionsData,
+    currentQuestionIndex,
+    setCurrentQuestionIndex,
+    loading: questionsData.length === 0 || currentQuestionIndex === undefined,
+    answerQuestion,
+    toggleOption,
+  };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// QuestionCard
+// -----------------------------------------------------------
+//
+// The white card of the open question: a header with the
+// question counter and the zoom hint, the email screenshot
+// (click to zoom), the "Tikras"/"Fišingas" verdict buttons,
+// the optional "Papildomai" callout and the follow-up
+// checkboxes.
+//
+// Used by:
+//   - TestHome (below)
+// -----------------------------------------------------------
+
+function QuestionCard({ question, questionNumber, questionCount, onAnswer, onToggleOption, onZoom }) {
+  return (
+    <div className="bg-white w-full max-w-[1100px] h-fit rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] border border-gray-200 mb-8 overflow-hidden">
+
+      {/* Card header — question counter */}
+      <div className="flex items-center justify-between px-8 py-4 border-b border-gray-100">
+        <h2 className="text-lg font-bold text-gray-800">
+          Klausimas {questionNumber}
+          <span className="text-gray-400 font-medium"> / {questionCount}</span>
+        </h2>
+        <span className="inline-flex items-center gap-1.5 text-sm text-gray-400">
+          <ZoomInIcon fontSize="small" />
+          Spustelėkite laišką, kad padidintumėte
+        </span>
+      </div>
+
+      {/* The email — click to zoom in */}
+      <div className="relative m-8 mb-0 p-4 bg-gray-50 border border-gray-200 rounded-xl">
+        <InteractiveImage
+          src={`/api/phishingpictures/${question.questionid}`}
+          clickableAreasUrl={`/api/phishingpictures/${question.questionid}/links`}
+          clickableAreaColor='rgba(0, 0, 0, 0.0)'
+          onImageClick={onZoom}
+          containerStyle={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            height: '50vh',
+            cursor: 'zoom-in',
+          }}
+          imageStyle={{
+            maxWidth: '100%',
+            maxHeight: '100%',
+            objectFit: 'contain',
+            border: '1px solid rgb(229, 231, 235)',
+            borderRadius: '10px',
+            backgroundColor: 'white',
+          }}
+        />
+      </div>
+
+      <div className="px-8 pb-8">
+
+        {/* Tikras / Fišingas buttons */}
+        <div className="flex flex-row flex-wrap justify-center gap-5 mt-6">
+          <AnswerButton
+            icon={<BsHandThumbsUp />}
+            label="Tikras"
+            selected={question.selectedanswer === 0}
+            onClick={() => onAnswer(0)}
+          />
+          <AnswerButton
+            icon={<MdPhishing />}
+            label="Fišingas"
+            selected={question.selectedanswer === 1}
+            onClick={() => onAnswer(1)}
+          />
+        </div>
+
+        {/* Additional info from the question */}
+        {question.question !== "" &&
+          <div className="mt-6 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-gray-700">
+            <b className="mr-1.5">Papildomai:</b>
+            {question.question}
+          </div>
+        }
+
+        {/* Follow-up checkboxes */}
+        <OptionsList
+          options={question.questionoptions}
+          onOptionClick={onToggleOption}
+        />
+
+      </div>
+    </div>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TestHome (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - App.jsx — route /student (behind the student guard;
+//     finished students are redirected to /student/finish)
+// -----------------------------------------------------------
+
+export default function TestHome() {
+
+  const {
+    questionsData,
+    currentQuestionIndex,
+    setCurrentQuestionIndex,
+    loading,
+    answerQuestion,
+    toggleOption,
+  } = useTestQuestions();
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+
+  // Loading — centered brand spinner
+  if (loading) {
     return (
-      <div>Kraunasi...</div>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-[#EBECEF]">
+        <div className="w-10 h-10 rounded-full border-4 border-gray-300 border-t-[rgb(123,0,63)] animate-spin" />
+        <div className="text-gray-500">Kraunasi...</div>
+      </div>
     );
   }
 
@@ -235,109 +449,18 @@ export default function TestHome() {
         clickableAreasUrl={`/api/phishingpictures/${currentQuestion.questionid}/links`}
       />
 
-      <div style={{ display: 'flex', flexDirection: 'row' }}>
-        <div style={{ minHeight: 'calc(100vh - 135px)', width: '100%', background: '#EBECEF', display: 'flex', justifyContent: 'center', paddingTop: 30 }}>
-          <div style={{ backgroundColor: 'white', width: 'calc(100vw - 400px)', border: '1px lightgrey solid', borderRadius: 15, marginBottom: 20 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', border: '3px solid lightgrey', margin: 20, borderRadius: 15 }}>
+      <div className="flex flex-row">
 
-              {/* The email — click to zoom in */}
-              <div style={{ position: 'relative', padding: 20 }}>
-                <InteractiveImage
-                  src={`/api/phishingpictures/${currentQuestion.questionid}`}
-                  clickableAreasUrl={`/api/phishingpictures/${currentQuestion.questionid}/links`}
-                  clickablAreaColor='rgba(0, 0, 0, 0.0)'
-                  onImageClick={() => setIsModalOpen(true)}
-                  containerStyle={{
-                    display: 'flex',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    height: '50vh',
-                    cursor: 'zoom-in',
-                  }}
-                  imageStyle={{
-                    maxWidth: '100%',
-                    maxHeight: '100%',
-                    objectFit: 'contain',
-                    border: '1px solid lightgrey',
-                    borderRadius: '10px',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', padding: 20, margin: 20, marginTop: 0, paddingTop: 0 }}>
-
-                {/* Tikras / Fišingas buttons */}
-                <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'center' }}>
-
-                  <div style={{ margin: 15 }}>
-                    <Button sx={ANSWER_BUTTON_SX} onClick={() => handleQuestionAnswerClick(0)}>
-                      <BsHandThumbsUp style={{ fontSize: 40, padding: 5 }} />
-                      <div style={{ fontSize: 25, marginRight: 15 }}>Tikras</div>
-                      {currentQuestion.selectedanswer === 0 ? (
-                        <CheckBoxOutlinedIcon style={{ fontSize: 40, padding: 5 }} />
-                      ) : (
-                        <CheckBoxOutlineBlankIcon style={{ fontSize: 40, padding: 5 }} />
-                      )}
-                    </Button>
-                  </div>
-
-                  <div style={{ margin: 15 }}>
-                    <Button sx={ANSWER_BUTTON_SX} onClick={() => handleQuestionAnswerClick(1)}>
-                      <MdPhishing style={{ fontSize: 40, padding: 5 }} />
-                      <div style={{ fontSize: 25, marginRight: 15 }}>Fišingas</div>
-                      {currentQuestion.selectedanswer === 1 ? (
-                        <CheckBoxOutlinedIcon style={{ fontSize: 40, padding: 5 }} />
-                      ) : (
-                        <CheckBoxOutlineBlankIcon style={{ fontSize: 40, padding: 5 }} />
-                      )}
-                    </Button>
-                  </div>
-
-                </div>
-
-                {/* Additional info from the question */}
-                <div style={{ display: 'flex', flexDirection: 'row' }}>
-                  {currentQuestion.question !== "" &&
-                    <span style={{ marginTop: 20, marginBottom: 20 }}>
-                      <b style={{ marginRight: 5 }}>
-                        Papildomai:
-                      </b>
-                      {currentQuestion.question}
-                    </span>
-                  }
-                </div>
-
-                {/* Follow-up checkboxes */}
-                <table style={{ width: '100%', tableLayout: 'fixed', paddingLeft: 20, borderCollapse: 'collapse' }}>
-                  <colgroup>
-                    <col />
-                    <col style={{ width: 100 }} />
-                  </colgroup>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid lightgrey' }}>
-                      <td><h3><b>Klausimai</b></h3></td>
-                      <td style={{ textAlign: 'center' }}></td>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {currentQuestion.questionoptions.map((questionOption, index) => (
-                      <tr key={index} style={{ borderBottom: '1px solid lightgrey' }}>
-                        <td>{questionOption.answeroption}</td>
-                        <td style={{ textAlign: 'center' }}>
-                          <Checkbox
-                            checked={questionOption.isselected === 1}
-                            onClick={() => handleQuestionOptionClick(index)}
-                            style={{ color: "rgb(123, 0, 63)" }}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-
-              </div>
-            </div>
-          </div>
+        {/* The open question */}
+        <div className="min-h-[calc(100vh-135px)] w-full bg-[#EBECEF] flex justify-center px-8 pt-[30px]">
+          <QuestionCard
+            question={currentQuestion}
+            questionNumber={currentQuestionIndex + 1}
+            questionCount={questionsData.length}
+            onAnswer={answerQuestion}
+            onToggleOption={toggleOption}
+            onZoom={() => setIsModalOpen(true)}
+          />
         </div>
 
         {/* Question navigation + finish */}
@@ -348,10 +471,7 @@ export default function TestHome() {
         />
       </div>
 
-      {/* Footer */}
-      <div style={{ background: 'rgb(123, 0, 63)', height: 30, display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'white', fontSize: "0.7em" }}>
-        Copyright © | All Rights Reserved | VUKnF
-      </div>
+      <Footer />
     </div>
   );
 }

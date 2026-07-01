@@ -33,7 +33,7 @@ export default function ToolbarButton({ onClick, label, icon: Icon }) {
       sx={{ ml: 1, px: 2, height: 30 }}
       onClick={onClick}
     >
-      {Icon && <Icon style={{ paddingRight: 8, fontSize: '22px' }} />}
+      {Icon && <Icon className="pr-2 text-[22px]" />}
       {label}
     </Button>
   );

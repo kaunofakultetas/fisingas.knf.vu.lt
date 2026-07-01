@@ -2,20 +2,25 @@
 //  [*] Admin — AdministratorsList
 //
 //  The administrators DataGrid (/admin/administrators), from
-//  GET /api/admin/administrators. Clicking a row opens the
-//  AddEditAdministrator dialog with that admin's data; the
-//  toolbar's "Įterpti Naują" opens the same dialog empty.
+//  GET /api/admin/administrators, with a quick search, a
+//  column picker and an "Įterpti Naują" button.
+//
+//  Clicking a row (edit) or the add button (create) opens the
+//  AddEditAdministrator modal; after a successful save/delete
+//  the grid refetches.
 //
 //  Split into (root component last):
 //
-//    QuickSearchToolbar — search + columns + add-new button
-//    AdministratorsList — the page itself (default export)
+//    ADMINISTRATOR_COLUMNS — column definitions
+//    QuickSearchToolbar    — search + columns + add-new button
+//    AdministratorsList    — the page itself (default export)
 // -----------------------------------------------------------
 
 import { useState } from "react";
 import { DataGrid, Toolbar, QuickFilter, QuickFilterControl, GridLogicOperator } from "@mui/x-data-grid";
-import { Box, LinearProgress } from '@mui/material';
+import { Box, LinearProgress, Typography } from '@mui/material';
 import AddCircleOutlinedIcon from '@mui/icons-material/AddCircleOutlined';
+import BadgeIcon from '@mui/icons-material/Badge';
 import useFetchData from "@/hooks/useFetchData";
 
 import AdminPageLayout from "@/systemPages/AdminPages/AdminPageLayout";
@@ -25,6 +30,19 @@ import ColumnsButton from '@/components/DatagridCustomComponents/ColumnsButton';
 import ToolbarButton from '@/components/DatagridCustomComponents/ToolbarButton';
 import ButtonsPagination from '@/components/Other/ButtonsPagination/ButtonsPagination';
 
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ADMINISTRATOR_COLUMNS
+// -----------------------------------------------------------
+//
+// Column definitions. "Įjungtas?" renders as a colored pill
+// (enabled = green, disabled = grey).
+// -----------------------------------------------------------
 
 const ADMINISTRATOR_COLUMNS = [
   {
@@ -44,12 +62,7 @@ const ADMINISTRATOR_COLUMNS = [
     renderCell: (params) => {
       const isEnabled = params.row.enabled === 1;
       return (
-        <div
-          className="px-1 mr-1 rounded w-fit"
-          style={{
-            backgroundColor: isEnabled ? 'green' : 'grey',
-          }}
-        >
+        <div className={`rounded-[9px] w-20 text-center ${isEnabled ? 'bg-[green]' : 'bg-[grey]'}`}>
           {isEnabled ? 'Įjungtas' : 'Išjungtas'}
         </div>
       );
@@ -72,11 +85,12 @@ const ADMINISTRATOR_COLUMNS = [
 // QuickSearchToolbar
 // -----------------------------------------------------------
 //
-// The grid's toolbar: quick-search box, column picker and
-// the "Įterpti Naują" button.
+// Grid toolbar: quick search field ("Ieškoti..."), column
+// picker and the "Įterpti Naują" button. triggerAddNew comes
+// in through the grid's slotProps.toolbar.
 //
 // Used by:
-//   - AdministratorsList (below)
+//   - AdministratorsList (below) — the grid's `toolbar` slot
 // -----------------------------------------------------------
 
 function QuickSearchToolbar({ triggerAddNew }) {
@@ -90,7 +104,7 @@ function QuickSearchToolbar({ triggerAddNew }) {
         <QuickFilterControl placeholder="Ieškoti..." size="small" />
       </QuickFilter>
       <ColumnsButton />
-      <ToolbarButton label="Įterpti Naują" icon={AddCircleOutlinedIcon} onClick={() => triggerAddNew()} />
+      <ToolbarButton label="Įterpti Naują" icon={AddCircleOutlinedIcon} onClick={triggerAddNew} />
     </Toolbar>
   );
 }
@@ -113,81 +127,98 @@ export default function AdministratorsList() {
 
   const { data, loadingData, refetch: getData } = useFetchData("/api/admin/administrators");
 
-  // The dialog: open/closed + the clicked row (undefined = new admin)
-  const [openBackdrop, setOpenBackdrop] = useState(false);
-  const [userLineData, setUserLineData] = useState();
+  // Modal state — userLineData undefined means "create new"
+  const [openModal, setOpenModal] = useState(false);
+  const [userLineData, setUserLineData] = useState(undefined);
 
 
   const handleRowClick = (params) => {
     setUserLineData({ ...params });
-    setOpenBackdrop(true);
+    setOpenModal(true);
   };
 
   const triggerAddNew = () => {
     setUserLineData(undefined);
-    setOpenBackdrop(true);
-  }
+    setOpenModal(true);
+  };
 
 
   return (
-    <AdminPageLayout>
-      <Box className="h-[calc(100vh-85px)] p-2.5 pb-[50px] w-full">
-        <Box className="text-2xl text-gray-500 mb-2.5 flex items-center justify-between">
-          Administratorių Sąrašas
+    <AdminPageLayout backgroundColor="#EBECEF">
+      <Box className="flex-1 p-5">
+
+        {/* Page heading with administrator count */}
+        <Box className="flex items-center gap-2 mb-4">
+          <BadgeIcon sx={{ fontSize: 28, color: 'primary.main' }} />
+          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+            Administratorių Sąrašas
+          </Typography>
+          {!loadingData && (
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+              ({data.length})
+            </Typography>
+          )}
         </Box>
-        <DataGrid
-          sx={{
-            cursor: 'pointer',
-            '& .MuiDataGrid-row:hover': {
-              backgroundColor: 'rgba(123, 0, 63, 0.08)',
-            },
-          }}
-          rows={data}
-          columns={ADMINISTRATOR_COLUMNS}
-          pageSizeOptions={[100]}
-          rowHeight={30}
-          showToolbar
-          onRowClick={handleRowClick}
-          loading={loadingData}
 
-          initialState={{
-            columns: {
-              columnVisibilityModel: {},
-            },
-            filter: {
-              filterModel: {
-                items: [],
-                quickFilterLogicOperator: GridLogicOperator.Or,
-                quickFilterExcludeHiddenColumns: false,
+        {/* The grid */}
+        <Box className="rounded-[10px] bg-white p-4 shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
+          <DataGrid
+            sx={{
+              height: 'calc(100vh - 230px)',
+              cursor: 'pointer',
+              border: 'none',
+              '& .MuiDataGrid-row:hover': {
+                backgroundColor: 'rgba(123, 0, 63, 0.08)',
               },
-            },
-            pagination: {
-              paginationModel: { pageSize: 100 },
-            },
-          }}
+            }}
+            rows={data}
+            loading={loadingData}
+            columns={ADMINISTRATOR_COLUMNS}
+            pageSizeOptions={[100]}
+            rowHeight={30}
+            showToolbar
+            onRowClick={handleRowClick}
 
-          slots={{
-            toolbar: QuickSearchToolbar,
-            loadingOverlay: LinearProgress,
-            pagination: ButtonsPagination,
-          }}
+            initialState={{
+              columns: {
+                columnVisibilityModel: {},
+              },
+              filter: {
+                filterModel: {
+                  items: [],
+                  quickFilterLogicOperator: GridLogicOperator.Or,
+                  quickFilterExcludeHiddenColumns: false,
+                },
+              },
+              pagination: {
+                paginationModel: { pageSize: 100 },
+              },
+            }}
 
-          slotProps={{
-            panel: { placement: 'bottom-start' },
-            toolbar: {
-              triggerAddNew: triggerAddNew,
-            },
-          }}
-        />
+            slots={{
+              toolbar: QuickSearchToolbar,
+              loadingOverlay: LinearProgress,
+              pagination: ButtonsPagination,
+            }}
+            slotProps={{
+              panel: { placement: 'bottom-start' },
+              toolbar: {
+                triggerAddNew,
+              },
+            }}
+          />
+        </Box>
+
+        {/* Add / edit modal */}
+        {openModal && (
+          <AddEditAdministrator
+            rowData={userLineData}
+            setOpen={setOpenModal}
+            getData={getData}
+          />
+        )}
+
       </Box>
-
-      {openBackdrop && (
-        <AddEditAdministrator
-          rowData={userLineData}
-          setOpen={setOpenBackdrop}
-          getData={getData}
-        />
-      )}
     </AdminPageLayout>
   );
 }

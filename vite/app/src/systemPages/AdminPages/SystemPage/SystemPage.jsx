@@ -22,7 +22,7 @@ export default function SystemPage() {
       <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%', padding: 1 }}>
         <h2 className="text-xl text-gray-500 mb-2 ml-1">Sistemos Naudotojai</h2>
         <Box>
-          <div style={{ height: 800 }}>
+          <div className="h-[800px]">
             <SystemUsers/>
           </div>
         </Box>

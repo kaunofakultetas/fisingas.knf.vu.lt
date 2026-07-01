@@ -15,12 +15,17 @@ import { useParams } from 'react-router-dom';
 import InteractiveImageEditor from '@/components/Other/InteractiveImage/InteractiveImageEditor';
 
 
+
+
+
+
+
 export default function EditQuestion() {
 
   const { questionID } = useParams();
 
   return (
-    <div style={{ margin: 100 }}>
+    <div className="m-[100px]">
       <InteractiveImageEditor
         src={"/api/phishingpictures/" + questionID}
         initialAreasUrl={"/api/phishingpictures/" + questionID + "/links"}

@@ -15,7 +15,8 @@
 
 import { useNavigate } from "react-router-dom";
 import { DataGrid, Toolbar, QuickFilter, QuickFilterControl, GridLogicOperator } from "@mui/x-data-grid";
-import { Box, LinearProgress } from '@mui/material';
+import { Box, LinearProgress, Typography } from '@mui/material';
+import GroupsIcon from '@mui/icons-material/Groups';
 import useFetchData from "@/hooks/useFetchData";
 
 import ColumnsButton from '@/components/DatagridCustomComponents/ColumnsButton';
@@ -107,51 +108,68 @@ export default function StudentGroupsTable() {
 
 
   return (
-    <Box className="h-[calc(100vh-165px)] p-2.5 pb-[50px] w-full">
-      <Box className="text-2xl text-gray-500 mb-2.5 flex items-center justify-between">
-        Studentų Grupių Sąrašas
+    <Box className="flex-1 p-5">
+
+      {/* Page heading with group count */}
+      <Box className="flex items-center gap-2 mb-4">
+        <GroupsIcon sx={{ fontSize: 28, color: 'primary.main' }} />
+        <Typography variant="h5" sx={{ fontWeight: 600 }}>
+          Studentų Grupių Sąrašas
+        </Typography>
+        {!loadingData && (
+          <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+            ({data.length})
+          </Typography>
+        )}
       </Box>
-      <DataGrid
-        sx={{
-          cursor: 'pointer',
-          '& .MuiDataGrid-row:hover': {
-            backgroundColor: 'rgba(123, 0, 63, 0.08)',
-          },
-        }}
-        rows={data}
-        columns={STUDENT_GROUP_COLUMNS}
-        pageSizeOptions={[100]}
-        rowHeight={30}
-        showToolbar
-        onRowClick={handleRowClick}
-        loading={loadingData}
 
-        initialState={{
-          columns: {
-            columnVisibilityModel: {},
-          },
-          filter: {
-            filterModel: {
-              items: [],
-              quickFilterLogicOperator: GridLogicOperator.Or,
-              quickFilterExcludeHiddenColumns: false,
+      {/* The grid */}
+      <Box className="rounded-[10px] bg-white p-4 shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
+        <DataGrid
+          sx={{
+            height: 'calc(100vh - 230px)',
+            cursor: 'pointer',
+            border: 'none',
+            '& .MuiDataGrid-row:hover': {
+              backgroundColor: 'rgba(123, 0, 63, 0.08)',
             },
-          },
-          pagination: {
-            paginationModel: { pageSize: 100 },
-          },
-        }}
+          }}
+          rows={data}
+          columns={STUDENT_GROUP_COLUMNS}
+          pageSizeOptions={[100]}
+          rowHeight={30}
+          showToolbar
+          onRowClick={handleRowClick}
+          loading={loadingData}
 
-        slots={{
-          toolbar: QuickSearchToolbar,
-          loadingOverlay: LinearProgress,
-          pagination: ButtonsPagination,
-        }}
+          initialState={{
+            columns: {
+              columnVisibilityModel: {},
+            },
+            filter: {
+              filterModel: {
+                items: [],
+                quickFilterLogicOperator: GridLogicOperator.Or,
+                quickFilterExcludeHiddenColumns: false,
+              },
+            },
+            pagination: {
+              paginationModel: { pageSize: 100 },
+            },
+          }}
 
-        slotProps={{
-          panel: { placement: 'bottom-start' },
-        }}
-      />
+          slots={{
+            toolbar: QuickSearchToolbar,
+            loadingOverlay: LinearProgress,
+            pagination: ButtonsPagination,
+          }}
+
+          slotProps={{
+            panel: { placement: 'bottom-start' },
+          }}
+        />
+      </Box>
+
     </Box>
   );
 }

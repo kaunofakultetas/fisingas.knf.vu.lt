@@ -1,30 +1,149 @@
 // -----------------------------------------------------------
 //  [*] Leaderboard — StudentsLeaderboard table
 //
-//  The live results table: one row per student with a
-//  combined progress/score bar — blue "answered / total"
-//  while the test is running, burgundy "Įvertinimas: X" once
-//  finished. Data comes from /api/leaderboard and refreshes
-//  every 5 s; rows are sorted by grade, best first.
+//  The live results table shown on the projector: one row per
+//  student with a rank badge (gold/silver/bronze for the top
+//  three) and a combined progress/score bar — blue
+//  "answered / total" while the test is running, burgundy
+//  "Įvertinimas: X" once finished. Data comes from
+//  /api/leaderboard, refetched by a visible 5 s countdown
+//  ("Atnaujinimas po: Xs"); rows are sorted by grade, best
+//  first.
 //
 //  By default only students seen within the last day are
 //  shown (it's an event view) — the "Rodyti Visus" checkbox
 //  lifts the filter.
 //
+//  Split into (root component last):
+//
+//    RankBadge           — place number, medal-tinted for top 3
+//    ProgressBar         — the progress/score bar of one row
+//    StudentsLeaderboard — the table itself (default export)
+//
 //  Used by:
 //    - Leaderboard — the /leaderboard page
 // -----------------------------------------------------------
 
-import { useState } from "react";
-import { Box, LinearProgress, Typography } from "@mui/material";
+import { useState, useEffect } from "react";
 import useFetchData from "@/hooks/useFetchData";
 
 
+const REFRESH_TIME = 5; // seconds
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RankBadge
+// -----------------------------------------------------------
+//
+// The student's place in the standings: a tinted medal circle
+// for places 1–3 (gold / silver / bronze), a plain number for
+// everyone else.
+//
+// Used by:
+//   - StudentsLeaderboard (below)
+// -----------------------------------------------------------
+
+function RankBadge({ place }) {
+
+  const medalClasses = {
+    1: "bg-amber-100 text-amber-700 border-amber-300",
+    2: "bg-slate-100 text-slate-600 border-slate-300",
+    3: "bg-orange-100 text-orange-700 border-orange-300",
+  };
+
+  if (medalClasses[place]) {
+    return (
+      <span className={`inline-flex items-center justify-center w-9 h-9 rounded-full border text-base font-bold ${medalClasses[place]}`}>
+        {place}
+      </span>
+    );
+  }
+
+  return <span className="inline-block w-9 text-center text-gray-400 font-semibold">{place}</span>;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ProgressBar
+// -----------------------------------------------------------
+//
+// The combined progress/score bar of one row:
+//   - test running  — blue bar, "answered / total" in black
+//   - test finished — full burgundy bar, "Įvertinimas: X"
+//     in white
+//
+// Used by:
+//   - StudentsLeaderboard (below)
+// -----------------------------------------------------------
+
+function ProgressBar({ row }) {
+
+  const finished = row.isfinished === 1;
+  const percent = finished ? 100 : Math.round((row.answeredquestioncount / row.questioncount) * 100);
+
+  return (
+    <div className="relative h-9 w-full rounded-full bg-gray-100 overflow-hidden">
+      <div
+        className={`absolute inset-y-0 left-0 rounded-full transition-[width] duration-700 ease-out
+          ${finished ? 'bg-[rgb(123,0,63)]' : 'bg-blue-500/80'}`}
+        style={{ width: `${percent}%` }}
+      />
+      <span
+        className={`absolute inset-0 flex items-center justify-center text-sm font-bold pointer-events-none
+          ${finished ? 'text-white' : 'text-gray-800'}`}
+      >
+        {finished
+          ? `Įvertinimas: ${row.testgrade}`
+          : `${row.answeredquestioncount} / ${row.questioncount}`
+        }
+      </span>
+    </div>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// StudentsLeaderboard (default export)
+// -----------------------------------------------------------
+
 export default function StudentsLeaderboard() {
 
-  const { data, loadingData } = useFetchData("/api/leaderboard", 5);
+  const { data, loadingData, refetch } = useFetchData("/api/leaderboard");
 
   const [showRecentOnly, setShowRecentOnly] = useState(true);
+  const [nextUpdate, setNextUpdate] = useState(REFRESH_TIME);
+
+
+  // Visible refresh countdown — tick down every second and
+  // refetch the leaderboard when it reaches zero
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNextUpdate((prevTime) => {
+        if (prevTime <= 1) {
+          refetch();
+          return REFRESH_TIME;
+        }
+        return prevTime - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [refetch]);
 
 
   // Hide students not seen within the last day (unless "show
@@ -40,18 +159,22 @@ export default function StudentsLeaderboard() {
 
 
   return (
-    <div className="p-5 font-sans">
-      <h2 className="mb-2.5 text-gray-700">Fišingo Atakų Atpažinimo Lyderiai</h2>
+    <div className="w-full min-h-0 flex flex-col p-5 font-sans">
 
-      {/* Top bar — refresh note + show-all toggle */}
-      <div className="flex items-center justify-between mb-2.5">
-        <div className="text-sm text-gray-400">
-          {loadingData ? "Kraunama..." : "Automatiškai atnaujinama kas 5s"}
+      {/* Header — title, live countdown pill, show-all toggle */}
+      <div className="flex items-end justify-between mb-4 flex-wrap gap-2">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800">Fišingo Atakų Atpažinimo Lyderiai</h2>
+          <div className="mt-1 inline-flex items-center gap-2 text-sm text-gray-400">
+            <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            {loadingData ? "Kraunama..." : `Atnaujinimas po: ${nextUpdate}s`}
+          </div>
         </div>
-        <label className="inline-flex items-center text-sm cursor-pointer">
+
+        <label className="inline-flex items-center text-sm text-gray-600 cursor-pointer select-none">
           <input
             type="checkbox"
-            className="mr-2"
+            className="mr-2 w-4 h-4 accent-[rgb(123,0,63)]"
             checked={!showRecentOnly}
             onChange={(e) => setShowRecentOnly(!e.target.checked)}
           />
@@ -59,78 +182,55 @@ export default function StudentsLeaderboard() {
         </label>
       </div>
 
-      {loadingData && <div className="mb-2.5 font-bold text-[#E64164]">Kraunama...</div>}
-
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse table-fixed shadow-sm">
+      {/* Table card — scrolls inside the fixed page height */}
+      <div className="flex-1 min-h-0 overflow-y-auto bg-white rounded-2xl border border-gray-200 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+        <table className="w-full border-collapse table-fixed">
           <colgroup>
-            <col style={{ width: "5%" }} />
-            <col style={{ width: "15%" }} />
-            <col style={{ width: "40%" }} />
-            <col style={{ width: "20%" }} />
+            <col className="w-[10%]" />
+            <col className="w-[22%]" />
+            <col className="w-[46%]" />
+            <col className="w-[22%]" />
           </colgroup>
 
-          <thead>
+          <thead className="sticky top-0 z-10">
             <tr>
-              <th className="bg-[#f2f2f2] text-left font-semibold p-2 border-b-2 border-[#ddd]">ID</th>
-              <th className="bg-[#f2f2f2] text-left font-semibold p-2 border-b-2 border-[#ddd]">Vardas</th>
-              <th className="bg-[#f2f2f2] text-center font-semibold p-2 border-b-2 border-[#ddd]">Įvertinimas / Progresas</th>
-              <th className="bg-[#f2f2f2] text-center font-semibold p-2 border-b-2 border-[#ddd]">Paskutinįkart Pastebėtas</th>
+              <th className="bg-gray-50 text-center text-xs font-semibold uppercase tracking-wider text-gray-500 px-3 py-3 border-b border-gray-200">Vieta</th>
+              <th className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 px-3 py-3 border-b border-gray-200">Vardas</th>
+              <th className="bg-gray-50 text-center text-xs font-semibold uppercase tracking-wider text-gray-500 px-3 py-3 border-b border-gray-200">Įvertinimas / Progresas</th>
+              <th className="bg-gray-50 text-center text-xs font-semibold uppercase tracking-wider text-gray-500 px-3 py-3 border-b border-gray-200">Paskutinįkart Pastebėtas</th>
             </tr>
           </thead>
 
           <tbody>
-            {filteredRows.map((row) => {
-              const progressValue = row.isfinished ? 100 : Math.round((row.answeredquestioncount / row.questioncount) * 100);
+            {filteredRows.map((row, index) => (
+              <tr key={row.id} className="hover:bg-gray-50 transition-colors">
+                <td className="px-3 py-2.5 border-b border-gray-100 text-center">
+                  <RankBadge place={index + 1} />
+                </td>
+                <td className="px-3 py-2.5 border-b border-gray-100 font-semibold text-gray-800 truncate">
+                  {row.username}
+                </td>
+                <td className="px-3 py-2.5 border-b border-gray-100">
+                  <ProgressBar row={row} />
+                </td>
+                <td className="px-3 py-2.5 border-b border-gray-100 text-center text-sm text-gray-500">
+                  {row.lastseen}
+                </td>
+              </tr>
+            ))}
 
-              return (
-                <tr key={row.id} className="bg-white cursor-pointer hover:bg-[#fafafa]">
-                  <td className="p-2 border-b border-[#ddd]">{row.id}</td>
-                  <td className="p-2 border-b border-[#ddd]">{row.username}</td>
-
-                  {/* Progress bar — blue while running, burgundy when done */}
-                  <td className="p-2 border-b border-[#ddd]">
-                    <Box sx={{ width: "100%", position: "relative" }}>
-                      <LinearProgress
-                        variant="determinate"
-                        value={row.isfinished === 1 ? 100 : progressValue}
-                        sx={{
-                          height: 32,
-                          borderRadius: "10px",
-                          backgroundColor: "rgba(0,0,0,0.1)",
-                          "& .MuiLinearProgress-bar": {
-                            backgroundColor: row.isfinished === 1 ? "primary.main" : "blue",
-                            borderRadius: "10px",
-                          },
-                        }}
-                      />
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          position: "absolute",
-                          fontWeight: "bold",
-                          color: row.isfinished === 1 ? "white" : "black",
-                          left: "50%",
-                          top: "50%",
-                          transform: "translate(-50%, -50%)",
-                          pointerEvents: "none",
-                        }}
-                      >
-                        {row.isfinished === 1
-                          ? `Įvertinimas: ${row.testgrade}`
-                          : `${row.answeredquestioncount} / ${row.questioncount}`
-                        }
-                      </Typography>
-                    </Box>
-                  </td>
-
-                  <td className="p-2 border-b border-[#ddd] text-center">{row.lastseen}</td>
-                </tr>
-              );
-            })}
+            {/* Empty state — nobody seen within the last day */}
+            {!loadingData && filteredRows.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-3 py-12 text-center text-gray-400">
+                  Šiuo metu dalyvių nėra
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
+
     </div>
   );
 }

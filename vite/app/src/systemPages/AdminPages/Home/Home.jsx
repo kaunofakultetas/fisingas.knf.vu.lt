@@ -36,9 +36,6 @@ import SchoolOutlinedIcon from '@mui/icons-material/SchoolOutlined';
 import CastForEducationOutlinedIcon from '@mui/icons-material/CastForEducationOutlined';
 
 
-const ICON_CLASS = "text-[18px] p-[5px] rounded-[5px] self-end text-white bg-[rgb(230,65,100)]";
-
-
 
 
 
@@ -74,7 +71,7 @@ export default function Home() {
       CastForEducationOutlinedIcon: CastForEducationOutlinedIcon,
     };
     const Icon = icons[iconName] || CreditCardOutlinedIcon;
-    return <Icon className={ICON_CLASS} />;
+    return <Icon className="text-[18px] p-[5px] rounded-[5px] self-end text-white bg-[rgb(230,65,100)]" />;
   }
 
 

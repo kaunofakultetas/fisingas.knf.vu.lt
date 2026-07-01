@@ -2,12 +2,14 @@
 //  [*] Public — Login page
 //
 //  The entry point of the app: a white card on the animated
-//  particles background with two switchable forms:
-//    - LoginForm    — name/email + code/password, for both
-//                     students and administrators
-//    - RegisterForm — student self-registration; the backend
-//                     generates a random access code that the
-//                     student writes down and logs in with
+//  particles background. New students are the main audience,
+//  so registration is the form shown first:
+//    - RegisterForm — student self-registration (default);
+//      the backend generates a random access code that the
+//      student writes down and logs in with
+//    - LoginForm    — name/email + code/password, for
+//      returning students and administrators ("Jau turiu
+//      paskyrą")
 //
 //  Opening /login also acts as logout: the session cookie is
 //  dropped on mount (the old Next.js frontend did the same
@@ -16,36 +18,280 @@
 //  home by role.
 //
 //  This page styles itself — App excludes it from the MUI
-//  theme (see providers.jsx / excludedPaths).
+//  theme (see providers.jsx / excludedPaths), which is why
+//  the text fields carry their own burgundy focus styling.
+//
+//  Split into (root component last):
+//
+//    BRAND_FIELD_SX — burgundy focus styling for TextFields
+//    CardHeader     — logo + app title
+//    ErrorBox       — red error chip (hidden when empty)
+//    BrandButton    — the burgundy submit button
+//    RegisterForm   — student self-registration (default)
+//    LoginForm      — existing account sign-in
+//    Login          — the page itself (default export)
 // -----------------------------------------------------------
 
 import { useState, useEffect } from "react";
 import axios from "axios";
 
-import { Button, Box, Stack, FormControl, TextField, Typography } from "@mui/material";
+import { Stack, FormControl, TextField } from "@mui/material";
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 import BouncingDotsLoader from './components/BouncingDotsLoader/BouncingDotsLoader';
 import Particles from './components/Particles/Particles';
 
 
-const FORM_CARD_STYLE = {
-  maxWidth: 350,
-  margin: "0 auto",
-  display: "flex",
-  flexDirection: "column",
-  background: "white",
-  padding: 20,
-  marginTop: "10%",
-  borderRadius: 15,
+// The MUI theme is excluded on this page, so the standard
+// TextFields would focus blue — this pins them to the brand
+// burgundy instead
+const BRAND_FIELD_SX = {
+  '& label.Mui-focused': { color: 'rgb(123, 0, 63)' },
+  '& .MuiInput-underline:after': { borderBottomColor: 'rgb(123, 0, 63)' },
 };
 
-const ERROR_BOX_STYLE = {
-  fontSize: '12px',
-  color: 'red',
-  textAlign: 'center',
-  whiteSpace: 'pre-wrap',
-};
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CardHeader
+// -----------------------------------------------------------
+//
+// The top of both form cards: the VU KnF logo and the app
+// title.
+//
+// Used by:
+//   - RegisterForm, LoginForm (below)
+// -----------------------------------------------------------
+
+function CardHeader() {
+  return (
+    <div className="flex flex-col items-center">
+      <img alt="VU KnF logotipas" src="/img/vuknflogo.png" className="w-[260px]" />
+      <h1 className="mt-4 text-lg font-bold text-gray-800 text-center">
+        Fišingo atakų atpažinimo testas
+      </h1>
+    </div>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ErrorBox
+// -----------------------------------------------------------
+//
+// The backend's error message as a red chip; renders nothing
+// while there is no error.
+//
+// Used by:
+//   - RegisterForm, LoginForm (below)
+// -----------------------------------------------------------
+
+function ErrorBox({ children }) {
+
+  if (!children) {
+    return null;
+  }
+
+  return (
+    <div className="mb-4 px-4 py-2.5 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm text-center whitespace-pre-wrap">
+      {children}
+    </div>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// BrandButton
+// -----------------------------------------------------------
+//
+// The burgundy full-width submit button; while `loading` it
+// turns grey with the bouncing-dots loader and stops
+// accepting clicks.
+//
+// Used by:
+//   - RegisterForm, LoginForm (below)
+// -----------------------------------------------------------
+
+function BrandButton({ loading, onClick, children }) {
+
+  if (loading) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="w-full py-3 rounded-xl bg-gray-400 text-white font-bold tracking-wide pointer-events-none"
+      >
+        PALAUKITE <BouncingDotsLoader/>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full py-3 rounded-xl bg-[rgb(123,0,63)] text-white font-bold tracking-wide cursor-pointer
+        hover:bg-[rgb(230,65,100)] transition-colors shadow-[0_4px_14px_rgba(123,0,63,0.35)]"
+    >
+      {children}
+    </button>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// RegisterForm
+// -----------------------------------------------------------
+//
+// The default form — student self-registration in two steps:
+//   1. Pick a username → "REGISTRUOTIS" asks the backend for
+//      a random access code (the username is uppercased and
+//      stripped to A–Z, 0–9 and _ server-side)
+//   2. The name + code are shown as credential chips with a
+//      write-these-down warning → "PRADĖTI TESTĄ" logs in
+//      with them
+//
+// "Jau turiu paskyrą" switches to the sign-in form.
+//
+// Used by:
+//   - Login (below) — form 0 (default)
+// -----------------------------------------------------------
+
+function RegisterForm({ selectedForm, setSelectedForm, handleLogin, loginErrorBoxText }) {
+
+  const [errorBoxText, setErrorBoxText] = useState("");
+  const [registering, setRegistering] = useState(false);
+  const [studentUsername, setStudentUsername] = useState("");
+  const [studentAccessCode, setStudentAccessCode] = useState("");
+
+
+  const handleRegister = async () => {
+    setRegistering(true);
+    await axios.post("/api/student/register", { username: studentUsername }).then((response) => {
+      if (response.data.status === "OK") {
+        setStudentUsername(response.data.username);
+        setStudentAccessCode(response.data.accessCode);
+      }
+      else {
+        setErrorBoxText(response.data.error);
+      }
+    });
+    setRegistering(false);
+  };
+
+
+  // Enter advances the current step (register, then login)
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Enter' && selectedForm === 0) {
+        event.preventDefault();
+        if (studentAccessCode === "") {
+          handleRegister();
+        } else {
+          handleLogin(studentUsername, studentAccessCode);
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [studentUsername, studentAccessCode, selectedForm]);
+
+
+  return (
+    <form className="max-w-[380px] mx-auto flex flex-col bg-white p-8 mt-[7%] rounded-2xl shadow-2xl">
+
+      <CardHeader />
+
+      {studentAccessCode === "" ?
+        <>
+          {/* Step 1 — pick a username */}
+          <p className="mt-6 text-sm text-gray-500 text-center">
+            Įveskite pasirinktą vardą — <b>prisijungimo kodas</b> bus
+            sugeneruotas ir parodytas paspaudus „Registruotis".
+          </p>
+
+          <Stack spacing={2} className="mt-4 mb-8">
+            <FormControl>
+              <TextField
+                required
+                variant="standard"
+                label="Prisijungimo Vardas"
+                sx={BRAND_FIELD_SX}
+                onChange={(e) => setStudentUsername(e.currentTarget.value)}
+              />
+            </FormControl>
+          </Stack>
+
+          <ErrorBox>{errorBoxText}</ErrorBox>
+
+          <BrandButton loading={registering} onClick={handleRegister}>
+            REGISTRUOTIS
+          </BrandButton>
+        </>
+      :
+        <>
+          {/* Step 2 — show the credentials, start the test */}
+          <div className="mt-6 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-gray-700 text-center">
+            <b>Užsirašykite šiuos duomenis</b> — su jais galėsite testą
+            tęsti arba rezultatą peržiūrėti vėliau.
+          </div>
+
+          <div className="my-6 flex flex-col gap-2">
+            <div className="flex items-baseline justify-between bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
+              <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Vardas</span>
+              <span className="font-mono font-bold text-gray-800">{studentUsername}</span>
+            </div>
+            <div className="flex items-baseline justify-between bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
+              <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Kodas</span>
+              <span className="font-mono font-bold text-gray-800">{studentAccessCode}</span>
+            </div>
+          </div>
+
+          <ErrorBox>{loginErrorBoxText}</ErrorBox>
+
+          <BrandButton onClick={() => handleLogin(studentUsername, studentAccessCode)}>
+            PRADĖTI TESTĄ
+          </BrandButton>
+        </>
+      }
+
+      {/* Switch to the sign-in form (only before registering) */}
+      {studentAccessCode === "" &&
+        <button
+          type="button"
+          onClick={() => setSelectedForm(1)}
+          className="mt-5 text-sm text-[rgb(123,0,63)] font-semibold text-center cursor-pointer
+            hover:text-[rgb(230,65,100)] transition-colors bg-transparent border-none"
+        >
+          Jau turiu paskyrą — prisijungti
+        </button>
+      }
+
+    </form>
+  );
+}
 
 
 
@@ -57,13 +303,13 @@ const ERROR_BOX_STYLE = {
 // LoginForm
 // -----------------------------------------------------------
 //
-// Name/email + code/password form (form 0). Enter submits;
-// while the login request runs the button turns grey with a
-// bouncing-dots loader. "Neturiu paskyros" switches to the
-// registration form.
+// The sign-in form for returning students and administrators:
+// name/email + code/password. Enter submits; while the login
+// request runs the button turns grey with a bouncing-dots
+// loader. The back arrow returns to registration.
 //
 // Used by:
-//   - Login (below)
+//   - Login (below) — form 1
 // -----------------------------------------------------------
 
 function LoginForm({ selectedForm, setSelectedForm, handleLogin, errorBoxText }) {
@@ -83,7 +329,7 @@ function LoginForm({ selectedForm, setSelectedForm, handleLogin, errorBoxText })
   // Enter submits (only while this form is the visible one)
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (event.key === 'Enter' && selectedForm === 0) {
+      if (event.key === 'Enter' && selectedForm === 1) {
         submit();
       }
     };
@@ -96,189 +342,55 @@ function LoginForm({ selectedForm, setSelectedForm, handleLogin, errorBoxText })
 
 
   return (
-    <form style={FORM_CARD_STYLE}>
-      <img alt="" src="/img/vuknflogo.png" width="330" height="192"/>
+    <form className="max-w-[380px] mx-auto flex flex-col bg-white p-8 mt-[7%] rounded-2xl shadow-2xl">
 
-      <Box style={{ textAlign: "center", marginTop: 10 }}>
-        <Typography component="h1" variant="subtitle1" sx={{ fontSize: "1.1em", mb: "0.25em" }}>
-          Fišingo atakų atpažinimo testas
-        </Typography>
-      </Box>
+      <CardHeader />
+
+      <p className="mt-6 text-sm text-gray-500 text-center">
+        Prisijunkite su registracijos metu gautu vardu ir kodu
+        (administratoriai — su savo paskyra).
+      </p>
 
       {/* Credentials */}
-      <Stack spacing={2} style={{ marginTop: 10, marginBottom: 60 }}>
-        <FormControl color="primary">
-          <TextField required variant="standard" label="Vardas / El. Paštas" onChange={(e) => setEmail(e.currentTarget.value)}/>
+      <Stack spacing={2} className="mt-4 mb-8">
+        <FormControl>
+          <TextField
+            required
+            variant="standard"
+            label="Vardas / El. Paštas"
+            sx={BRAND_FIELD_SX}
+            onChange={(e) => setEmail(e.currentTarget.value)}
+          />
         </FormControl>
 
-        <FormControl color="primary">
-          <TextField required variant="standard" type="password" label="Kodas / Slaptažodis" onChange={(e) => setPassword(e.currentTarget.value)}/>
+        <FormControl>
+          <TextField
+            required
+            variant="standard"
+            type="password"
+            label="Kodas / Slaptažodis"
+            sx={BRAND_FIELD_SX}
+            onChange={(e) => setPassword(e.currentTarget.value)}
+          />
         </FormControl>
       </Stack>
 
-      {/* Error message from the backend */}
-      <Box style={ERROR_BOX_STYLE}>
-        {errorBoxText}
-      </Box>
+      <ErrorBox>{errorBoxText}</ErrorBox>
 
-      {loggingIn ?
-        <Button disabled={true} style={{ backgroundColor: 'grey', color: 'white', pointerEvents: 'none' }}>
-          PALAUKITE <BouncingDotsLoader/>
-        </Button>
-      :
-        <Button onClick={submit} style={{ backgroundColor: 'rgb(123, 0, 63)', color: 'white' }}>
-          PRISIJUNGTI
-        </Button>
-      }
+      <BrandButton loading={loggingIn} onClick={submit}>
+        PRISIJUNGTI
+      </BrandButton>
 
-      <Button
-        style={{
-          color: 'rgb(123, 0, 63)',
-          marginTop: 15,
-          border: '1px solid',
-          borderRadius: 5,
-        }}
-        onClick={() => setSelectedForm(1)}
+      {/* Back to registration */}
+      <button
+        type="button"
+        onClick={() => setSelectedForm(0)}
+        className="mt-5 inline-flex items-center justify-center gap-1 text-sm text-[rgb(123,0,63)] font-semibold
+          cursor-pointer hover:text-[rgb(230,65,100)] transition-colors bg-transparent border-none"
       >
-        Neturiu paskyros
-      </Button>
-    </form>
-  );
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// RegisterForm
-// -----------------------------------------------------------
-//
-// Student registration form (form 1) in two steps:
-//   1. Pick a username → "REGISTRUOTIS" asks the backend for
-//      a random access code (the username is uppercased and
-//      stripped to A–Z, 0–9 and _ server-side)
-//   2. The name + code are shown so the student can write
-//      them down → "PRADĖTI TESTĄ" logs in with them
-//
-// Used by:
-//   - Login (below)
-// -----------------------------------------------------------
-
-function RegisterForm({ selectedForm, setSelectedForm, handleLogin }) {
-
-  const [errorBoxText, setErrorBoxText] = useState("");
-  const [studentUsername, setStudentUsername] = useState("");
-  const [studentAccessCode, setStudentAccessCode] = useState("");
-
-
-  const handleRegister = async () => {
-    await axios.post("/api/student/register", { username: studentUsername }).then((response) => {
-      if (response.data.status === "OK") {
-        setStudentUsername(response.data.username);
-        setStudentAccessCode(response.data.accessCode);
-      }
-      else {
-        setErrorBoxText(response.data.error);
-      }
-    });
-  };
-
-
-  // Enter advances the current step (register, then login)
-  useEffect(() => {
-    const handleKeyDown = (event) => {
-      if (event.key === 'Enter' && selectedForm === 1) {
-        event.preventDefault();
-        if (studentAccessCode === "") {
-          handleRegister();
-        } else {
-          handleLogin(studentUsername, studentAccessCode);
-        }
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [studentUsername, studentAccessCode, selectedForm]);
-
-
-  return (
-    <form style={FORM_CARD_STYLE}>
-
-      {/* Back to the login form (only before registering) */}
-      {studentAccessCode === "" &&
-        <Button
-          style={{
-            backgroundColor: 'rgb(123, 0, 63)',
-            color: 'white',
-            width: 10,
-            marginBottom: 30,
-          }}
-          onClick={() => setSelectedForm(0)}
-        >
-          <ArrowBackIcon/>
-        </Button>
-      }
-
-      <h3 style={{ marginBottom: 30 }}>Registracija Testui:</h3>
-      {studentAccessCode === "" &&
-        <div style={{ marginBottom: 30, textAlign: 'justify' }}>
-          <b>Prisijungimo kodas</b> bus sugeneruotas atsitiktiniu būdu ir parodytas kai spustelsite mygtuką "Registruotis".
-        </div>
-      }
-      <div style={{ marginBottom: 50, textAlign: 'justify' }}>
-        Užsirašykite šiuos prisijungimo duomenis jei norėsite rezultatą peržiūrėti vėliau arba testą tęsti vėliau.
-      </div>
-
-      {studentAccessCode === "" ?
-        <>
-          {/* Step 1 — pick a username */}
-          <Stack spacing={2} style={{ marginBottom: 80 }}>
-            <FormControl color="primary">
-              <TextField required variant="standard" label="Prisijungimo Vardas" onChange={(e) => setStudentUsername(e.currentTarget.value)}/>
-            </FormControl>
-          </Stack>
-
-          <Box style={ERROR_BOX_STYLE}>
-            {errorBoxText}
-          </Box>
-
-          <Button
-            style={{
-              backgroundColor: 'rgb(123, 0, 63)',
-              color: 'white',
-            }}
-            onClick={handleRegister}
-          >
-            REGISTRUOTIS
-          </Button>
-        </>
-      :
-        <>
-          {/* Step 2 — show the credentials, start the test */}
-          <div>
-            Vardas: {studentUsername}
-          </div>
-          <div style={{ marginBottom: 40 }}>
-            Kodas: {studentAccessCode}
-          </div>
-
-          <Button
-            style={{
-              backgroundColor: 'rgb(123, 0, 63)',
-              color: 'white',
-            }}
-            onClick={() => handleLogin(studentUsername, studentAccessCode)}
-          >
-            PRADĖTI TESTĄ
-          </Button>
-        </>
-      }
+        <ArrowBackIcon sx={{ fontSize: 16 }} />
+        Neturiu paskyros — registruotis
+      </button>
 
     </form>
   );
@@ -295,7 +407,8 @@ function RegisterForm({ selectedForm, setSelectedForm, handleLogin }) {
 // -----------------------------------------------------------
 //
 // The page itself: drops the session cookie on mount (logout),
-// holds which form is visible and does the actual login call.
+// holds which form is visible (registration by default) and
+// does the actual login call.
 //
 // Used by:
 //   - App.jsx — route /login
@@ -329,18 +442,21 @@ export default function Login() {
 
 
   return (
-    <Box style={{
-      backgroundImage: "linear-gradient(to bottom right, #7b4397 , #dc2430)",
-      position: "absolute",
-      top: 0,
-      right: 0,
-      bottom: 0,
-      left: 0,
-      zIndex: -2,
-    }}>
+    <div className="absolute inset-0 z-[-2] bg-linear-to-br from-[#7b4397] to-[#dc2430]">
 
-      {/* The two forms — both stay mounted, one is visible */}
-      <div style={{ display: selectedForm === 0 ? 'block' : 'none' }}>
+      {/* The two forms — both stay mounted, one is visible.
+          Registration is the default: new students are the
+          main audience of this page. */}
+      <div className={selectedForm === 0 ? 'block' : 'hidden'}>
+        <RegisterForm
+          selectedForm={selectedForm}
+          setSelectedForm={setSelectedForm}
+          handleLogin={handleLogin}
+          loginErrorBoxText={loginErrorBoxText}
+        />
+      </div>
+
+      <div className={selectedForm === 1 ? 'block' : 'hidden'}>
         <LoginForm
           selectedForm={selectedForm}
           setSelectedForm={setSelectedForm}
@@ -349,36 +465,14 @@ export default function Login() {
         />
       </div>
 
-      <div style={{ display: selectedForm === 1 ? 'block' : 'none' }}>
-        <RegisterForm
-          selectedForm={selectedForm}
-          setSelectedForm={setSelectedForm}
-          handleLogin={handleLogin}
-        />
-      </div>
-
       <Particles/>
 
       {/* Footer */}
-      <Box style={{
-        height: 100,
-        width: "100%",
-        position: "absolute",
-        bottom: 0,
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: -1,
-      }}>
-        <Box style={{
-          color: "#fff",
-          lineHeight: "10px",
-          fontSize: "0.7em",
-          marginTop: 50,
-          textAlign: "center",
-        }}>
+      <div className="h-[100px] w-full absolute bottom-0 z-[-1]">
+        <div className="text-white leading-[10px] text-[0.7em] mt-[50px] text-center">
           Copyright © | All Rights Reserved | VUKnF
-        </Box>
-      </Box>
-    </Box>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -17,7 +17,7 @@ export default function AddSystemUser({ setOpen }) {
   return (
     <Dialog open={true} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
       <DialogContent sx={{ p: 3 }}>
-        <div style={{ width: '90%' }}>
+        <div className="w-[90%]">
 
           <Typography component="h2" variant="h6" sx={{ mb: '30px' }}>
             Naujo Naudotojo Įvedimas
@@ -64,7 +64,7 @@ export default function AddSystemUser({ setOpen }) {
                 variant="outlined" />
             </FormControl>
 
-            <div style={{ marginTop: '50px' }}></div>
+            <div className="mt-[50px]"></div>
 
             <FormControl required size="medium" color="primary">
               <FormLabel>

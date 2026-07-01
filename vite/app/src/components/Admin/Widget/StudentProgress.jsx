@@ -23,18 +23,7 @@ export default function StudentProgress({ text, studentsprogress }) {
   }
 
   return (
-    <div
-      style={{
-        justifyContent: 'space-between',
-        flex: 1,
-        padding: 10,
-        boxShadow: '2px 4px 10px 1px rgba(201, 201, 201, 0.47)',
-        borderRadius: 15,
-        width: '100%',
-        minHeight: 100,
-        backgroundColor: 'white',
-      }}
-    >
+    <div className="justify-between flex-1 p-2.5 rounded-[15px] w-full min-h-[100px] bg-white shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
 
       {/* Card label */}
       <span className="font-semibold text-gray-500 text-sm mb-2.5 block">
@@ -42,22 +31,13 @@ export default function StudentProgress({ text, studentsprogress }) {
       </span>
 
       {/* One progress bar per active student */}
-      <Box style={{ padding: 10 }}>
+      <Box className="p-2.5">
         {studentsprogress.length === 0 ?
           <Box>Šiuo metu testo nesprendžia nei vienas studentas</Box>
         :
           studentsprogress.map((student, index) => (
-            <Box
-              key={index}
-              style={{
-                backgroundColor: 'white',
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                marginBottom: 10,
-              }}
-            >
-              <Box style={{ fontSize: 20, width: 250, marginRight: '8px' }}>{student.username}:</Box>
+            <Box key={index} className="bg-white w-full flex items-center mb-2.5">
+              <Box className="text-xl w-[250px] mr-2">{student.username}:</Box>
 
               <Box sx={{ position: 'relative', width: '100%' }}>
                 <LinearProgress

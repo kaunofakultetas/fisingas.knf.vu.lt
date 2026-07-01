@@ -11,7 +11,7 @@ import StudentGroupsTable from "./StudentGroupsTable/StudentGroupsTable";
 
 export default function StudentGroups() {
   return (
-    <AdminPageLayout>
+    <AdminPageLayout backgroundColor="#EBECEF">
       <StudentGroupsTable/>
     </AdminPageLayout>
   );
