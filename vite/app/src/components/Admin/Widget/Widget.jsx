@@ -20,7 +20,7 @@ import ArrowDownwardSharpIcon from '@mui/icons-material/ArrowDownwardSharp';
 
 export default function Widget({ text, bottomtext, count, icon, link, difference, children }) {
   return (
-    <div className="flex justify-between flex-1 p-2.5 shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)] rounded-[15px] h-[100px] w-full bg-white">
+    <div className="flex justify-between flex-wrap gap-2 flex-1 p-2.5 shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)] rounded-[15px] min-h-[100px] w-full bg-white">
 
       {/* Label + number */}
       <div className="flex flex-col justify-between">
@@ -49,7 +49,7 @@ export default function Widget({ text, bottomtext, count, icon, link, difference
               {difference}
             </div>
           ) || (
-            <div className="ml-20"></div>
+            <div></div>
           )}
         </div>
 

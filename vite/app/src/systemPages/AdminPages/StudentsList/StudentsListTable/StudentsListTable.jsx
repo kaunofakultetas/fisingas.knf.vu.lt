@@ -36,7 +36,8 @@ const STUDENT_COLUMNS = [
   {
     field: "username",
     headerName: "Prisijungimo Vardas",
-    width: 300,
+    flex: 1,
+    minWidth: 180,
   },
   {
     field: "questioncount",
@@ -62,9 +63,14 @@ const STUDENT_COLUMNS = [
     },
   },
   {
+    field: "registrationtime",
+    headerName: "Registracijos Laikas",
+    width: 180,
+  },
+  {
     field: "lastseen",
     headerName: "Paskutinįkart Prisijungęs",
-    width: 220,
+    width: 180,
   },
 ];
 
@@ -93,7 +99,7 @@ function QuickSearchToolbar({ passState }) {
   }
 
   return (
-    <Toolbar sx={{ justifyContent: 'flex-start' }}>
+    <Toolbar sx={{ justifyContent: 'flex-start', flexWrap: 'wrap', rowGap: '4px' }}>
       <QuickFilter
         expanded
         parser={(searchInput) => [searchInput.trim()]}
@@ -112,7 +118,7 @@ function QuickSearchToolbar({ passState }) {
         <FormControlLabel
           sx={{
             margin: 'auto',
-            paddingLeft: '50px',
+            paddingLeft: '20px',
           }}
           control={
             <IOSSwitch

@@ -425,6 +425,7 @@ Returns detailed info for a specific student.
     "testgrade": "7.50",
     "isfinished": 1,
     "lastseen": "2025-01-15 14:30:00",
+    "registrationtime": "2025-01-10 09:12:00",
     "status": 1
 }
 ```
@@ -436,16 +437,6 @@ Returns detailed info for a specific student.
 **Auth:** Admin
 
 Permanently removes the student account together with their dealt test and grades. Question images are kept.
-
-**Response:** `{ "status": "ok" }` (or `404` when the student does not exist)
-
----
-
-### `POST /api/admin/students/:studentID/resettest`
-
-**Auth:** Admin
-
-Deletes the student's dealt test and lifts the finished lock — their next visit deals a brand new random test. The account and passcode stay untouched.
 
 **Response:** `{ "status": "ok" }` (or `404` when the student does not exist)
 

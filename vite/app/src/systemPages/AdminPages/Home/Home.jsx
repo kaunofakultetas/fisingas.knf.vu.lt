@@ -160,8 +160,8 @@ export default function Home() {
     <AdminPageLayout backgroundColor="#EBECEF">
       <div className="flex flex-col pt-5 min-h-full">
 
-        {/* Top widgets */}
-        <div className="flex p-2.5 gap-2.5">
+        {/* Top widgets — side by side, stacked on narrow screens */}
+        <div className="flex flex-col md:flex-row p-2.5 gap-2.5">
           <Widget
             text="Studentų"
             count={data.studentscount}

@@ -330,19 +330,19 @@ function QuestionCard({ question, questionNumber, questionCount, onAnswer, onTog
     <div className="bg-white w-full max-w-[1100px] h-fit rounded-[15px] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)] mb-8 overflow-hidden">
 
       {/* Card header — question counter */}
-      <div className="flex items-center justify-between px-8 py-4 border-b border-gray-100">
+      <div className="flex items-center justify-between flex-wrap gap-2 px-5 sm:px-8 py-4 border-b border-gray-100">
         <h2 className="text-lg font-bold text-gray-800">
           Klausimas {questionNumber}
           <span className="text-gray-400 font-medium"> / {questionCount}</span>
         </h2>
         <span className="inline-flex items-center gap-1.5 text-sm text-gray-400">
           <ZoomInIcon fontSize="small" />
-          Spustelėkite laišką, kad padidintumėte
+          Spustelėkite paveikslėlį, kad padidintumėte
         </span>
       </div>
 
       {/* The email — click to zoom in */}
-      <div className="relative m-8 mb-0 p-4 bg-gray-50 border border-gray-200 rounded-xl">
+      <div className="relative m-5 sm:m-8 mb-0 sm:mb-0 p-4 bg-gray-50 border border-gray-200 rounded-xl">
         <InteractiveImage
           src={`/api/phishingpictures/${question.questionid}`}
           clickableAreasUrl={`/api/phishingpictures/${question.questionid}/links`}
@@ -366,7 +366,7 @@ function QuestionCard({ question, questionNumber, questionCount, onAnswer, onTog
         />
       </div>
 
-      <div className="px-8 pb-8">
+      <div className="px-5 sm:px-8 pb-8">
 
         {/* Tikras / Fišingas buttons */}
         <div className="flex flex-row flex-wrap justify-center gap-5 mt-6">
@@ -457,10 +457,12 @@ export default function TestHome() {
         clickableAreasUrl={`/api/phishingpictures/${currentQuestion.questionid}/links`}
       />
 
-      <div className="flex flex-row">
+      {/* Question next to the navigation panel — the panel moves
+          below the question on narrow screens */}
+      <div className="flex flex-col lg:flex-row">
 
         {/* The open question */}
-        <div className="min-h-[calc(100vh-135px)] w-full bg-[#EBECEF] flex justify-center px-8 pt-[30px]">
+        <div className="lg:min-h-[calc(100vh-135px)] w-full bg-[#EBECEF] flex justify-center px-4 sm:px-8 pt-[30px]">
           <QuestionCard
             question={currentQuestion}
             questionNumber={currentQuestionIndex + 1}

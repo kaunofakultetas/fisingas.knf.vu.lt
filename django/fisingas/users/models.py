@@ -65,8 +65,11 @@ class SystemUser(models.Model):
 # issued access code shown back to the student, not a
 # user-chosen secret.
 #
-#   is_finished: 1 locks the test forever
-#   status:      1 = active account
+#   is_finished:       1 locks the test forever
+#   status:            1 = active account
+#   registration_time: "YYYY-MM-DD HH:MM:SS" set once at
+#                      registration ("" for accounts created
+#                      before the column existed)
 ############################################################
 
 class Student(models.Model):
@@ -75,6 +78,7 @@ class Student(models.Model):
     is_finished = models.IntegerField(default=0)
     last_login = models.CharField(max_length=32, blank=True, default="")
     status = models.IntegerField(default=1)
+    registration_time = models.CharField(max_length=32, blank=True, default="")
 
     def __str__(self):
         return self.username

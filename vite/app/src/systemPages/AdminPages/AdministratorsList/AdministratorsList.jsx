@@ -53,7 +53,8 @@ const ADMINISTRATOR_COLUMNS = [
   {
     field: "email",
     headerName: "El. Paštas",
-    width: 350,
+    flex: 1,
+    minWidth: 200,
   },
   {
     field: "enabled",
@@ -95,7 +96,7 @@ const ADMINISTRATOR_COLUMNS = [
 
 function QuickSearchToolbar({ triggerAddNew }) {
   return (
-    <Toolbar sx={{ justifyContent: 'flex-start' }}>
+    <Toolbar sx={{ justifyContent: 'flex-start', flexWrap: 'wrap', rowGap: '4px' }}>
       <QuickFilter
         expanded
         parser={(searchInput) => [searchInput.trim()]}

@@ -141,8 +141,8 @@ export default function TestFinish({ authData }) {
       <Navbar />
 
       {/* Summary card — heading, credentials, grade + counts */}
-      <div className="w-full bg-[#EBECEF] flex justify-center pt-[30px]">
-        <div className="w-3/4 rounded-[15px] bg-white shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)] overflow-hidden">
+      <div className="w-full bg-[#EBECEF] flex justify-center px-4 pt-[30px]">
+        <div className="w-full lg:w-3/4 rounded-[15px] bg-white shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)] overflow-hidden">
 
           {/* Header — congratulations + the credentials to write down */}
           <div className="px-8 py-6 border-b border-gray-100 flex items-end justify-between flex-wrap gap-4">
@@ -194,8 +194,8 @@ export default function TestFinish({ authData }) {
 
       {/* Per-question answer review — the cards bring their own
           white background, so they sit straight on the grey */}
-      <div className="w-full bg-[#EBECEF] flex justify-center pt-[30px]">
-        <div className="w-3/4 min-h-[calc(100vh-445px)] mb-[30px]">
+      <div className="w-full bg-[#EBECEF] flex justify-center px-4 pt-[30px]">
+        <div className="w-full lg:w-3/4 min-h-[calc(100vh-445px)] mb-[30px]">
           <StudentAnswers studentID={authData.userid} />
         </div>
       </div>

@@ -132,10 +132,11 @@ export default function Questions() {
     <AdminPageLayout backgroundColor="#EBECEF">
       <div className="flex flex-col p-5 gap-5 min-h-full">
 
-        <div className="flex gap-5">
+        {/* Header row — title card + tiles, stacked on narrow screens */}
+        <div className="flex flex-col xl:flex-row gap-5">
 
           {/* Left — title card */}
-          <div className="flex items-center gap-5 p-5 bg-white rounded-[15px] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)] w-[35%]">
+          <div className="flex items-center gap-5 p-5 bg-white rounded-[15px] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)] w-full xl:w-[35%]">
             <div className="bg-[rgb(245,246,248)] border border-[rgb(231,228,228)] p-4 rounded-[15px] shrink-0">
               <MdPhishing size={64} className="text-[rgb(123,0,63)]" />
             </div>
@@ -149,8 +150,8 @@ export default function Questions() {
             </div>
           </div>
 
-          {/* Right — summary tiles */}
-          <div className="flex flex-1 bg-white rounded-[15px] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)] divide-x divide-[rgb(231,228,228)]">
+          {/* Right — summary tiles, wrapping into rows when tight */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 flex-1 bg-white rounded-[15px] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
 
             <SummaryTile
               icon={<FaQuestion size={28} className="text-[rgb(123,0,63)]" />}

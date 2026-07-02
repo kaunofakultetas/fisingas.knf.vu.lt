@@ -215,27 +215,30 @@ function AnswerCard({ answer }) {
         </div>
       </div>
 
-      {/* Body — screenshot + comparison table */}
-      <div className="flex gap-6 p-5 items-start">
+      {/* Body — screenshot + comparison table, stacked on
+          narrow screens */}
+      <div className="flex flex-col lg:flex-row gap-6 p-5 items-start">
 
         {/* Left — the email screenshot */}
-        <InteractiveImage
-          src={"/api/phishingpictures/" + answer.id}
-          clickableAreasUrl={"/api/phishingpictures/" + answer.id + "/links"}
-          onImageClick={(e) => e.stopPropagation()}
-          imageStyle={{
-            maxWidth: '30vw',
-            border: '1px solid rgb(229, 231, 235)',
-            borderRadius: 10,
-          }}
-        />
+        <div className="w-full max-w-[500px] mx-auto lg:w-[35%] lg:max-w-none lg:mx-0 shrink-0">
+          <InteractiveImage
+            src={"/api/phishingpictures/" + answer.id}
+            clickableAreasUrl={"/api/phishingpictures/" + answer.id + "/links"}
+            onImageClick={(e) => e.stopPropagation()}
+            imageStyle={{
+              maxWidth: '100%',
+              border: '1px solid rgb(229, 231, 235)',
+              borderRadius: 10,
+            }}
+          />
+        </div>
 
         {/* Right — correct vs. answered comparison */}
-        <table className="flex-1 table-fixed border-collapse">
+        <table className="flex-1 w-full min-w-0 table-fixed border-collapse">
           <colgroup>
             <col/>
-            <col className="w-[100px]"/>
-            <col className="w-[100px]"/>
+            <col className="w-[70px] sm:w-[100px]"/>
+            <col className="w-[70px] sm:w-[100px]"/>
           </colgroup>
           <thead>
             <tr className="border-b-2 border-gray-200">

@@ -72,6 +72,7 @@ function ActionButtons({ isEditing, disableSave, onSave, onDelete }) {
 
       {isEditing && (
         <LongPressDeleteButton
+          duration={1500}
           fullWidth
           sx={{ flex: 1 }}
           onComplete={onDelete}

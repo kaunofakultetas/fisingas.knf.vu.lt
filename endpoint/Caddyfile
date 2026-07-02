@@ -1,27 +1,27 @@
-# ------------------------------------------------------------
-#                        API BACKEND
+# -----------------------------------------------------------
+#  [*] Caddyfile — Reverse Proxy Entry Point
 #
-# The whole /api/* surface is served by the Django service.
-# Both snippets below must point at the same service — the
-# second one is the forward-auth gate protecting the admin
-# tools (DBGate, Filebrowser, Swagger).
+#  Single entry point for all HTTP traffic. Every container
+#  is reachable only through this proxy (no host-exposed
+#  ports). Route order matters — specific paths before
+#  wildcards.
 #
-# After editing, reload without downtime:
-#   sudo docker exec fisingas-endpoint caddy reload --config /etc/caddy/Caddyfile
-# ------------------------------------------------------------
-(api_backend) {
-    reverse_proxy /api/* fisingas-django:8000 {
-        header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
-    }
-}
-(admin_auth) {
-    forward_auth fisingas-django:8000 {
-        uri /api/checkauth/admin
-    }
-}
-# ------------------------------------------------------------
-# ------------------------------------------------------------
-# ------------------------------------------------------------
+#  Sections:
+#    - Security headers (origin check, CSP, HSTS)
+#    - Administration services (Filebrowser, DBGate)
+#    - Documentation services (Swagger)
+#    - Backend service (Django)
+#    - Frontend GUI (Vite SPA)
+#
+#  Authentication:
+#    Protected routes use forward_auth to fisingas-django:8000
+#    which checks the session cookie against the admin gate
+#    (/api/checkauth/admin). The /api/* routes have no gate
+#    here — Django decides per endpoint who may call what.
+# -----------------------------------------------------------
+
+
+
 
 
 :80 {
@@ -53,59 +53,137 @@
 
         # SECURITY: Force HTTPS for this domain
         header Strict-Transport-Security "max-age=31536000"
-
         # ------------------------------------------------------------
         # ------------------------------------------------------------
         # ------------------------------------------------------------
 
 
 
-        # Dropbox Endpoint
+
+
+
+
+
+        # -----------------------------------------------------------
+        # Administration services
+        # -----------------------------------------------------------
+        #
+        # Auth-gated internal tools for administrators.
+        #   /filebrowser/dropbox/* — file drop for shared uploads
+        #   /filebrowser/slides/*  — the projector slide images
+        #   /dbgate/*              — database management UI
+        #
+        # Authentication - Everything here is admin-only (Django gate).
+        # -----------------------------------------------------------
+
+        # Dropbox Filebrowser
         redir /filebrowser/dropbox /filebrowser/dropbox/
         handle /filebrowser/dropbox/* {
-            import admin_auth
+            forward_auth fisingas-django:8000 {
+                uri /api/checkauth/admin
+            }
             reverse_proxy fisingas-filebrowser-dropbox:80 {
                 header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
             }
         }
 
-
-        # Slides Endpoint
+        # Slides Filebrowser
         redir /filebrowser/slides /filebrowser/slides/
         handle /filebrowser/slides/* {
-            import admin_auth
+            forward_auth fisingas-django:8000 {
+                uri /api/checkauth/admin
+            }
             reverse_proxy fisingas-filebrowser-slides:80 {
                 header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
             }
         }
 
-
         # DBGate Endpoint
         redir /dbgate /dbgate/
         handle /dbgate/* {
-            import admin_auth
+            forward_auth fisingas-django:8000 {
+                uri /api/checkauth/admin
+            }
             reverse_proxy fisingas-dbgate:3000 {
                 header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
             }
         }
 
+
+
+
+
+
+
+
+
+        # ------------------------------------------------------------
+        # Documentation services
+        # ------------------------------------------------------------
+        #
+        # Swagger UI — interactive API documentation viewer.
+        #
+        # Authentication - Everything here is admin-only (Django gate).
+        # -----------------------------------------------------------
         # Swagger UI
         handle /swagger* {
-            import admin_auth
+            forward_auth fisingas-django:8000 {
+                uri /api/checkauth/admin
+            }
             reverse_proxy fisingas-swagger:8080 {
                 header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
             }
         }
 
 
-        # Backend Endpoint (see the switch at the top of this file)
-        import api_backend
 
+
+
+
+
+
+
+        # -----------------------------------------------------------
+        # Django — the whole /api/* surface
+        # -----------------------------------------------------------
+        #
+        # The JSON API behind the React frontend: login/session,
+        # the student test flow, the admin endpoints, question
+        # images and the public leaderboard.
+        #
+        # Authentication - Django handles whats allowed to access
+        # (@login_required + per-view admin checks; the leaderboard
+        # and registration are public on purpose).
+        # -----------------------------------------------------------
+        reverse_proxy /api/* fisingas-django:8000 {
+            header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+        }
+
+
+
+
+
+
+
+
+
+        # ------------------------------------------------------------
+        # Frontend GUI services
+        # ------------------------------------------------------------
+        #
+        # The Vite SPA — every path not matched above lands here
+        # (client-side routing takes over).
+        #
+        # Authentication - Everything here is public; the app's
+        # route guards redirect by session role.
+        # ------------------------------------------------------------
 
         # Vite Frontend
         reverse_proxy /* fisingas-vite:80 {
             header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
         }
+
+
 
 
     }

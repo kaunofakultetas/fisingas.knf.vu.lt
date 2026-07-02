@@ -22,18 +22,19 @@ export default function Navbar() {
     <div className="h-[75px] flex items-center text-sm bg-[rgb(123,0,63)] relative w-full border-b-[0.5px] border-[rgb(231,228,228)]">
 
       {/* VU logo */}
-      <Link to="/" className="no-underline mx-[30px]">
+      <Link to="/" className="no-underline mx-4 sm:mx-[30px] shrink-0">
         <img src="/img/vulogo.png" alt="VU logotipas" />
       </Link>
 
-      <div className="w-full p-5 flex items-center justify-between">
+      <div className="w-full p-5 flex items-center justify-between gap-3">
 
-        {/* App title */}
-        <Link to="/" className="no-underline">
+        {/* App title — hidden on narrow screens, the logo is enough */}
+        <Link to="/" className="no-underline hidden md:block">
           <div className="border border-solid border-white rounded-[15px] text-white py-2 px-3">
             Fišingo atakų atpažinimo testas
           </div>
         </Link>
+        <div className="md:hidden" />
 
         {/* Logout */}
         <Button

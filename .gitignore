@@ -1,7 +1,9 @@
 /_OLD
 /_DATA
 /docker-compose.yml
-/example-vite-project/
+/.env
+
+
 /example/
 
 

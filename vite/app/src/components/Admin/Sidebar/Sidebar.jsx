@@ -169,8 +169,12 @@ function MenuItem({ href, icon: Icon, label, open, external = false }) {
 
 export default function AdminSidebar() {
 
-  // Collapsed/expanded — remembered across page loads
-  const [open, setOpen] = useState(() => localStorage.getItem("sidebarOpen") !== "false");
+  // Collapsed/expanded — remembered across page loads; on
+  // narrow screens it starts collapsed to leave room for the
+  // page content (it can still be expanded by hand)
+  const [open, setOpen] = useState(() =>
+    window.innerWidth >= 768 && localStorage.getItem("sidebarOpen") !== "false"
+  );
 
   const toggleOpen = () => {
     const sidebarOpenNewValue = !open;

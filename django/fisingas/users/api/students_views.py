@@ -6,19 +6,18 @@
 #                                              by the student's own
 #                                              results page)
 #    POST /api/admin/students/<id>/delete    — remove the account
-#    POST /api/admin/students/<id>/resettest — wipe the dealt test
 #    POST /api/student/register              — public self-registration
 ############################################################
 
 
 import random
 import re
+from datetime import datetime
 
 from django.http import HttpResponse, JsonResponse
 
 from fisingas.common.auth import get_json, login_required
 from fisingas.phishing_test.grading import judge_all_students, judge_student, summarize
-from fisingas.phishing_test.models import Answer, AnswerSelectedOption
 from fisingas.users.models import Student
 
 
@@ -65,6 +64,7 @@ def _student_row(student, question_results):
 
         "isfinished": student.is_finished,
         "lastseen": student.last_login,
+        "registrationtime": student.registration_time,
         "status": student.status,
     }
 
@@ -180,43 +180,6 @@ def student_delete(request, studentID):
 
 
 ############################################################
-# student_resettest
-############################################################
-#
-# POST /api/admin/students/<id>/resettest — wipe the
-# student's dealt test: the frozen answer snapshots are
-# deleted and the finished lock is lifted, so their next
-# visit deals a brand new random test. The account and its
-# passcode stay untouched.
-#
-# Used by:
-#   - StudentInformation.jsx — the hold-to-reset button
-############################################################
-
-@login_required
-def student_resettest(request, studentID):
-    if not request.current_user.admin:
-        return HttpResponse("Error: Not Admin", status=403)
-    if request.method != "POST":
-        return HttpResponse(status=405)
-
-    if not Student.objects.filter(id=studentID).exists():
-        return HttpResponse("Error: Student not found", status=404)
-
-    AnswerSelectedOption.objects.filter(student_id=studentID).delete()
-    Answer.objects.filter(student_id=studentID).delete()
-    Student.objects.filter(id=studentID).update(is_finished=0)
-
-    return JsonResponse({"status": "ok"})
-
-
-
-
-
-
-
-
-############################################################
 # student_register
 ############################################################
 #
@@ -253,6 +216,7 @@ def student_register(request):
             is_finished=0,
             last_login="",
             status=1,
+            registration_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         )
         return JsonResponse({
             "status": "OK",

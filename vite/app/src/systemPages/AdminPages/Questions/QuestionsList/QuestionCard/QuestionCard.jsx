@@ -34,6 +34,7 @@
 // -----------------------------------------------------------
 
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import axios from "axios";
 import toast from 'react-hot-toast';
 
@@ -65,6 +66,11 @@ import { LongPressDeleteButton } from "@/components/Other/LongPressButton";
 // editor filling the rest of the screen. Saving inside the
 // editor also closes it.
 //
+// Rendered through a portal onto <body> — the card of a
+// DISABLED question is dimmed with opacity, and an ancestor
+// with opacity creates a stacking context that would trap
+// (and dim) this "fullscreen" overlay inside the card.
+//
 // Used by:
 //   - QuestionImageCell (below) — the "Redaguoti Nuorodas"
 //     button
@@ -76,7 +82,7 @@ function FullScreenImageLinkEditor({ isModalOpen, setIsModalOpen, src, initialAr
     return null;
   }
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[1000] flex flex-col bg-white">
 
       {/* Top bar — title + back */}
@@ -103,7 +109,8 @@ function FullScreenImageLinkEditor({ isModalOpen, setIsModalOpen, src, initialAr
         />
       </div>
 
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -157,7 +164,7 @@ function SaveStatusIndicator({ status }) {
 // The strip on top of the card: the question ID and creation
 // date on the left, the save status, the enabled toggle (iOS
 // style) and the hold-to-delete button on the right —
-// deletion fires only after holding for 3 seconds.
+// deletion fires only after long pressing the button.
 //
 // Used by:
 //   - QuestionCard (below)
@@ -169,10 +176,10 @@ function QuestionCardHeader({ question, saveStatus, onEnabledChange, onDelete })
 
 
   return (
-    <div className="flex items-center justify-between px-5 py-3 border-b border-[rgb(231,228,228)] bg-[rgb(250,250,251)] rounded-t-[15px]">
+    <div className="flex items-center justify-between flex-wrap gap-x-4 gap-y-2 px-5 py-3 border-b border-[rgb(231,228,228)] bg-[rgb(250,250,251)] rounded-t-[15px]">
 
       {/* ID + creation date */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center flex-wrap gap-3">
         <span className="bg-[rgb(123,0,63)] text-white text-sm font-semibold rounded-[8px] px-3 py-1">
           Klausimas #{question.questionid}
         </span>
@@ -188,7 +195,7 @@ function QuestionCardHeader({ question, saveStatus, onEnabledChange, onDelete })
       </div>
 
       {/* Save status + enabled toggle + hold-to-delete */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center flex-wrap gap-x-4 gap-y-2">
         <SaveStatusIndicator status={saveStatus} />
 
         <Tooltip title="Ar klausimas dalinamas studentams" placement="top">
@@ -203,9 +210,10 @@ function QuestionCardHeader({ question, saveStatus, onEnabledChange, onDelete })
 
         <LongPressDeleteButton
           onComplete={onDelete}
+          duration={1500}
           size="small"
           variant="outlined"
-          tooltip="Laikykite 3 sek., kad ištrintumėte klausimą"
+          tooltip="Laikykite mygtuką, kad ištrintumėte klausimą"
           uncompletedToastMessage="Laikykite mygtuką ilgiau, kad ištrintumėte"
           progressColor="rgb(211,47,47)"
           progressBgColor="rgba(211,47,47,0.25)"
@@ -242,7 +250,7 @@ function QuestionImageCell({ questionid, triggerQuestionListUpdate }) {
   const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(false);
 
   return (
-    <div className="w-[35%] shrink-0 flex flex-col gap-2.5">
+    <div className="w-full max-w-[500px] mx-auto lg:w-[35%] lg:max-w-none lg:mx-0 shrink-0 flex flex-col gap-2.5">
 
       <FullScreenImageLinkEditor
         isModalOpen={isLinkEditorOpen}
@@ -327,7 +335,7 @@ function IsPhishingEditorRow({ question, onDescriptionChange, onIsPhishingChange
         />
       </div>
 
-      <div className="w-[110px] shrink-0 text-center self-center">
+      <div className="w-[70px] sm:w-[110px] shrink-0 text-center self-center">
         <Checkbox
           checked={question.isphishing === 1}
           onChange={(e) => onIsPhishingChange(e.target.checked)}
@@ -389,9 +397,10 @@ function OptionEditorRow({ questionoption, onTextChange, onCheckboxChange, onDel
 
       <LongPressDeleteButton
         onComplete={onDelete}
+        duration={1500}
         size="small"
         variant="text"
-        tooltip="Laikykite 3 sek., kad ištrintumėte opciją"
+        tooltip="Laikykite mygtuką, kad ištrintumėte opciją"
         uncompletedToastMessage="Laikykite mygtuką ilgiau, kad ištrintumėte"
         progressColor="rgb(211,47,47)"
         progressBgColor="rgba(211,47,47,0.25)"
@@ -400,7 +409,7 @@ function OptionEditorRow({ questionoption, onTextChange, onCheckboxChange, onDel
         <DeleteIcon sx={{ fontSize: 22 }} />
       </LongPressDeleteButton>
 
-      <div className="w-[110px] shrink-0 text-center">
+      <div className="w-[70px] sm:w-[110px] shrink-0 text-center">
         <Checkbox
           checked={questionoption.rightoptionanswer === 1}
           onChange={(e) => onCheckboxChange(e.target.checked)}
@@ -638,7 +647,8 @@ export default function QuestionCard({ fetchedQuestionData, triggerQuestionListU
         onDelete={handleDeleteQuestion}
       />
 
-      <div className="flex gap-5 p-5">
+      {/* Body — image next to the editor, stacked on narrow screens */}
+      <div className="flex flex-col lg:flex-row gap-5 p-5">
 
         <QuestionImageCell
           questionid={question.questionid}
@@ -651,7 +661,7 @@ export default function QuestionCard({ fetchedQuestionData, triggerQuestionListU
           {/* Column headings */}
           <div className="flex items-center">
             <span className="flex-1 text-lg font-bold text-[#555]">Klausimas</span>
-            <span className="w-[110px] shrink-0 text-center text-lg font-bold text-[#555]">Teisingas</span>
+            <span className="w-[70px] sm:w-[110px] shrink-0 text-center text-lg font-bold text-[#555]">Teisingas</span>
           </div>
 
           <IsPhishingEditorRow

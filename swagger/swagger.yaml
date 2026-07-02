@@ -622,36 +622,6 @@ paths:
         "404":
           description: Student not found
 
-  /api/admin/students/{studentID}/resettest:
-    post:
-      tags: [Students (Admin)]
-      summary: Reset a student's test
-      description: |
-        Deletes the student's dealt test (the frozen answer snapshots) and
-        lifts the finished lock — their next visit deals a brand new random
-        test. The account and passcode stay untouched.
-      security:
-        - cookieAuth: []
-      parameters:
-        - name: studentID
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: Test reset
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: ok
-        "404":
-          description: Student not found
-
   /api/admin/students/{studentID}/answers:
     get:
       tags: [Students (Admin)]
@@ -1043,6 +1013,9 @@ components:
         lastseen:
           type: string
           description: Last login timestamp
+        registrationtime:
+          type: string
+          description: Registration timestamp ("" for accounts created before the column existed)
         status:
           type: integer
 

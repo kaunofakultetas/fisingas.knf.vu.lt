@@ -2,7 +2,8 @@
 //  [*] Admin — StudentInformation
 //
 //  One student's results page (/admin/students/:studentID):
-//    - top left:  avatar, username and login code
+//    - top left:  avatar, username, login code and the
+//                 registration / last login times
 //    - top right: summary tiles — grade, fully correct,
 //                 correctly identified, correct options
 //                 (with percentages; hover for an explanation)
@@ -13,10 +14,9 @@
 //  Data comes from GET /api/admin/students/<id>; while it
 //  loads the page renders blurred instead of empty.
 //
-//  Destructive admin actions live in the page heading row —
-//  both are hold-to-confirm (LongPressButton):
-//    - "Iš naujo" wipes the dealt test (the account stays)
-//    - "Ištrinti" removes the account with its test
+//  The "Ištrinti Studentą" button in the page heading row
+//  removes the account with its test — hold-to-confirm
+//  (LongPressButton), no confirm dialog.
 //
 //  Split into (root component last):
 //
@@ -37,13 +37,14 @@ import useFetchData from "@/hooks/useFetchData";
 import AdminPageLayout from "@/systemPages/AdminPages/AdminPageLayout";
 import StudentTestSummaryTable from "./StudentTestSummaryTable/StudentTestSummaryTable";
 import StudentAnswers from "./StudentAnswers/StudentAnswers";
-import { LongPressButton, LongPressDeleteButton } from "@/components/Other/LongPressButton";
+import { LongPressDeleteButton } from "@/components/Other/LongPressButton";
 
 import SchoolIcon from '@mui/icons-material/School';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import FingerprintIcon from '@mui/icons-material/Fingerprint';
 import KeyIcon from '@mui/icons-material/Key';
-import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import EventIcon from '@mui/icons-material/Event';
+import ScheduleIcon from '@mui/icons-material/Schedule';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { PiHandsClappingLight } from 'react-icons/pi';
 import { BsHandThumbsUp } from 'react-icons/bs';
@@ -72,7 +73,7 @@ import { GrCheckboxSelected } from 'react-icons/gr';
 function SummaryTile({ icon, label, value, percent, title }) {
   return (
     <div
-      className="flex-1 flex flex-col items-center justify-center gap-1.5 p-5 text-center cursor-help border-l border-gray-100"
+      className="flex-1 min-w-[150px] flex flex-col items-center justify-center gap-1.5 p-5 text-center cursor-help border-l border-gray-100"
       title={title}
     >
       <div className="bg-[rgba(123,0,63,0.08)] text-[rgb(123,0,63)] rounded-full p-3.5 flex items-center justify-center">
@@ -105,10 +106,12 @@ function SummaryTile({ icon, label, value, percent, title }) {
 // -----------------------------------------------------------
 //
 // The top-left profile card: a burgundy banner with the
-// avatar overlapping it, the username, and the credential
-// rows — ID and the login code the student uses to get back
-// into the test (in a monospace pill, it's meant to be
-// copied/dictated).
+// avatar overlapping it, the username, and the account rows —
+// ID, the login code the student uses to get back into the
+// test (in a monospace pill, it's meant to be copied/
+// dictated), the registration time and the last login time
+// ("—" when unknown, e.g. accounts registered before the
+// column existed).
 //
 // Used by:
 //   - StudentInformation (below)
@@ -129,17 +132,27 @@ function StudentDetailsCard({ studentID, data }) {
 
         <h1 className="mt-2 text-2xl font-bold text-[#333]">{data.username}</h1>
 
-        {/* Credential rows */}
+        {/* Account rows */}
         <div className="mt-3 flex flex-col gap-2.5 text-sm">
           <div className="flex items-center gap-2">
             <FingerprintIcon sx={{ fontSize: 18 }} className="text-[rgb(123,0,63)]" />
-            <span className="font-semibold text-gray-500 w-[140px]">ID:</span>
+            <span className="font-semibold text-gray-500 w-[185px]">ID:</span>
             <span>{studentID}</span>
           </div>
           <div className="flex items-center gap-2">
             <KeyIcon sx={{ fontSize: 18 }} className="text-[rgb(123,0,63)]" />
-            <span className="font-semibold text-gray-500 w-[140px]">Prisijungimo kodas:</span>
+            <span className="font-semibold text-gray-500 w-[185px]">Prisijungimo kodas:</span>
             <span className="font-mono bg-gray-100 border border-gray-200 rounded px-2 py-0.5">{data.passcode}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <EventIcon sx={{ fontSize: 18 }} className="text-[rgb(123,0,63)]" />
+            <span className="font-semibold text-gray-500 w-[185px]">Registracijos laikas:</span>
+            <span>{data.registrationtime || "—"}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <ScheduleIcon sx={{ fontSize: 18 }} className="text-[rgb(123,0,63)]" />
+            <span className="font-semibold text-gray-500 w-[185px]">Paskutinis prisijungimas:</span>
+            <span>{data.lastseen || "—"}</span>
           </div>
         </div>
       </div>
@@ -169,10 +182,10 @@ function StudentDetailsCard({ studentID, data }) {
 
 function TestSummaryPanel({ data }) {
   return (
-    <div className="w-[65%] flex bg-white rounded-[15px] overflow-hidden shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
+    <div className="w-full xl:w-[65%] flex flex-wrap bg-white rounded-[15px] overflow-hidden shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
 
       {/* Grade — the headline tile */}
-      <div className="w-[25%] bg-linear-to-br from-[rgb(123,0,63)] to-[rgb(75,0,38)] text-white flex flex-col items-center justify-center gap-1.5 p-5 text-center">
+      <div className="w-full sm:w-[25%] sm:min-w-[150px] bg-linear-to-br from-[rgb(123,0,63)] to-[rgb(75,0,38)] text-white flex flex-col items-center justify-center gap-1.5 p-5 text-center">
         <div className="bg-white/15 rounded-full p-3.5 flex items-center justify-center">
           <SchoolIcon sx={{ fontSize: 30 }} />
         </div>
@@ -305,20 +318,7 @@ export default function StudentInformation() {
 
   const navigate = useNavigate();
   const { studentID } = useParams();
-  const { data, loadingData, refetch } = useFetchData("/api/admin/students/" + studentID);
-
-
-  // Wipe the dealt test — the student's next visit deals a
-  // brand new one; the account and passcode stay
-  const handleResetTest = async () => {
-    try {
-      await axios.post(`/api/admin/students/${studentID}/resettest`, {}, { withCredentials: true });
-      toast.success(<b>Testas ištrintas — studentas gaus naują</b>, { duration: 4000 });
-      refetch();
-    } catch {
-      toast.error(<b>Nepavyko ištrinti testo</b>, { duration: 5000 });
-    }
-  };
+  const { data, loadingData } = useFetchData("/api/admin/students/" + studentID);
 
 
   // Remove the account for good, then back to the students list
@@ -338,42 +338,33 @@ export default function StudentInformation() {
       <div className={`flex-1 p-5 ${loadingData ? "blur-[5px]" : ""}`}>
 
         {/* Page heading + the destructive admin actions */}
-        <Box className="flex items-center gap-2 mb-4">
+        <Box className="flex items-center flex-wrap gap-2 mb-4">
           <PersonOutlineIcon sx={{ fontSize: 28, color: 'primary.main' }} />
           <Typography variant="h5" sx={{ fontWeight: 600 }}>
             Studento Informacija
           </Typography>
 
-          <Box className="ml-auto flex gap-2">
-            <LongPressButton
-              onComplete={handleResetTest}
-              color="warning"
-              variant="outlined"
-              startIcon={<RestartAltIcon />}
-              tooltip="Laikykite 3 sek. — ištrina studento testą, kitą kartą jis gaus naują"
-              uncompletedToastMessage="Laikykite mygtuką ilgiau, kad anuliuotumėte testą"
-              progressColor="orange"
-              progressBgColor="rgba(237,108,2,0.25)"
-            >
-              Testas Iš Naujo
-            </LongPressButton>
-
+          <Box className="ml-auto flex flex-wrap gap-2">
             <LongPressDeleteButton
               onComplete={handleDeleteStudent}
-              variant="outlined"
-              startIcon={<DeleteOutlineIcon />}
-              tooltip="Laikykite 3 sek. — ištrina studentą su visu jo testu negrįžtamai"
+              duration={1500}
+              variant="contained"
+              tooltip="Laikykite mygtuką, kad ištrintumėte studentą"
               uncompletedToastMessage="Laikykite mygtuką ilgiau, kad ištrintumėte studentą"
-              progressColor="red"
+              progressColor="white"
               progressBgColor="rgba(211,47,47,0.25)"
             >
-              Ištrinti Studentą
+              <>
+                <DeleteOutlineIcon />
+                <span className="ml-2">Ištrinti Studentą</span>
+              </>
             </LongPressDeleteButton>
           </Box>
         </Box>
 
-        {/* Top row — profile card + summary tiles */}
-        <div className="flex gap-5 items-stretch mb-5">
+        {/* Top row — profile card + summary tiles, stacked on
+            narrow screens */}
+        <div className="flex flex-col xl:flex-row gap-5 items-stretch mb-5">
           <StudentDetailsCard studentID={studentID} data={data} />
           <TestSummaryPanel data={data} />
         </div>

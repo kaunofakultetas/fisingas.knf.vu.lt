@@ -67,6 +67,7 @@ function FilterBar({ searchText, setSearchText, statusFilter, setStatusFilter, s
         onChange={(e) => setSearchText(e.target.value)}
         sx={{
           width: '320px',
+          maxWidth: '100%',
           '& .MuiOutlinedInput-root': {
             borderRadius: '8px',
             fontSize: '0.875rem',
@@ -84,7 +85,7 @@ function FilterBar({ searchText, setSearchText, statusFilter, setStatusFilter, s
       />
 
       {/* Status pills */}
-      <div className="flex gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
         {STATUS_FILTERS.map((filter) => (
           <button
             key={filter.id}
