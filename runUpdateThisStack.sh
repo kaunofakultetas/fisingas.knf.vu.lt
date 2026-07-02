@@ -1,6 +1,5 @@
 #!/bin/bash
 
-mkdir -p ./_DATA/database
 mkdir -p ./_DATA/dropbox
 mkdir -p ./_DATA/slides
 mkdir -p ./_DATA/postgres
