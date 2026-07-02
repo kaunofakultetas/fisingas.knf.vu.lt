@@ -85,13 +85,9 @@ class QuestionImage(models.Model):
 class Question(models.Model):
     # Columns
     is_enabled = models.IntegerField(default=1)
-    points = models.IntegerField(default=1)
     is_phishing = models.IntegerField(default=0)
     question = models.TextField(blank=True, default="")
-    filename = models.CharField(max_length=255, blank=True, default="")
     image = models.ForeignKey(QuestionImage, on_delete=models.PROTECT, related_name="questions")
-    picture_height = models.IntegerField(default=0)
-    picture_width = models.IntegerField(default=0)
     created = models.CharField(max_length=32, blank=True, default="")
 
     # String representation

@@ -39,6 +39,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Rnd } from 'react-rnd';
 import axios from 'axios';
+import toast from 'react-hot-toast';
 import { Box, Button, TextField, Typography, Grid, IconButton } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SaveIcon from '@mui/icons-material/Save';
@@ -404,7 +405,7 @@ export default function InteractiveImageEditor({ src, initialAreasUrl, onSaveBut
   useEffect(() => {
     const fetchAreas = async () => {
       try {
-        const response = await axios.get(initialAreasUrl);
+        const response = await axios.get(initialAreasUrl, { withCredentials: true });
         setAreas(response.data.map((area) => ({
           ...area,
           x: parseFloat(area.x.replace('%', '')),
@@ -413,8 +414,8 @@ export default function InteractiveImageEditor({ src, initialAreasUrl, onSaveBut
           height: parseFloat(area.height.replace('%', '')),
         })));
         setAreasFetched(true);
-      } catch (error) {
-        console.error('Error fetching clickable areas:', error);
+      } catch {
+        toast.error(<b>Nepavyko užkrauti nuorodų</b>, { duration: 5000 });
       }
     };
     fetchAreas();
@@ -474,13 +475,14 @@ export default function InteractiveImageEditor({ src, initialAreasUrl, onSaveBut
         height: Math.round(area.height) / 100,
       }));
 
-      await axios.post(initialAreasUrl, { areas: areasInFraction });
+      await axios.post(initialAreasUrl, { areas: areasInFraction }, { withCredentials: true });
 
+      toast.success(<b>Nuorodos išsaugotos</b>, { duration: 3000 });
       if (onSaveButtonClick) {
         onSaveButtonClick();
       }
-    } catch (error) {
-      console.error('Error during POST request:', error);
+    } catch {
+      toast.error(<b>Nepavyko išsaugoti nuorodų</b>, { duration: 5000 });
     }
   };
 

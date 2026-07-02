@@ -196,7 +196,7 @@ function AnswerCard({ answer }) {
 
 
   return (
-    <div className={`bg-white border border-gray-200 border-l-4 ${accentEdge} rounded-2xl overflow-hidden shadow-[0_2px_12px_rgba(0,0,0,0.06)]`}>
+    <div className={`bg-white border-l-4 ${accentEdge} rounded-[15px] overflow-hidden shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]`}>
 
       {/* Header — question ID + result chips */}
       <div className="flex items-center justify-between flex-wrap gap-2 bg-gray-50 border-b border-gray-100 px-5 py-3">

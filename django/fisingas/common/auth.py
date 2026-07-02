@@ -3,8 +3,9 @@
 #
 #  Only the login name lives in the session; the user is
 #  re-loaded from the database on every request, so a
-#  deleted or renamed account is locked out immediately —
-#  no stale identity can survive inside a cookie.
+#  deleted, renamed or disabled account is locked out
+#  immediately — no stale identity can survive inside a
+#  cookie.
 #
 #    login(request, user)      → stores the login name
 #    get_current_user(request) → re-loads the user, or None
@@ -67,7 +68,12 @@ class SessionUser:
 # load_user
 ############################################################
 #
-# Find one user by login name across BOTH account tables.
+# Find one ACTIVE user by login name across BOTH account
+# tables — disabled admins (enabled=0) and deactivated
+# students (status≠1) are treated as non-existent, which
+# both refuses their login and kills their live sessions
+# (the user is re-loaded on every request).
+#
 # Returns None unless exactly one match exists — if a name
 # somehow existed in both tables, logging in would be
 # refused instead of guessing which account was meant.
@@ -80,10 +86,10 @@ class SessionUser:
 def load_user(username):
     matches = []
 
-    for admin in SystemUser.objects.filter(email=username):
+    for admin in SystemUser.objects.filter(email=username, enabled=1):
         matches.append(SessionUser(id=admin.email, userid=admin.id, admin=1, password=admin.password))
 
-    for student in Student.objects.filter(username=username):
+    for student in Student.objects.filter(username=username, status=1):
         matches.append(SessionUser(id=student.username, userid=student.id, admin=0, password=student.passcode))
 
     if len(matches) != 1:

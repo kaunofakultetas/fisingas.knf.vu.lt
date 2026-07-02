@@ -12,11 +12,17 @@
 //
 //  Icon names arrive as strings from the backend and are
 //  mapped to MUI icons via getIconFromName.
+//
+//  Split into (root component last):
+//
+//    TestSizePicker — the test-size dropdown inside the
+//                     "Klausimai" widget
+//    Home           — the page itself (default export)
 // -----------------------------------------------------------
 
 import axios from "axios";
 import toast from 'react-hot-toast';
-import { Box, Typography, TextField, MenuItem } from '@mui/material';
+import { TextField, MenuItem } from '@mui/material';
 import useFetchData from "@/hooks/useFetchData";
 
 import AdminPageLayout from "@/systemPages/AdminPages/AdminPageLayout";
@@ -34,6 +40,76 @@ import EngineeringIcon from '@mui/icons-material/Engineering';
 import TerminalOutlinedIcon from '@mui/icons-material/TerminalOutlined';
 import SchoolOutlinedIcon from '@mui/icons-material/SchoolOutlined';
 import CastForEducationOutlinedIcon from '@mui/icons-material/CastForEducationOutlined';
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TestSizePicker
+// -----------------------------------------------------------
+//
+// The dropdown deciding how many questions a NEW test deals
+// to a student (already-dealt tests keep their size). Saves
+// on every change — no save button — and confirms with a
+// toast.
+//
+// Styled as a quiet inset panel so it reads as part of the
+// white widget card instead of competing with it.
+//
+// Used by:
+//   - Home (below) — inside the "Klausimai" widget
+// -----------------------------------------------------------
+
+const TEST_SIZE_CHOICES = [9, 12, 15, 21, 30];
+
+function TestSizePicker({ currentSize }) {
+
+  const saveTestSize = (newSize) => {
+    axios.post("/api/admin/update/phishingtestsize",
+      { phishingtestsize: newSize }, { withCredentials: true })
+      .then(() => {
+        toast.success(<b>Išsaugota</b>, { duration: 3000 });
+      })
+      .catch(() => {
+        toast.error(<b>Nepavyko išsaugoti</b>, { duration: 3000 });
+      });
+  };
+
+
+  return (
+    <div className="flex flex-col gap-1.5 h-full justify-center bg-[rgb(245,246,248)] border border-[rgb(231,228,228)] rounded-[10px] px-4 py-2">
+      <span className="font-bold text-xs text-gray-400">Testo dydis</span>
+
+      <TextField
+        select
+        size="small"
+        variant="outlined"
+        defaultValue={currentSize}
+        onChange={(e) => saveTestSize(e.target.value)}
+        sx={{
+          width: '160px',
+          '& .MuiOutlinedInput-root': {
+            borderRadius: '8px',
+            backgroundColor: 'white',
+            fontSize: '0.875rem',
+            '& fieldset': { borderColor: 'rgb(231,228,228)' },
+            '&:hover fieldset': { borderColor: 'rgb(123,0,63)' },
+            '&.Mui-focused fieldset': { borderColor: 'rgb(123,0,63)' },
+          },
+        }}
+      >
+        {TEST_SIZE_CHOICES.map((size) => (
+          <MenuItem key={size} value={String(size)}>
+            {size} klausimų
+          </MenuItem>
+        ))}
+      </TextField>
+    </div>
+  );
+}
 
 
 
@@ -98,51 +174,7 @@ export default function Home() {
             icon={getIconFromName("QuestionMarkOutlinedIcon")}
             link="/admin/questions"
           >
-            {/* Test size — how many questions each student gets */}
-            <Box
-              sx={{
-                backgroundColor: 'lightgrey',
-                borderRadius: 2,
-                border: '1px solid black',
-                p: 1.5,
-                pl: 4,
-                pr: 4,
-              }}
-            >
-              <Typography
-                variant="caption"
-                color="black"
-                sx={{ mb: 0.5, fontSize: '1em' }}
-              >
-                Testo dydis:
-              </Typography>
-              <TextField
-                select
-                fullWidth
-                size="small"
-                variant="outlined"
-                defaultValue={data.phishingtestsize}
-                onChange={(e) => {
-                  axios.post("/api/admin/update/phishingtestsize",
-                    { phishingtestsize: e.target.value }, { withCredentials: true })
-                    .then(() => {
-                      toast.success(<b>Išsaugota</b>, { duration: 3000 });
-                    });
-                }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    borderRadius: 1,
-                    backgroundColor: 'white',
-                  }
-                }}
-              >
-                <MenuItem value="9">9</MenuItem>
-                <MenuItem value="12">12</MenuItem>
-                <MenuItem value="15">15</MenuItem>
-                <MenuItem value="21">21</MenuItem>
-                <MenuItem value="30">30</MenuItem>
-              </TextField>
-            </Box>
+            <TestSizePicker currentSize={String(data.phishingtestsize)} />
           </Widget>
         </div>
 

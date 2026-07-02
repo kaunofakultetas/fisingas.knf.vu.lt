@@ -9,13 +9,17 @@
 //  with a border = not answered yet; the current question
 //  gets a pink ring.
 //
-//  Finishing navigates with a full page load on purpose — the
-//  session is re-checked and the finished student can no
-//  longer return to the test.
+//  Finishing is IRREVERSIBLE (the backend locks the test), so
+//  the button must be held for 3 seconds — no accidental
+//  clicks can end the test. It then navigates with a full
+//  page load on purpose: the session is re-checked and the
+//  finished student can no longer return to the test.
 //
 //  Used by:
 //    - TestHome — the student test page
 // -----------------------------------------------------------
+
+import { LongPressButton } from "@/components/Other/LongPressButton";
 
 
 export default function StudentSidebar({ currentQuestionIndex, setCurrentQuestionIndex, questionsData }) {
@@ -61,15 +65,27 @@ export default function StudentSidebar({ currentQuestionIndex, setCurrentQuestio
         })}
       </div>
 
-      {/* Finish the test */}
-      <button
-        type="button"
-        onClick={() => { window.location.href = "/student/finish" }}
-        className="mt-8 w-full py-2.5 rounded-xl bg-[rgb(123,0,63)] text-white font-semibold
-          hover:bg-[rgb(230,65,100)] transition-colors cursor-pointer shadow-[0_4px_14px_rgba(123,0,63,0.25)]"
+      {/* Finish the test — hold to confirm, there is no way back */}
+      <LongPressButton
+        onComplete={() => { window.location.href = "/student/finish" }}
+        color="primary"
+        variant="contained"
+        fullWidth
+        tooltip="Laikykite 3 sek., kad užbaigtumėte testą negrįžtamai"
+        uncompletedToastMessage="Laikykite mygtuką ilgiau, kad užbaigtumėte testą"
+        sx={{
+          marginTop: 4,
+          paddingTop: 1.25,
+          paddingBottom: 1.25,
+          borderRadius: '12px',
+          fontWeight: 600,
+          textTransform: 'none',
+          fontSize: '1rem',
+          boxShadow: '0 4px 14px rgba(123,0,63,0.25)',
+        }}
       >
         Užbaigti testą
-      </button>
+      </LongPressButton>
 
     </div>
   );

@@ -29,7 +29,7 @@ import { useTheme } from '@mui/material/styles';
 //
 // Used by:
 //   - every admin grid (StudentsListTable, AdministratorsList,
-//     StudentGroupsTable, StudentTestSummaryTable, SystemUsers)
+//     StudentTestSummaryTable)
 //     — passed as the `pagination` slot of the DataGrid
 // -----------------------------------------------------------
 

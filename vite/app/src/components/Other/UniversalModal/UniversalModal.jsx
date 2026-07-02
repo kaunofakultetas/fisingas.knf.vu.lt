@@ -11,14 +11,12 @@
 //  "success") pick the header icon and the confirm button
 //  color.
 //
-//  Split into (main component, then presets):
+//  Split into (main component last):
 //
 //    VARIANTS         — per-variant icon + colors
 //    ModalHeader      — icon, title, description, close (×)
 //    StandardActions  — the Confirm/Cancel button bar
 //    UniversalModal   — the modal itself (default export)
-//    ConfirmModal / DeleteModal / AlertModal / WarningModal
-//                     — thin presets with Lithuanian defaults
 //
 //  Imported via the folder's index.js:
 //    @/components/Other/UniversalModal
@@ -205,8 +203,8 @@ function StandardActions({ showCancel, cancelText, onCancel, showConfirm, confir
 // -----------------------------------------------------------
 //
 // Used by:
-//   - nothing yet — kept as the app's standard modal for new
-//     dialogs
+//   - AddEditAdministrator.jsx — the create/edit admin dialog
+//   - AddQuestion.jsx          — the upload-question dialog
 // -----------------------------------------------------------
 
 export default function UniversalModal({
@@ -361,142 +359,5 @@ export default function UniversalModal({
         )}
       </Paper>
     </Modal>
-  );
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// ConfirmModal
-// -----------------------------------------------------------
-//
-// Preset: generic "are you sure?" dialog — default variant,
-// Lithuanian "Patvirtinti veiksmą" title and Confirm/Cancel
-// pair. All props pass through, so anything can still be
-// overridden.
-//
-// Used by:
-//   - nothing yet — exported via index.js for future use
-// -----------------------------------------------------------
-
-export function ConfirmModal({
-  title = "Patvirtinti veiksmą",
-  confirmText = "Patvirtinti",
-  ...props
-}) {
-  return (
-    <UniversalModal
-      title={title}
-      confirmText={confirmText}
-      showCancel={true}
-      {...props}
-    />
-  );
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// DeleteModal
-// -----------------------------------------------------------
-//
-// Preset: delete confirmation — danger variant (red confirm,
-// error icon) with irreversible-action wording ("Šis veiksmas
-// negrįžtamas."). Pass onConfirm with the actual delete call.
-//
-// Used by:
-//   - nothing yet — exported via index.js for future use
-// -----------------------------------------------------------
-
-export function DeleteModal({
-  title = "Ištrinti",
-  description = "Ar tikrai norite ištrinti? Šis veiksmas negrįžtamas.",
-  confirmText = "Ištrinti",
-  ...props
-}) {
-  return (
-    <UniversalModal
-      title={title}
-      description={description}
-      confirmText={confirmText}
-      variant="danger"
-      {...props}
-    />
-  );
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// AlertModal
-// -----------------------------------------------------------
-//
-// Preset: informational notice — info variant with a single
-// "Gerai" button (cancel hidden by default since there is
-// nothing to cancel).
-//
-// Used by:
-//   - nothing yet — exported via index.js for future use
-// -----------------------------------------------------------
-
-export function AlertModal({
-  title = "Informacija",
-  confirmText = "Gerai",
-  showCancel = false,
-  ...props
-}) {
-  return (
-    <UniversalModal
-      title={title}
-      confirmText={confirmText}
-      showCancel={showCancel}
-      variant="info"
-      {...props}
-    />
-  );
-}
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// WarningModal
-// -----------------------------------------------------------
-//
-// Preset: warning notice — warning variant, "Supratau"
-// confirm. Keeps the cancel button (unlike AlertModal) in
-// case the caller wires onCancel to back out.
-//
-// Used by:
-//   - nothing yet — exported via index.js for future use
-// -----------------------------------------------------------
-
-export function WarningModal({
-  title = "Įspėjimas",
-  confirmText = "Supratau",
-  ...props
-}) {
-  return (
-    <UniversalModal
-      title={title}
-      confirmText={confirmText}
-      variant="warning"
-      {...props}
-    />
   );
 }

@@ -3,11 +3,11 @@ services:
 
   fisingas-endpoint:
     container_name: fisingas-endpoint
-    image: caddy:2-alpine
+    image: caddy:2.11-alpine
     # user: 1000:1000
     read_only: true
     volumes:
-      - ./endpoint/Caddyfile:/etc/caddy/Caddyfile
+      - ./endpoint/Caddyfile:/etc/caddy/Caddyfile:ro
     ports:
       - 80:80
     restart: unless-stopped
@@ -39,56 +39,65 @@ services:
 
 
 
-  # Backend (Pull Docker hub)
-  fisingas-backend:
-    container_name: fisingas-backend
-    image: vuknf/fisingas-backend:latest
+  fisingas-django:
+    container_name: fisingas-django
+    image: fisingas-django
+    build: ./django
+    user: 1000:1000
     read_only: true
     environment:
-      - TMPDIR=/tmp/backend
-      - DB_PATH=/DATABASE/fisingas.db
-      - SLIDES_DIRECTORY=/SLIDES
+      # - DJANGO_DEBUG=True                                                   # Dev
+      - DJANGO_SECRET_KEY=<CHANGE-ME-LONG-RANDOM-STRING>
+      - DATABASE_URL=postgres://fisingas:<CHANGE-ME-DB-PASSWORD>@fisingas-postgres:5432/fisingas
+      - SLIDES_DIRECTORY=/slides
+    tmpfs:
+      - /tmp:uid=1000,gid=1000
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ./_DATA/database:/database
       - ./_DATA/slides:/slides
+      # - ./django:/app                                                       # Dev
+    depends_on:
+      fisingas-postgres:
+        condition: service_healthy
     restart: unless-stopped
 
-  # # Backend (Self-built)
-  # fisingas-backend:
-  #   container_name: fisingas-backend
-  #   image: fisingas-backend
-  #   build: ./backend
-  #   environment:
-  #     - TMPDIR=/tmp/backend
-  #     - DB_PATH=/DATABASE/fisingas.db
-  #     - SLIDES_DIRECTORY=/SLIDES
-  #     # - APP_DEBUG=true                                                    # Dev
-  #   read_only: true
-  #   volumes:
-  #     - /etc/localtime:/etc/localtime:ro
-  #     - ./_DATA/database:/database
-  #     - ./_DATA/slides:/slides
-  #     # - ./backend:/app                                                    # Dev
-  #   restart: unless-stopped
 
+  fisingas-postgres:
+    container_name: fisingas-postgres
+    image: postgres:17-alpine
+    user: 1000:1000
+    environment:
+      - POSTGRES_DB=fisingas
+      - POSTGRES_USER=fisingas
+      - POSTGRES_PASSWORD=<CHANGE-ME-DB-PASSWORD>
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fisingas -d fisingas"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./_DATA/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
 
 
 
 
   fisingas-dbgate:
     container_name: fisingas-dbgate
-    image: dbgate/dbgate:7.1.4
+    image: dbgate/dbgate:7.1.12
     environment:
       WEB_ROOT: /dbgate
 
       CONNECTIONS: con1
       LABEL_con1: Fišingo Testas - DB
-      FILE_con1: /DATABASE/fisingas.db
-      ENGINE_con1: sqlite@dbgate-plugin-sqlite
+      SERVER_con1: fisingas-postgres
+      PORT_con1: 5432
+      USER_con1: fisingas
+      PASSWORD_con1: <CHANGE-ME-DB-PASSWORD>
+      DATABASE_con1: fisingas
+      ENGINE_con1: postgres@dbgate-plugin-postgres
     read_only: false
-    volumes:
-      - ./DATABASE:/DATABASE
     restart: unless-stopped
 
 
@@ -100,9 +109,9 @@ services:
     volumes:
       - ./filebrowser/dropbox.json:/config/settings.json:ro
       - ./_DATA/dropbox:/data
-    # environment:
-    #   - PUID=1000
-    #   - PGID=1000
+    environment:
+      - PUID=1000
+      - PGID=1000
     restart: unless-stopped
 
 
@@ -113,9 +122,9 @@ services:
     volumes:
       - ./filebrowser/slides.json:/config/settings.json:ro
       - ./_DATA/slides:/data
-    # environment:
-    #   - PUID=1000
-    #   - PGID=1000
+    environment:
+      - PUID=1000
+      - PGID=1000
     restart: unless-stopped
 
 
@@ -130,5 +139,3 @@ services:
       - SWAGGER_JSON=/swagger.yaml
       - BASE_URL=/swagger
     restart: unless-stopped
-
-

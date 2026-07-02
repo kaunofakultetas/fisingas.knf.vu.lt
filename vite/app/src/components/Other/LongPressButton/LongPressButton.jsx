@@ -207,7 +207,9 @@ function ButtonTooltip({ tooltip, fullWidth, children }) {
         arrow: { sx: { color: 'black' } },
       }}
     >
-      <span style={{ display: 'flex', flex: 1, width: fullWidth ? '100%' : 'auto' }}>
+      {/* Stretches only for fullWidth buttons — otherwise it
+          must not grab flex space from its siblings */}
+      <span style={{ display: 'inline-flex', flex: fullWidth ? 1 : 'none', width: fullWidth ? '100%' : 'auto' }}>
         {children}
       </span>
     </Tooltip>
@@ -225,8 +227,10 @@ function ButtonTooltip({ tooltip, fullWidth, children }) {
 // -----------------------------------------------------------
 //
 // The button itself — wires the useLongPress handlers to the
-// mouse/touch events and swaps the label for the progress
-// ring (or custom pressedContent) while held.
+// mouse/touch events. While held, the label is hidden (but
+// kept in the layout so the button size never changes) and
+// the progress ring (or custom pressedContent) is overlaid
+// centered on top.
 //
 // Used by:
 //   - LongPressDeleteButton (below)
@@ -295,8 +299,22 @@ export default function LongPressButton({
         }}
         {...buttonProps}
       >
-        {isPressed
-          ? (pressedContent || (
+        {/* The idle content always stays in the layout (only
+            hidden while pressed) so the button keeps its exact
+            size; the progress ring is overlaid centered on top */}
+        <span style={{ display: 'inline-flex', alignItems: 'center', visibility: isPressed ? 'hidden' : 'visible' }}>
+          {children}
+        </span>
+
+        {isPressed && (
+          <span style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            {pressedContent || (
               <PressProgress
                 progress={progress}
                 size={progressSize}
@@ -304,8 +322,9 @@ export default function LongPressButton({
                 color={progressColor}
                 bgColor={progressBgColor}
               />
-            ))
-          : children}
+            )}
+          </span>
+        )}
       </Button>
     </ButtonTooltip>
   );
@@ -326,6 +345,8 @@ export default function LongPressButton({
 // Used by:
 //   - AddEditAdministrator — "delete record" button in the
 //     admin administrators dialog
+//   - StudentInformation — the "Ištrinti Studentą" button
+//   - QuestionCard — question/option delete buttons
 // -----------------------------------------------------------
 
 export function LongPressDeleteButton({

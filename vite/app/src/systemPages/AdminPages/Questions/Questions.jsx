@@ -3,19 +3,19 @@
 //
 //  The question bank page (/admin/questions):
 //    - top: title card + summary tiles (total questions,
-//      real vs. phishing split, option count — the last one
-//      is a "XXX" placeholder, the backend doesn't send it)
+//      enabled count, real vs. phishing split, option count)
 //    - below: QuestionsList — every question with its inline
 //      editor
 //
 //  Data comes from GET /api/admin/questions; `refetch` is
 //  passed down so the list can refresh itself after adding
-//  a question or editing link areas.
+//  or deleting a question or editing link areas.
 //
 //  Split into (root component last):
 //
-//    SummaryTile — one icon + label + value tile
-//    Questions   — the page itself (default export)
+//    SummaryTile     — one icon + label + value tile
+//    TestSizeWarning — banner when too few questions enabled
+//    Questions       — the page itself (default export)
 // -----------------------------------------------------------
 
 import useFetchData from "@/hooks/useFetchData";
@@ -23,10 +23,12 @@ import useFetchData from "@/hooks/useFetchData";
 import AdminPageLayout from "@/systemPages/AdminPages/AdminPageLayout";
 import QuestionsList from "./QuestionsList/QuestionsList";
 
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { FaQuestion } from 'react-icons/fa';
 import { BsHandThumbsUp } from 'react-icons/bs';
 import { GrCheckboxSelected } from 'react-icons/gr';
 import { MdPhishing } from 'react-icons/md';
+import { IoMdEye } from 'react-icons/io';
 
 
 
@@ -38,8 +40,9 @@ import { MdPhishing } from 'react-icons/md';
 // SummaryTile
 // -----------------------------------------------------------
 //
-// One cell of the summary strip: a big icon, a two-line
-// label and a value underneath.
+// One cell of the summary strip: an icon in a soft rounded
+// square, a label and the value underneath. An empty bank
+// (value null/undefined) renders as "—".
 //
 // Used by:
 //   - Questions (below) — all four tiles
@@ -47,11 +50,49 @@ import { MdPhishing } from 'react-icons/md';
 
 function SummaryTile({ icon, label, value }) {
   return (
-    <div className="table-cell text-center p-[30px] text-[15px] align-top">
-      {icon}
-      <span className="block">{label}</span>
-      <br/>
-      <span className="block">{value}</span>
+    <div className="flex-1 flex flex-col items-center justify-center gap-2 py-6 px-2 text-center">
+      <div className="bg-[rgb(245,246,248)] border border-[rgb(231,228,228)] rounded-[12px] p-3">
+        {icon}
+      </div>
+      <span className="text-xs font-bold text-gray-400 leading-tight">{label}</span>
+      <span className="text-xl font-light text-[#333]">{value ?? "—"}</span>
+    </div>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TestSizeWarning
+// -----------------------------------------------------------
+//
+// Amber banner shown when fewer questions are enabled than
+// the configured test size — new tests would then deal fewer
+// questions than intended. Hidden while everything is fine.
+//
+// Used by:
+//   - Questions (below)
+// -----------------------------------------------------------
+
+function TestSizeWarning({ enabledCount, testSize }) {
+
+  if (testSize == null || (enabledCount ?? 0) >= testSize) {
+    return null;
+  }
+
+  return (
+    <div className="flex items-center gap-3 bg-[#FFF7E6] border border-[#F2C063] rounded-[15px] px-5 py-3">
+      <WarningAmberIcon sx={{ color: '#B7791F' }} />
+      <span className="text-sm text-[#7A5A13]">
+        <b>Įjungtų klausimų per mažai:</b> testo dydis yra {testSize},
+        bet įjungti tik {enabledCount ?? 0} klausimai — nauji testai gaus
+        mažiau klausimų nei numatyta. Įjunkite daugiau klausimų arba
+        sumažinkite testo dydį pagrindiniame puslapyje.
+      </span>
     </div>
   );
 }
@@ -80,59 +121,74 @@ export default function Questions() {
   }
 
 
-  return (
-    <AdminPageLayout>
-      <div>
+  // Percentage of the bank, guarded against an empty bank
+  const percentOfBank = (count) => {
+    if (!data.questioncount || count == null) return null;
+    return `${count} / ${(count * 100 / data.questioncount).toFixed(0)}%`;
+  };
 
-        <div className="p-5 flex gap-5">
+
+  return (
+    <AdminPageLayout backgroundColor="#EBECEF">
+      <div className="flex flex-col p-5 gap-5 min-h-full">
+
+        <div className="flex gap-5">
 
           {/* Left — title card */}
-          <div className="flex-1 p-5 relative rounded-[10px] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
-            <div className="flex gap-5">
-              <div className="bg-[#E8E8E8] p-2.5 h-fit rounded-[15px]">
-                <MdPhishing size={170} className="rounded-[15px] p-2.5" />
-              </div>
+          <div className="flex items-center gap-5 p-5 bg-white rounded-[15px] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)] w-[35%]">
+            <div className="bg-[rgb(245,246,248)] border border-[rgb(231,228,228)] p-4 rounded-[15px] shrink-0">
+              <MdPhishing size={64} className="text-[rgb(123,0,63)]" />
+            </div>
 
-              <div className="flex-1 flex flex-col">
-                <h1 className="mb-2.5 text-[#555] text-2xl font-bold">Testo Klausimai</h1>
-              </div>
+            <div className="flex flex-col gap-1">
+              <h1 className="text-2xl font-bold text-[#555]">Testo Klausimai</h1>
+              <span className="text-sm text-gray-400">
+                Klausimų bankas — čia sukuriami, redaguojami ir išjungiami
+                testo klausimai. Studentams dalinami tik įjungti klausimai.
+              </span>
             </div>
           </div>
 
           {/* Right — summary tiles */}
-          <div className="relative rounded-[10px] table w-[65%] table-fixed shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
+          <div className="flex flex-1 bg-white rounded-[15px] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)] divide-x divide-[rgb(231,228,228)]">
 
             <SummaryTile
-              icon={<FaQuestion size={50} className="bg-[lightgrey] rounded-[15px] p-2.5 block mx-auto" />}
-              label={<>Viso <br/> Klausimų:</>}
-              value={data.questioncount}
+              icon={<FaQuestion size={28} className="text-[rgb(123,0,63)]" />}
+              label={<>Viso<br/>Klausimų</>}
+              value={data.questioncount || null}
             />
 
             <SummaryTile
-              icon={<BsHandThumbsUp size={50} className="bg-[lightgrey] rounded-[15px] p-2.5 block mx-auto" />}
-              label={<>Tikri<br/>Pavyzdžiai:</>}
-              value={`${data.goodcount} / ${(data.goodcount * 100 / data.questioncount).toFixed(2)}%`}
+              icon={<IoMdEye size={28} className="text-[rgb(123,0,63)]" />}
+              label={<>Įjungtų<br/>Klausimų</>}
+              value={percentOfBank(data.enabledcount)}
             />
 
             <SummaryTile
-              icon={<MdPhishing size={50} className="bg-[lightgrey] rounded-[15px] p-2.5 block mx-auto" />}
-              label={<>Fišingo<br/>Pavyzdžiai:</>}
-              value={`${data.phishingcount} / ${(data.phishingcount * 100 / data.questioncount).toFixed(2)}%`}
+              icon={<BsHandThumbsUp size={28} className="text-[rgb(123,0,63)]" />}
+              label={<>Tikri<br/>Pavyzdžiai</>}
+              value={percentOfBank(data.goodcount)}
             />
 
             <SummaryTile
-              icon={<GrCheckboxSelected size={50} className="bg-[lightgrey] rounded-[15px] p-2.5 block mx-auto" />}
-              label={<>Opcijų<br/>Skaičius:</>}
-              value="XXX"
+              icon={<MdPhishing size={28} className="text-[rgb(123,0,63)]" />}
+              label={<>Fišingo<br/>Pavyzdžiai</>}
+              value={percentOfBank(data.phishingcount)}
+            />
+
+            <SummaryTile
+              icon={<GrCheckboxSelected size={28} className="text-[rgb(123,0,63)]" />}
+              label={<>Opcijų<br/>Skaičius</>}
+              value={data.optionscount}
             />
 
           </div>
         </div>
 
+        <TestSizeWarning enabledCount={data.enabledcount} testSize={data.phishingtestsize} />
+
         {/* The question list with inline editors */}
-        <div className="rounded-[10px] p-5 pb-2.5 mx-5 my-2.5 min-h-[calc(100vh-353px)] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
-          <QuestionsList data={data} triggerQuestionListUpdate={triggerQuestionListUpdate}/>
-        </div>
+        <QuestionsList data={data} triggerQuestionListUpdate={triggerQuestionListUpdate}/>
 
       </div>
     </AdminPageLayout>

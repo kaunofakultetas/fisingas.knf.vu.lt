@@ -13,6 +13,11 @@
 //  Data comes from GET /api/admin/students/<id>; while it
 //  loads the page renders blurred instead of empty.
 //
+//  Destructive admin actions live in the page heading row —
+//  both are hold-to-confirm (LongPressButton):
+//    - "Iš naujo" wipes the dealt test (the account stays)
+//    - "Ištrinti" removes the account with its test
+//
 //  Split into (root component last):
 //
 //    SummaryTile        — one icon + label + value + % tile
@@ -23,18 +28,23 @@
 // -----------------------------------------------------------
 
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import axios from "axios";
+import toast from 'react-hot-toast';
 import { Box, Tab, Tabs, Typography } from '@mui/material';
 import useFetchData from "@/hooks/useFetchData";
 
 import AdminPageLayout from "@/systemPages/AdminPages/AdminPageLayout";
 import StudentTestSummaryTable from "./StudentTestSummaryTable/StudentTestSummaryTable";
 import StudentAnswers from "./StudentAnswers/StudentAnswers";
+import { LongPressButton, LongPressDeleteButton } from "@/components/Other/LongPressButton";
 
 import SchoolIcon from '@mui/icons-material/School';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import FingerprintIcon from '@mui/icons-material/Fingerprint';
 import KeyIcon from '@mui/icons-material/Key';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { PiHandsClappingLight } from 'react-icons/pi';
 import { BsHandThumbsUp } from 'react-icons/bs';
 import { GrCheckboxSelected } from 'react-icons/gr';
@@ -106,7 +116,7 @@ function SummaryTile({ icon, label, value, percent, title }) {
 
 function StudentDetailsCard({ studentID, data }) {
   return (
-    <div className="flex-1 bg-white rounded-[10px] overflow-hidden shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
+    <div className="flex-1 bg-white rounded-[15px] overflow-hidden shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
 
       {/* Burgundy banner with the avatar overlapping it */}
       <div className="h-[60px] bg-linear-to-r from-[rgb(123,0,63)] to-[rgb(75,0,38)]" />
@@ -159,7 +169,7 @@ function StudentDetailsCard({ studentID, data }) {
 
 function TestSummaryPanel({ data }) {
   return (
-    <div className="w-[65%] flex bg-white rounded-[10px] overflow-hidden shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
+    <div className="w-[65%] flex bg-white rounded-[15px] overflow-hidden shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
 
       {/* Grade — the headline tile */}
       <div className="w-[25%] bg-linear-to-br from-[rgb(123,0,63)] to-[rgb(75,0,38)] text-white flex flex-col items-center justify-center gap-1.5 p-5 text-center">
@@ -224,7 +234,7 @@ function ResultsTabs({ studentID }) {
 
 
   return (
-    <div className="bg-white rounded-[10px] p-5 pb-2.5 shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
+    <div className="bg-white rounded-[15px] p-5 pb-2.5 shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
       <Box>
         <Tabs
           className="border-2 border-solid rounded-[20px] border-[rgb(123,0,63)]"
@@ -293,20 +303,73 @@ function ResultsTabs({ studentID }) {
 
 export default function StudentInformation() {
 
+  const navigate = useNavigate();
   const { studentID } = useParams();
-  const { data, loadingData } = useFetchData("/api/admin/students/" + studentID);
+  const { data, loadingData, refetch } = useFetchData("/api/admin/students/" + studentID);
+
+
+  // Wipe the dealt test — the student's next visit deals a
+  // brand new one; the account and passcode stay
+  const handleResetTest = async () => {
+    try {
+      await axios.post(`/api/admin/students/${studentID}/resettest`, {}, { withCredentials: true });
+      toast.success(<b>Testas ištrintas — studentas gaus naują</b>, { duration: 4000 });
+      refetch();
+    } catch {
+      toast.error(<b>Nepavyko ištrinti testo</b>, { duration: 5000 });
+    }
+  };
+
+
+  // Remove the account for good, then back to the students list
+  const handleDeleteStudent = async () => {
+    try {
+      await axios.post(`/api/admin/students/${studentID}/delete`, {}, { withCredentials: true });
+      toast.success(<b>Studentas ištrintas</b>, { duration: 4000 });
+      navigate("/admin/students");
+    } catch {
+      toast.error(<b>Nepavyko ištrinti studento</b>, { duration: 5000 });
+    }
+  };
 
 
   return (
     <AdminPageLayout backgroundColor="#EBECEF">
       <div className={`flex-1 p-5 ${loadingData ? "blur-[5px]" : ""}`}>
 
-        {/* Page heading */}
+        {/* Page heading + the destructive admin actions */}
         <Box className="flex items-center gap-2 mb-4">
           <PersonOutlineIcon sx={{ fontSize: 28, color: 'primary.main' }} />
           <Typography variant="h5" sx={{ fontWeight: 600 }}>
             Studento Informacija
           </Typography>
+
+          <Box className="ml-auto flex gap-2">
+            <LongPressButton
+              onComplete={handleResetTest}
+              color="warning"
+              variant="outlined"
+              startIcon={<RestartAltIcon />}
+              tooltip="Laikykite 3 sek. — ištrina studento testą, kitą kartą jis gaus naują"
+              uncompletedToastMessage="Laikykite mygtuką ilgiau, kad anuliuotumėte testą"
+              progressColor="orange"
+              progressBgColor="rgba(237,108,2,0.25)"
+            >
+              Testas Iš Naujo
+            </LongPressButton>
+
+            <LongPressDeleteButton
+              onComplete={handleDeleteStudent}
+              variant="outlined"
+              startIcon={<DeleteOutlineIcon />}
+              tooltip="Laikykite 3 sek. — ištrina studentą su visu jo testu negrįžtamai"
+              uncompletedToastMessage="Laikykite mygtuką ilgiau, kad ištrintumėte studentą"
+              progressColor="red"
+              progressBgColor="rgba(211,47,47,0.25)"
+            >
+              Ištrinti Studentą
+            </LongPressDeleteButton>
+          </Box>
         </Box>
 
         {/* Top row — profile card + summary tiles */}

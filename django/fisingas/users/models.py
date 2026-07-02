@@ -3,10 +3,9 @@
 #
 #  The accounts and system configuration:
 #
-#    SystemUser   — administrator accounts (bcrypt passwords)
-#    StudentGroup — optional grouping of students
-#    Student      — student accounts (generated passcodes)
-#    Setting      — key/value system settings
+#    SystemUser — administrator accounts (bcrypt passwords)
+#    Student    — student accounts (generated passcodes)
+#    Setting    — key/value system settings
 #
 #  Conventions the API responses are built on:
 #    - flag columns are integers (0/1), exposed as 0/1 in the
@@ -57,34 +56,6 @@ class SystemUser(models.Model):
 
 
 ############################################################
-# StudentGroup — optional grouping of students
-############################################################
-#
-# The group name shows up in the admin students list, and
-# the group carries per-group test settings:
-#
-#   show_answers: whether students see the answer review
-#                 after finishing
-#   time_limit:   test time limit in minutes (0 = none)
-############################################################
-
-class StudentGroup(models.Model):
-    name = models.CharField(max_length=255)
-    description = models.TextField(blank=True, default="")
-    show_answers = models.IntegerField(default=0)
-    time_limit = models.IntegerField(default=0)
-
-    def __str__(self):
-        return self.name
-
-
-
-
-
-
-
-
-############################################################
 # Student — student account
 ############################################################
 #
@@ -94,13 +65,11 @@ class StudentGroup(models.Model):
 # issued access code shown back to the student, not a
 # user-chosen secret.
 #
-#   group:       NULL = no group
 #   is_finished: 1 locks the test forever
 #   status:      1 = active account
 ############################################################
 
 class Student(models.Model):
-    group = models.ForeignKey(StudentGroup, null=True, blank=True, on_delete=models.SET_NULL, related_name="students")
     username = models.CharField(max_length=255, unique=True)
     passcode = models.CharField(max_length=64)
     is_finished = models.IntegerField(default=0)

@@ -22,7 +22,6 @@ import { Button } from '@mui/material';
 // Used by:
 //   - AdministratorsList — "Įterpti Naują" button that opens
 //     the add-administrator dialog
-//   - SystemUsers — "Pridėti Naują" button
 // -----------------------------------------------------------
 
 export default function ToolbarButton({ onClick, label, icon: Icon }) {

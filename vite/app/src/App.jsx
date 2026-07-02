@@ -40,8 +40,6 @@ import StudentInformationPage from '@/systemPages/AdminPages/StudentInformation/
 import QuestionsPage from '@/systemPages/AdminPages/Questions/Questions';
 import EditQuestionPage from '@/systemPages/AdminPages/Questions/QuestionsList/EditQuestion/EditQuestion';
 import AdministratorsListPage from '@/systemPages/AdminPages/AdministratorsList/AdministratorsList';
-import StudentGroupsPage from '@/systemPages/AdminPages/StudentGroups/StudentGroups';
-import SystemPage from '@/systemPages/AdminPages/SystemPage/SystemPage';
 
 
 
@@ -140,8 +138,6 @@ function AppRoutes() {
       <Route path="/admin/questions" element={securedAdmin(QuestionsPage)} />
       <Route path="/admin/questions/:questionID" element={securedAdmin(EditQuestionPage)} />
       <Route path="/admin/administrators" element={securedAdmin(AdministratorsListPage)} />
-      <Route path="/admin/studentgroups" element={securedAdmin(StudentGroupsPage)} />
-      <Route path="/admin/system" element={securedAdmin(SystemPage)} />
 
       {/* Presentation pages — public, shown on the projector */}
       <Route path="/leaderboard" element={<LeaderboardPage />} />

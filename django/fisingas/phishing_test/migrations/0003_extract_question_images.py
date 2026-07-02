@@ -38,7 +38,7 @@ def extract_images(apps, schema_editor):
         question.save(update_fields=["image"])
 
     # Freeze the image link into every existing answer snapshot
-    # (answers of questions deleted before the SQLite import stay NULL)
+    # (answers whose question was already deleted stay NULL)
     image_by_question = dict(Question.objects.values_list("id", "image_id"))
 
     answers = list(Answer.objects.all().only("id", "question_id"))

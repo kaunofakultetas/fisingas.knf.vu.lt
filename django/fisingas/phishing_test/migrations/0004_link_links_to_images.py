@@ -26,8 +26,8 @@ def repoint_links(apps, schema_editor):
         link.image_id = image_by_question.get(link.question_id)
     QuestionLink.objects.bulk_update(links, ["image"], batch_size=1000)
 
-    # Links whose question vanished before the SQLite import have no
-    # image to attach to — nothing displays them anyway
+    # Links whose question no longer exists have no image to
+    # attach to — nothing displays them anyway
     QuestionLink.objects.filter(image__isnull=True).delete()
 
 

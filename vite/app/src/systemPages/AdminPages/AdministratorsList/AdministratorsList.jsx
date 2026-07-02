@@ -161,7 +161,7 @@ export default function AdministratorsList() {
         </Box>
 
         {/* The grid */}
-        <Box className="rounded-[10px] bg-white p-4 shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
+        <Box className="rounded-[15px] bg-white p-4 shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
           <DataGrid
             sx={{
               height: 'calc(100vh - 230px)',

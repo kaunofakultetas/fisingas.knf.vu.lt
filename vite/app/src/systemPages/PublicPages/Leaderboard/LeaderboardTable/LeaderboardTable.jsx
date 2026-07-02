@@ -1,5 +1,5 @@
 // -----------------------------------------------------------
-//  [*] Leaderboard — StudentsLeaderboard table
+//  [*] Leaderboard — LeaderboardTable
 //
 //  The live results table shown on the projector: one row per
 //  student with a rank badge (gold/silver/bronze for the top
@@ -16,9 +16,9 @@
 //
 //  Split into (root component last):
 //
-//    RankBadge           — place number, medal-tinted for top 3
-//    ProgressBar         — the progress/score bar of one row
-//    StudentsLeaderboard — the table itself (default export)
+//    RankBadge        — place number, medal-tinted for top 3
+//    ProgressBar      — the progress/score bar of one row
+//    LeaderboardTable — the table itself (default export)
 //
 //  Used by:
 //    - Leaderboard — the /leaderboard page
@@ -89,7 +89,12 @@ function RankBadge({ place }) {
 function ProgressBar({ row }) {
 
   const finished = row.isfinished === 1;
-  const percent = finished ? 100 : Math.round((row.answeredquestioncount / row.questioncount) * 100);
+
+  // A student with no dealt questions yet shows an empty bar
+  // (guards the division against questioncount = 0)
+  const percent = finished
+    ? 100
+    : row.questioncount > 0 ? Math.round((row.answeredquestioncount / row.questioncount) * 100) : 0;
 
   return (
     <div className="relative h-9 w-full rounded-full bg-gray-100 overflow-hidden">
@@ -118,10 +123,14 @@ function ProgressBar({ row }) {
 
 
 // -----------------------------------------------------------
-// StudentsLeaderboard (default export)
+// LeaderboardTable (default export)
+// -----------------------------------------------------------
+//
+// Used by:
+//   - Leaderboard.jsx — the /leaderboard page
 // -----------------------------------------------------------
 
-export default function StudentsLeaderboard() {
+export default function LeaderboardTable() {
 
   const { data, loadingData, refetch } = useFetchData("/api/leaderboard");
 
@@ -148,10 +157,11 @@ export default function StudentsLeaderboard() {
 
   // Hide students not seen within the last day (unless "show
   // all" is ticked), then order by grade
+  const oneDayAgo = new Date();
+  oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+
   const filteredRows = data.filter((row) => {
     if (!showRecentOnly) return true;
-    const now = new Date();
-    const oneDayAgo = new Date(now.setDate(now.getDate() - 1));
     return new Date(row.lastseen) >= oneDayAgo;
   });
 
@@ -183,7 +193,7 @@ export default function StudentsLeaderboard() {
       </div>
 
       {/* Table card — scrolls inside the fixed page height */}
-      <div className="flex-1 min-h-0 overflow-y-auto bg-white rounded-2xl border border-gray-200 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+      <div className="flex-1 min-h-0 overflow-y-auto bg-white rounded-[15px] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
         <table className="w-full border-collapse table-fixed">
           <colgroup>
             <col className="w-[10%]" />

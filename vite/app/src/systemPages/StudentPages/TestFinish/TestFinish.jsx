@@ -24,6 +24,7 @@
 
 import { useEffect } from "react";
 import axios from "axios";
+import toast, { Toaster } from 'react-hot-toast';
 import useFetchData from "@/hooks/useFetchData";
 
 import Navbar from "@/components/Navbar/Navbar";
@@ -113,9 +114,13 @@ export default function TestFinish({ authData }) {
 
 
   // Mark the test as finished — from now on /student redirects
-  // straight back here
+  // straight back here. The call is idempotent, so a page
+  // refresh repeating it is harmless
   useEffect(() => {
-    axios.get("/api/student/finish", { withCredentials: true });
+    axios.get("/api/student/finish", { withCredentials: true })
+      .catch(() => {
+        toast.error(<b>Nepavyko užbaigti testo — perkraukite puslapį</b>, { duration: 6000 });
+      });
   }, []);
 
 
@@ -132,11 +137,12 @@ export default function TestFinish({ authData }) {
 
   return (
     <div>
+      <Toaster position="top-center" />
       <Navbar />
 
       {/* Summary card — heading, credentials, grade + counts */}
       <div className="w-full bg-[#EBECEF] flex justify-center pt-[30px]">
-        <div className="w-3/4 rounded-2xl bg-white border border-gray-200 shadow-[0_2px_12px_rgba(0,0,0,0.06)] overflow-hidden">
+        <div className="w-3/4 rounded-[15px] bg-white shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)] overflow-hidden">
 
           {/* Header — congratulations + the credentials to write down */}
           <div className="px-8 py-6 border-b border-gray-100 flex items-end justify-between flex-wrap gap-4">

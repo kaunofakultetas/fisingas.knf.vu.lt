@@ -18,6 +18,7 @@
 import random
 from datetime import datetime
 
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 
 from fisingas.common.auth import get_json, login_required
@@ -47,10 +48,17 @@ from ..models import Answer, AnswerSelectedOption, Question, QuestionLink, Quest
 # From this point on the live question bank is out of the
 # picture for this student.
 #
+# Runs in a transaction: two concurrent first calls both
+# reach this point, but the unique student+question
+# constraint lets only one snapshot land — the loser's
+# IntegrityError is swallowed by the caller and it simply
+# reads the winner's snapshot.
+#
 # Used by:
 #   - student_questions (below), on the first GET
 ############################################################
 
+@transaction.atomic
 def _deal_questions(studentID):
     try:
         testSize = int(Setting.objects.get(name="PhishingTestSize").value)
@@ -197,15 +205,25 @@ def student_questions(request):
 
 
         if request.method == "GET":
-            # No answers yet = first visit → deal the test now
+            # No answers yet = first visit → deal the test now.
+            # A concurrent request may have dealt in the meantime —
+            # then the unique constraint fires and we just read
+            # the snapshot that request created
             if not Answer.objects.filter(student_id=studentID).exists():
-                _deal_questions(studentID)
+                try:
+                    _deal_questions(studentID)
+                except IntegrityError:
+                    pass
 
             return JsonResponse(_questions_response(studentID), safe=False)
 
 
         elif request.method == "POST":
-            for questionJson in get_json(request):
+            postData = get_json(request)
+            if not isinstance(postData, list):
+                return HttpResponse("Error: This is not questions state object")
+
+            for questionJson in postData:
                 if "questionid" not in questionJson:
                     return HttpResponse("Error: This is not questions state object")
 
@@ -213,12 +231,12 @@ def student_questions(request):
                 Answer.objects.filter(
                     student_id=studentID,
                     question_id=questionJson["questionid"],
-                ).update(answer_status=questionJson["selectedanswer"])
+                ).update(answer_status=questionJson.get("selectedanswer"))
 
                 # ...and each of its checkboxes. Filtering by the
                 # student's own snapshot rows means a forged ID can
                 # never write into someone else's test
-                for questionOptionJson in questionJson["questionoptions"]:
+                for questionOptionJson in questionJson.get("questionoptions", []):
                     if "answeroptionid" not in questionOptionJson:
                         return HttpResponse("Error: This is not questions state object")
 
@@ -226,7 +244,7 @@ def student_questions(request):
                         student_id=studentID,
                         question_id=questionJson["questionid"],
                         option_id=questionOptionJson["answeroptionid"],
-                    ).update(is_selected=questionOptionJson["isselected"])
+                    ).update(is_selected=questionOptionJson.get("isselected"))
 
             return HttpResponse("OK")
 

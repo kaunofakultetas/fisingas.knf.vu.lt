@@ -1,17 +1,13 @@
 # ------------------------------------------------------------
-#                  ACTIVE API BACKEND SWITCH
+#                        API BACKEND
 #
-# The whole /api/* surface is served by ONE backend at a time.
-# Both snippets below must point at the same service:
+# The whole /api/* surface is served by the Django service.
+# Both snippets below must point at the same service — the
+# second one is the forward-auth gate protecting the admin
+# tools (DBGate, Filebrowser, Swagger).
 #
-#   Django (PostgreSQL):  fisingas-django:8000
-#   Flask  (SQLite):      fisingas-backend:8080
-#
-# To switch, change the host in BOTH snippets and reload:
+# After editing, reload without downtime:
 #   sudo docker exec fisingas-endpoint caddy reload --config /etc/caddy/Caddyfile
-#
-# NOTE: sessions are not shared between the backends — after a
-# switch, users have to log in again.
 # ------------------------------------------------------------
 (api_backend) {
     reverse_proxy /api/* fisingas-django:8000 {

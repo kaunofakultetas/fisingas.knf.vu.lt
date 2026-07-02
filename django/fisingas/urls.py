@@ -42,7 +42,7 @@ urlpatterns = []
 
 from fisingas.users.api.auth_views import checkauth, checkauth_admin, login_view
 from fisingas.users.api.administrators_views import administrators
-from fisingas.users.api.students_views import student_detail, student_register, students_list
+from fisingas.users.api.students_views import student_delete, student_detail, student_register, student_resettest, students_list
 
 urlpatterns += [
     path("api/login", login_view),                                        # POST — plain-text "OK" or an error message
@@ -52,6 +52,8 @@ urlpatterns += [
     path("api/admin/administrators", administrators),                     # GET list / POST insertupdate + delete
     path("api/admin/students", students_list),                            # GET  — every student with grading totals
     path("api/admin/students/<int:studentID>", student_detail),           # GET  — one student (also their own results page)
+    path("api/admin/students/<int:studentID>/delete", student_delete),    # POST — remove the account with its test
+    path("api/admin/students/<int:studentID>/resettest", student_resettest),  # POST — wipe the dealt test, keep the account
 
     path("api/student/register", student_register),                       # POST — public self-registration, returns the passcode
 ]
@@ -76,7 +78,7 @@ urlpatterns += [
 
 from fisingas.phishing_test.api.student_views import student_finish, student_questions
 from fisingas.phishing_test.api.admin_views import admin_home, questions_list, questions_update
-from fisingas.phishing_test.api.admin_views import student_answers, studentgroups, update_phishingtestsize
+from fisingas.phishing_test.api.admin_views import student_answers, update_phishingtestsize
 from fisingas.phishing_test.api.pictures_views import get_picture, picture_links, upload_picture
 
 urlpatterns += [
@@ -85,9 +87,8 @@ urlpatterns += [
 
     path("api/admin/home", admin_home),                                   # GET  — dashboard counters + live progress
     path("api/admin/students/<int:studentID>/answers", student_answers),  # GET  — the graded test, question by question
-    path("api/admin/studentgroups", studentgroups),                       # GET  — all groups, newest first
     path("api/admin/questions", questions_list),                          # GET  — the whole question bank + counters
-    path("api/admin/questions/<str:action>", questions_update),           # POST — createnewoption / updatequestion
+    path("api/admin/questions/<str:action>", questions_update),           # POST — createnewoption / updatequestion / deleteoption / deletequestion
     path("api/admin/update/phishingtestsize", update_phishingtestsize),   # POST — how many questions a test deals
 
     path("api/phishingpictures", upload_picture),                         # POST — upload an image → new empty question

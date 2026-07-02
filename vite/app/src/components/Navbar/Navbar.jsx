@@ -38,7 +38,7 @@ export default function Navbar() {
         {/* Logout */}
         <Button
           variant="contained"
-          style={{ background: 'rgb(123, 0, 63)', border: '1px solid rgba(255, 255, 255, 1)' }}
+          sx={{ background: 'rgb(123, 0, 63)', border: '1px solid white' }}
           onClick={() => { window.location.href = "/login" }}
         >
           Atsijungti

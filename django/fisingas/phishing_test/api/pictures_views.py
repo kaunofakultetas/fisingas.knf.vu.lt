@@ -78,13 +78,9 @@ def upload_picture(request):
     # the admin fills in the content in the bank editor next
     Question.objects.create(
         is_enabled=1,
-        points=1,
         is_phishing=0,
         question="",
-        filename="",
         image=image,
-        picture_height=0,
-        picture_width=0,
         created=timeNow,
     )
 
@@ -239,6 +235,8 @@ def picture_links(request, questionID):
         if not request.current_user.admin:
             return HttpResponse("Error: Not Admin")
         postData = get_json(request)
+        if postData is None:
+            return HttpResponse("Error: Invalid request body", status=400)
 
         # Full replace: wipe the image's areas and recreate them
         # from the submitted list

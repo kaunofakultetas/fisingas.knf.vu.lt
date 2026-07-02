@@ -39,11 +39,6 @@ const STUDENT_COLUMNS = [
     width: 300,
   },
   {
-    field: "groupname",
-    headerName: "Grupė",
-    width: 150,
-  },
-  {
     field: "questioncount",
     headerName: "Kl. Skaičius",
     width: 100,
@@ -163,10 +158,14 @@ export default function StudentsListTable() {
   };
 
 
+  // Cutoff computed once on a fresh Date — setMonth mutates
+  // the object it is called on, so it must not touch a date
+  // that is still used afterwards
+  const oneMonthAgo = new Date();
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+  const oneMonthAgoFormatted = oneMonthAgo.toISOString().replace(/T/, ' ').replace(/\..+/, '');
+
   const rows = (data || []).filter((row) => {
-    const today = new Date();
-    const oneMonthAgo = new Date(today.setMonth(today.getMonth() - 1));
-    const oneMonthAgoFormatted = oneMonthAgo.toISOString().replace(/T/, ' ').replace(/\..+/, '');
     if (row['lastseen'] < oneMonthAgoFormatted && lastMonthOnly === 1)
       return false;
 
@@ -191,7 +190,7 @@ export default function StudentsListTable() {
       </Box>
 
       {/* The grid */}
-      <Box className="rounded-[10px] bg-white p-4 shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
+      <Box className="rounded-[15px] bg-white p-4 shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
         <DataGrid
           sx={{
             height: 'calc(100vh - 230px)',
@@ -210,11 +209,6 @@ export default function StudentsListTable() {
           loading={loadingData}
 
           initialState={{
-            columns: {
-              columnVisibilityModel: {
-                groupname: false,
-              },
-            },
             filter: {
               filterModel: {
                 items: [],

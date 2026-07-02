@@ -58,13 +58,13 @@ The application will be available at `http://<server-ip>`.
 
 ```
 fisingas.knf.vu.lt/
-├── backend/            # Flask API server
+├── django/             # Django API server
 ├── vite/               # React (Vite) frontend
 ├── endpoint/           # Caddy reverse proxy config
 ├── filebrowser/        # Configuration for filebrowser services
 ├── docker-compose.yml  # Docker Compose configuration
 ├── _DATA/              # Persistent data
-│   ├── database/       # SQLite database file
+│   ├── postgres/       # PostgreSQL data directory
 │   ├── slides/         # Presentation slides
 │   └── dropbox/        # Uploaded files
 └── _DOCS/              # Documentation

@@ -67,9 +67,16 @@ def login_view(request):
     thisUserObject = load_user(postData["username"])
     if thisUserObject is not None:
 
-        # Admin Login Check (login name is an email → bcrypt hash)
+        # Admin Login Check (login name is an email → bcrypt hash).
+        # A corrupt hash in the database counts as a wrong
+        # password instead of crashing the endpoint
         if "@" in thisUserObject.id:
-            if bcrypt.checkpw(postData["password"].encode(), thisUserObject.password.encode()):
+            try:
+                passwordOk = bcrypt.checkpw(postData["password"].encode(), thisUserObject.password.encode())
+            except ValueError:
+                passwordOk = False
+
+            if passwordOk:
                 login(request, thisUserObject)
                 return HttpResponse("OK")
             return HttpResponse("El. Paštas ir/arba Slaptažodis neteisingas.")

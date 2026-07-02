@@ -76,7 +76,7 @@ Each question consists of:
 **Navigating:** Sidebar > Students
 
 The students list shows all registered students with:
-- Username, group, status
+- Username and status
 - Test progress and grade
 
 Click on a student to see their detailed answers and test summary.
@@ -86,14 +86,6 @@ Click on a student to see their detailed answers and test summary.
 **Navigating:** Sidebar > Administrators
 
 Add, edit, or disable admin accounts. Each admin needs an email and password.
-
-### Managing Student Groups
-
-**Navigating:** Sidebar > Student Groups
-
-Groups allow organizing students. Each group can have settings like:
-- **Show answers** - whether students can see correct answers after finishing
-- **Time limit** - test duration limit
 
 ### Configuring Test Size
 
@@ -117,7 +109,7 @@ Useful for displaying on a projector during class.
 |------|--------|---------|
 | **Filebrowser (Dropbox)** | Sidebar > File Dropbox | Upload and manage general files |
 | **Filebrowser (Slides)** | Sidebar > Slides (files) | Upload and manage presentation slides |
-| **DBGate** | Sidebar > Database | Browse and query the SQLite database directly |
+| **DBGate** | Sidebar > Database | Browse and query the PostgreSQL database directly |
 
 These tools are accessible only to logged-in administrators.
 

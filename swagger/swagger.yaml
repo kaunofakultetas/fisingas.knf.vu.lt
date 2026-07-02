@@ -33,8 +33,6 @@ tags:
     description: Admin student management
   - name: Administrators
     description: Admin account management
-  - name: Student Groups
-    description: Student group management
   - name: Dashboard
     description: Admin dashboard and settings
   - name: Leaderboard
@@ -594,6 +592,66 @@ paths:
               schema:
                 $ref: "#/components/schemas/StudentDetail"
 
+  /api/admin/students/{studentID}/delete:
+    post:
+      tags: [Students (Admin)]
+      summary: Delete a student
+      description: |
+        Permanently removes the student account together with their dealt test
+        and grades. Question images are kept (they live in the upload-only
+        images table).
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: studentID
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Student deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        "404":
+          description: Student not found
+
+  /api/admin/students/{studentID}/resettest:
+    post:
+      tags: [Students (Admin)]
+      summary: Reset a student's test
+      description: |
+        Deletes the student's dealt test (the frozen answer snapshots) and
+        lifts the finished lock — their next visit deals a brand new random
+        test. The account and passcode stay untouched.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: studentID
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Test reset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        "404":
+          description: Student not found
+
   /api/admin/students/{studentID}/answers:
     get:
       tags: [Students (Admin)]
@@ -713,26 +771,6 @@ paths:
                     enum: [ok, error]
                   reason:
                     type: string
-
-  # ──────────────────────────────────────────────
-  # Student Groups
-  # ──────────────────────────────────────────────
-
-  /api/admin/studentgroups:
-    get:
-      tags: [Student Groups]
-      summary: List all student groups
-      security:
-        - cookieAuth: []
-      responses:
-        "200":
-          description: List of student groups
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/StudentGroup"
 
   # ──────────────────────────────────────────────
   # Dashboard
@@ -978,9 +1016,6 @@ components:
           type: string
         passcode:
           type: string
-        groupname:
-          type: string
-          nullable: true
         questioncount:
           type: integer
           description: Total assigned questions
@@ -1061,22 +1096,6 @@ components:
         lastseen:
           type: string
           description: Last login timestamp
-
-    StudentGroup:
-      type: object
-      properties:
-        id:
-          type: integer
-        name:
-          type: string
-        description:
-          type: string
-        showanswers:
-          type: integer
-          description: "`0` = hidden, `1` = visible after finishing"
-        timelimit:
-          type: integer
-          description: Time limit in minutes (`0` = no limit)
 
     DashboardData:
       type: object

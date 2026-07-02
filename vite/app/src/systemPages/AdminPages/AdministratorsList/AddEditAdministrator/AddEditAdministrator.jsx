@@ -218,8 +218,8 @@ export default function AddEditAdministrator({ rowData, setOpen, getData }) {
 
 
   // POST to the administrators endpoint; on success refetch the
-  // grid and close. withCredentials sends the Flask session
-  // cookie (admin-only endpoint).
+  // grid and close. withCredentials sends the session cookie
+  // (admin-only endpoint).
   async function sendData(postData) {
     try {
       const response = await axios.post("/api/admin/administrators", postData, { withCredentials: true });

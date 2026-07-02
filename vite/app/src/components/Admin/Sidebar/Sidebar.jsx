@@ -60,6 +60,9 @@ import ExitToAppIcon from "@mui/icons-material/ExitToApp";
 //
 // Grey uppercase label above a group of menu items; shrinks
 // to a dashed placeholder while the sidebar is collapsed.
+//
+// Used by:
+//   - AdminSidebar (below) — one per menu section
 // -----------------------------------------------------------
 
 function SectionTitle({ title, open }) {
@@ -128,6 +131,9 @@ function MenuItemContent({ icon: Icon, label, open }) {
 // Wraps MenuItemContent in a router <Link>, or in a plain
 // <a target="_blank"> for the external tools (filebrowser,
 // swagger, dbgate, presentation pages).
+//
+// Used by:
+//   - AdminSidebar (below) — one per menu entry
 // -----------------------------------------------------------
 
 function MenuItem({ href, icon: Icon, label, open, external = false }) {

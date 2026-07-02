@@ -30,7 +30,7 @@ import ViewColumnIcon from '@mui/icons-material/ViewColumn';
 //
 // Used by:
 //   - the admin grid toolbars (StudentsListTable,
-//     AdministratorsList, StudentGroupsTable, SystemUsers)
+//     AdministratorsList)
 // -----------------------------------------------------------
 
 export default function ColumnsButton({ label = "STULPELIAI" }) {

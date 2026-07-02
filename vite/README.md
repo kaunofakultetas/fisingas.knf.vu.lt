@@ -2,8 +2,7 @@
 
 The frontend of the phishing recognition test platform. A single-page React 19
 application built with Vite, MUI and Tailwind CSS v4, served as static files by
-Caddy in production. It replaced the old Next.js frontend (the `nextjs/`
-folder), which is no longer deployed.
+Caddy in production.
 
 <br/>
 
@@ -60,10 +59,8 @@ then redirect based on the session:
 | `/admin/questions` | admin | Question bank with inline editors |
 | `/admin/questions/:id` | admin | Standalone link-area editor for one question |
 | `/admin/administrators` | admin | Administrators grid + add/edit dialog |
-| `/admin/studentgroups` | admin | Student groups grid (read-only) |
-| `/admin/system` | admin | ⚠ Unfinished stub (no backend endpoint) |
 
-All `/api/*` calls go through the Caddy endpoint to the Flask backend —
+All `/api/*` calls go through the Caddy endpoint to the Django backend —
 the frontend never talks to the backend directly.
 
 <br/>

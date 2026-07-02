@@ -205,9 +205,13 @@ Returns all questions with their options and a summary.
     "questioncount": 20,
     "phishingcount": 12,
     "goodcount": 8,
+    "enabledcount": 15,
+    "optionscount": 64,
+    "phishingtestsize": 12,
     "questions": [
         {
             "questionid": 1,
+            "isenabled": 1,
             "isphishing": 1,
             "questiontext": "Is this email legitimate?",
             "questionoptions": [
@@ -247,13 +251,14 @@ Add a new (empty) answer option to a question.
 
 **Auth:** Admin
 
-Update a question's text, phishing flag, and options.
+Update a question's text, phishing flag, enabled flag and options.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `questionid` | int | Question ID |
 | `questiontext` | string | Question text |
 | `isphishing` | int | `1` = phishing, `0` = real |
+| `isenabled` | int | Optional. `1` = dealt to students, `0` = disabled |
 | `questionoptions` | array | Options (see below) |
 
 Each item in `questionoptions`:
@@ -263,6 +268,42 @@ Each item in `questionoptions`:
 | `optionid` | int | Option ID |
 | `optiontext` | string | Option text |
 | `rightoptionanswer` | int | `1` = correct, `0` = incorrect |
+
+**Response:**
+
+```json
+{ "status": "ok" }
+```
+
+---
+
+### `POST /api/admin/questions/deleteoption`
+
+**Auth:** Admin
+
+Delete one answer option from the question bank. Safe for already-graded tests — they read only their frozen answer snapshots.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `optionid` | int | Option ID to delete |
+
+**Response:**
+
+```json
+{ "status": "ok" }
+```
+
+---
+
+### `POST /api/admin/questions/deletequestion`
+
+**Auth:** Admin
+
+Delete a question with its options from the bank. Safe for already-graded tests: the frozen answer snapshots keep the question content, and the image (with its tooltip links) lives in the upload-only image table that deletion never touches.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `questionid` | int | Question ID to delete |
 
 **Response:**
 
@@ -374,7 +415,6 @@ Returns detailed info for a specific student.
     "id": 5,
     "username": "JOHN_DOE",
     "passcode": "48291037",
-    "groupname": "Group A",
     "questioncount": 9,
     "answeredquestioncount": 9,
     "totalidentifiedcorrectly": 7,
@@ -388,6 +428,26 @@ Returns detailed info for a specific student.
     "status": 1
 }
 ```
+
+---
+
+### `POST /api/admin/students/:studentID/delete`
+
+**Auth:** Admin
+
+Permanently removes the student account together with their dealt test and grades. Question images are kept.
+
+**Response:** `{ "status": "ok" }` (or `404` when the student does not exist)
+
+---
+
+### `POST /api/admin/students/:studentID/resettest`
+
+**Auth:** Admin
+
+Deletes the student's dealt test and lifts the finished lock — their next visit deals a brand new random test. The account and passcode stay untouched.
+
+**Response:** `{ "status": "ok" }` (or `404` when the student does not exist)
 
 ---
 
@@ -466,32 +526,6 @@ Create, update, or delete administrators.
 
 ```json
 { "action": "delete", "id": "5" }
-```
-
----
-
-<br/>
-
-## Student Groups
-
-### `GET /api/admin/studentgroups`
-
-**Auth:** Admin
-
-Returns all student groups with their settings.
-
-**Response:**
-
-```json
-[
-    {
-        "id": 1,
-        "name": "Group A",
-        "description": "Morning session",
-        "showanswers": 0,
-        "timelimit": 0
-    }
-]
 ```
 
 ---

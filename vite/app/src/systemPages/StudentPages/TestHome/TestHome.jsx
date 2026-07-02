@@ -26,8 +26,9 @@
 //    TestHome         — the page itself (default export)
 // -----------------------------------------------------------
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
+import toast, { Toaster } from 'react-hot-toast';
 
 import Navbar from "@/components/Navbar/Navbar";
 import StudentSidebar from "@/components/Student/Sidebar/Sidebar";
@@ -253,16 +254,20 @@ function useTestQuestions() {
   }, []);
 
 
-  // Autosave — POST the whole answer state after every change
+  // Autosave — POST the whole answer state after every change.
+  // The GET above also sets questionsData, so the first run(s)
+  // are skipped: there is nothing to save until the student
+  // actually clicks something
+  const hasUserAnswered = useRef(false);
   useEffect(() => {
     async function sendData() {
       try {
         await axios.post("/api/student/questions", questionsData, { withCredentials: true });
-      } catch (error) {
-        console.error("Error sending data to the server:", error);
+      } catch {
+        toast.error(<b>Nepavyko išsaugoti atsakymo — patikrinkite ryšį</b>, { duration: 5000 });
       }
     }
-    if (questionsData.length > 0) {
+    if (hasUserAnswered.current && questionsData.length > 0) {
       sendData();
     }
   }, [questionsData]);
@@ -270,6 +275,7 @@ function useTestQuestions() {
 
   // "Tikras" (0) / "Fišingas" (1) answer for the open question
   const answerQuestion = (selectedanswer) => {
+    hasUserAnswered.current = true;
     const updatedQuestionsData = [...questionsData];
     updatedQuestionsData[currentQuestionIndex].selectedanswer = selectedanswer;
     setQuestionsData(updatedQuestionsData);
@@ -281,6 +287,7 @@ function useTestQuestions() {
 
   // Toggle one of the question's follow-up checkboxes
   const toggleOption = (optionIndex) => {
+    hasUserAnswered.current = true;
     const updatedQuestionsData = [...questionsData];
     updatedQuestionsData[currentQuestionIndex].questionoptions[optionIndex].isselected =
       updatedQuestionsData[currentQuestionIndex].questionoptions[optionIndex].isselected === 1 ? 0 : 1;
@@ -320,7 +327,7 @@ function useTestQuestions() {
 
 function QuestionCard({ question, questionNumber, questionCount, onAnswer, onToggleOption, onZoom }) {
   return (
-    <div className="bg-white w-full max-w-[1100px] h-fit rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] border border-gray-200 mb-8 overflow-hidden">
+    <div className="bg-white w-full max-w-[1100px] h-fit rounded-[15px] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)] mb-8 overflow-hidden">
 
       {/* Card header — question counter */}
       <div className="flex items-center justify-between px-8 py-4 border-b border-gray-100">
@@ -440,6 +447,7 @@ export default function TestHome() {
 
   return (
     <div>
+      <Toaster position="top-center" />
       <Navbar/>
 
       <FullScreenImage

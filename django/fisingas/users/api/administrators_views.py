@@ -29,10 +29,12 @@ from fisingas.users.models import SystemUser
 # POST /api/admin/administrators — one endpoint for all
 #      mutations, dispatched by the "action" field:
 #
-#   insertupdate — id "" creates a new account; a non-empty
-#                  id edits an existing one, and the password
-#                  is only replaced when one was typed in
-#                  (an empty field means "keep the current")
+#   insertupdate — id "" creates a new account (the email
+#                  must be free and the password at least 8
+#                  characters); a non-empty id edits an
+#                  existing one, and the password is only
+#                  replaced when one was typed in (an empty
+#                  field means "keep the current")
 #   delete       — removes the account by id
 #
 # Passwords are stored as bcrypt hashes (12 rounds) — only
@@ -64,25 +66,41 @@ def administrators(request):
 
     elif request.method == "POST":
         postData = get_json(request)
+        if postData is None or "action" not in postData:
+            return JsonResponse({"type": "error", "reason": "Invalid request body"}, status=400)
 
         if postData["action"] == "insertupdate":
-            passwordHash = bcrypt.hashpw(postData["password"].encode(), bcrypt.gensalt(rounds=12)).decode()
+            password = postData.get("password", "")
 
-            # New account — the password is mandatory
+            # A typed-in password must meet the minimum length —
+            # both when creating and when changing an existing one
+            if len(password) != 0 and len(password) < 8:
+                return JsonResponse({"type": "error", "reason": "Password must be at least 8 characters long"})
+
+            # New account — the password is mandatory and the
+            # email must not be taken by another account
             if postData["id"] == "":
-                if len(postData["password"]) == 0:
+                if len(password) == 0:
                     return JsonResponse({"type": "error", "reason": "Password must be at least 8 characters long"})
-                SystemUser.objects.get_or_create(
+                if SystemUser.objects.filter(email=postData["email"]).exists():
+                    return JsonResponse({"type": "error", "reason": "Administrator with this email already exists"})
+
+                SystemUser.objects.create(
                     email=postData["email"],
-                    defaults={"password": passwordHash, "enabled": postData["enabled"]},
+                    password=bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode(),
+                    enabled=postData["enabled"],
                 )
 
             # Existing account — password only changed when one was typed in
             else:
-                if len(postData["password"]) != 0:
-                    SystemUser.objects.filter(id=postData["id"]).update(password=passwordHash)
-                SystemUser.objects.filter(id=postData["id"]).update(email=postData["email"])
-                SystemUser.objects.filter(id=postData["id"]).update(enabled=postData["enabled"])
+                updatedFields = {
+                    "email": postData["email"],
+                    "enabled": postData["enabled"],
+                }
+                if len(password) != 0:
+                    updatedFields["password"] = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
+
+                SystemUser.objects.filter(id=postData["id"]).update(**updatedFields)
 
             return JsonResponse({"type": "ok"})
 

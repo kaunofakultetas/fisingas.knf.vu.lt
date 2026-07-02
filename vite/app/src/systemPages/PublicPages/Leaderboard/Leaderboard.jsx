@@ -71,7 +71,7 @@ function LeaderboardNavbar() {
 
 export default function LeaderboardPage() {
   return (
-    <div>
+    <div className="min-h-screen bg-[#EBECEF]">
       <LeaderboardNavbar />
 
       <div className="flex flex-row w-4/5 mx-auto h-[calc(100vh-130px)] overflow-hidden">

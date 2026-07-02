@@ -186,7 +186,8 @@ function RegisterForm({ selectedForm, setSelectedForm, handleLogin, loginErrorBo
 
   const handleRegister = async () => {
     setRegistering(true);
-    await axios.post("/api/student/register", { username: studentUsername }).then((response) => {
+    try {
+      const response = await axios.post("/api/student/register", { username: studentUsername });
       if (response.data.status === "OK") {
         setStudentUsername(response.data.username);
         setStudentAccessCode(response.data.accessCode);
@@ -194,7 +195,11 @@ function RegisterForm({ selectedForm, setSelectedForm, handleLogin, loginErrorBo
       else {
         setErrorBoxText(response.data.error);
       }
-    });
+    } catch (error) {
+      // A 400 carries a message from the backend; anything else
+      // is a network problem
+      setErrorBoxText(error.response?.data?.error || "Nepavyko susisiekti su serveriu. Bandykite dar kartą.");
+    }
     setRegistering(false);
   };
 
@@ -220,7 +225,7 @@ function RegisterForm({ selectedForm, setSelectedForm, handleLogin, loginErrorBo
 
 
   return (
-    <form className="max-w-[380px] mx-auto flex flex-col bg-white p-8 mt-[7%] rounded-2xl shadow-2xl">
+    <form className="max-w-[380px] mx-auto flex flex-col bg-white p-8 mt-[7%] rounded-[15px] shadow-2xl">
 
       <CardHeader />
 
@@ -342,7 +347,7 @@ function LoginForm({ selectedForm, setSelectedForm, handleLogin, errorBoxText })
 
 
   return (
-    <form className="max-w-[380px] mx-auto flex flex-col bg-white p-8 mt-[7%] rounded-2xl shadow-2xl">
+    <form className="max-w-[380px] mx-auto flex flex-col bg-white p-8 mt-[7%] rounded-[15px] shadow-2xl">
 
       <CardHeader />
 
@@ -430,14 +435,17 @@ export default function Login() {
   // message ready for display. On success a full page load
   // restarts the app with the fresh session.
   async function handleLogin(username, password) {
-    await axios.post("/api/login", { username: username, password: password }).then((response) => {
+    try {
+      const response = await axios.post("/api/login", { username: username, password: password });
       if (response.data === "OK") {
         window.location.href = "/";
       }
       else {
         setLoginErrorBoxText(response.data);
       }
-    });
+    } catch {
+      setLoginErrorBoxText("Nepavyko susisiekti su serveriu. Bandykite dar kartą.");
+    }
   }
 
 

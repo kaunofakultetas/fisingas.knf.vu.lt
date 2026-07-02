@@ -14,7 +14,7 @@
 //      (for conditional fetches); loading just ends
 //
 //  Used all over: the admin grids (StudentsListTable,
-//  AdministratorsList, StudentGroupsTable, SystemUsers),
+//  AdministratorsList),
 //  admin dashboards (Home, Questions, StudentInformation)
 //  and the public leaderboard.
 // -----------------------------------------------------------
@@ -47,10 +47,12 @@ export default function useFetchData(endpoint, refreshInterval = null, allowEmpt
   const [error, setError] = useState(null);
 
 
-  // Back to loading whenever the endpoint changes (e.g. a URL
-  // built from route params), so consumers don't briefly show
-  // the previous endpoint's data as "loaded"
+  // Back to loading — and back to empty data — whenever the
+  // endpoint changes (e.g. a URL built from route params), so
+  // consumers never briefly show the previous endpoint's data
   useEffect(() => {
+    setData([]);
+    setError(null);
     setLoadingData(true);
   }, [endpoint]);
 
@@ -65,6 +67,7 @@ export default function useFetchData(endpoint, refreshInterval = null, allowEmpt
     try {
       const response = await axios.get(endpoint, { withCredentials: true });
       setData(response.data);
+      setError(null);
       setLoadingData(false);
     } catch (err) {
       if (err.response?.status === 401) {

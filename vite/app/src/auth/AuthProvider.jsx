@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 //  [*] AuthProvider — session state for the whole app
 //
-//  Checks the Flask session once on app start:
+//  Checks the session once on app start:
 //    GET /api/checkauth   (session cookie included)
 //  and shares the result through React context:
 //    - authData — the user info from checkauth, or undefined
