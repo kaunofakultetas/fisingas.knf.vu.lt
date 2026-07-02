@@ -1,3 +1,33 @@
+# ------------------------------------------------------------
+#                  ACTIVE API BACKEND SWITCH
+#
+# The whole /api/* surface is served by ONE backend at a time.
+# Both snippets below must point at the same service:
+#
+#   Django (PostgreSQL):  fisingas-django:8000
+#   Flask  (SQLite):      fisingas-backend:8080
+#
+# To switch, change the host in BOTH snippets and reload:
+#   sudo docker exec fisingas-endpoint caddy reload --config /etc/caddy/Caddyfile
+#
+# NOTE: sessions are not shared between the backends — after a
+# switch, users have to log in again.
+# ------------------------------------------------------------
+(api_backend) {
+    reverse_proxy /api/* fisingas-django:8000 {
+        header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+    }
+}
+(admin_auth) {
+    forward_auth fisingas-django:8000 {
+        uri /api/checkauth/admin
+    }
+}
+# ------------------------------------------------------------
+# ------------------------------------------------------------
+# ------------------------------------------------------------
+
+
 :80 {
     route {
 
@@ -37,9 +67,7 @@
         # Dropbox Endpoint
         redir /filebrowser/dropbox /filebrowser/dropbox/
         handle /filebrowser/dropbox/* {
-            forward_auth fisingas-backend:8080 {
-                uri /api/checkauth/admin
-            }
+            import admin_auth
             reverse_proxy fisingas-filebrowser-dropbox:80 {
                 header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
             }
@@ -49,9 +77,7 @@
         # Slides Endpoint
         redir /filebrowser/slides /filebrowser/slides/
         handle /filebrowser/slides/* {
-            forward_auth fisingas-backend:8080 {
-                uri /api/checkauth/admin
-            }
+            import admin_auth
             reverse_proxy fisingas-filebrowser-slides:80 {
                 header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
             }
@@ -61,9 +87,7 @@
         # DBGate Endpoint
         redir /dbgate /dbgate/
         handle /dbgate/* {
-            forward_auth fisingas-backend:8080 {
-                uri /api/checkauth/admin
-            }
+            import admin_auth
             reverse_proxy fisingas-dbgate:3000 {
                 header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
             }
@@ -71,19 +95,15 @@
 
         # Swagger UI
         handle /swagger* {
-            forward_auth fisingas-backend:8080 {
-                uri /api/checkauth/admin
-            }
+            import admin_auth
             reverse_proxy fisingas-swagger:8080 {
                 header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
             }
         }
 
 
-        # Backend Endpoint
-        reverse_proxy /api/* fisingas-backend:8080 {
-            header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
-        }
+        # Backend Endpoint (see the switch at the top of this file)
+        import api_backend
 
 
         # Vite Frontend

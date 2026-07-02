@@ -5,31 +5,70 @@ This document is for developers working on or extending the project.
 ## System Overview
 
 ```
-┌───────────────────────────────────────────────────────────┐
-│                     Host (Port 80)                        │
-│  ┌─────────────────────────────────────────────────────┐  │
-│  │               Caddy Reverse Proxy                   │  │
-│  │  /api/*  ───────────────► Backend (Flask :8080)     │  │
-│  │  /dbgate/* ─────────────► DBGate (:3000)            │  │
-│  │  /filebrowser/* ────────► Filebrowser (:80)         │  │
-│  │  /* ────────────────────► Frontend (Next.js :3000)  │  │
-│  └─────────────────────────────────────────────────────┘  │
-│                                                           │
-│  ┌───────────────────┐  ┌─────────────┐  ┌────────────┐   │
-│  │    SQLite DB      │  │   Slides    │  │  Dropbox   │   │
-│  │ _DATA/database/   │  │ _DATA/      │  │ _DATA/     │   │
-│  │                   │  │ slides/     │  │ dropbox/   │   │
-│  └───────────────────┘  └─────────────┘  └────────────┘   │
-└───────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                       Host (Port 80)                          │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │                 Caddy Reverse Proxy                     │  │
+│  │  /api/*  ──────┬────────► Django (:8000)  ◄─ ACTIVE     │  │
+│  │   (switchable) └ - - - -► Flask (:8080)   ◄─ standby    │  │
+│  │  /dbgate/* ─────────────► DBGate (:3000)                │  │
+│  │  /filebrowser/* ────────► Filebrowser (:80)             │  │
+│  │  /* ────────────────────► Frontend (Vite :80)           │  │
+│  └─────────────────────────────────────────────────────────┘  │
+│                                                               │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────┐ ┌──────────┐  │
+│  │  PostgreSQL  │ │  SQLite DB   │ │  Slides  │ │ Dropbox  │  │
+│  │ _DATA/       │ │ _DATA/       │ │ _DATA/   │ │ _DATA/   │  │
+│  │ postgres/    │ │ database/    │ │ slides/  │ │ dropbox/ │  │
+│  └──────────────┘ └──────────────┘ └──────────┘ └──────────┘  │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 All services run as Docker containers on an isolated network. Only Caddy is exposed to the host (port 80). Caddy enforces admin-only access to DBGate and Filebrowser using forward authentication against the backend API.
 
+**Two backends implement the same `/api/*` surface:** the Django + PostgreSQL service (active) and the legacy Flask + SQLite service (standby). Which one receives traffic is decided by the two snippets at the top of `endpoint/Caddyfile` — see [Switching backends](../django/README.md#switching-backends).
+
 ---
 
-## Backend (Flask)
+## Backend (Django — active)
+
+**Location:** `django/`
+
+```
+django/
+├── Dockerfile                       # Image (deps pinned here, no requirements.txt)
+├── manage.py
+├── compare_backends.py              # Parity check: Django vs Flask responses
+└── fisingas/
+    ├── base.py / settings.py        # Settings (base + env overlay, jauka style)
+    ├── urls.py                      # ALL /api/* routes in one place
+    ├── common/auth.py               # Session auth (replicates Flask-Login)
+    ├── users/                       # SystemUser, StudentGroup, Student, Setting
+    │   └── management/commands/
+    │       └── import_flask_db.py   # One-time SQLite → PostgreSQL import
+    ├── phishing_test/               # Question bank + denormalized answers
+    │   └── grading.py               # All grade math (replaces the SQLite views)
+    └── leaderboard/                 # Public leaderboard + slide rotation
+```
+
+### Key Design Decisions
+
+- **PostgreSQL** (`fisingas-postgres` container, data in `_DATA/postgres/`) with plain `django.db.backends.postgresql` — no PostGIS.
+- **Identical API** — every `/api/*` path and response shape matches the Flask backend, so the frontend needs no changes to switch backends.
+- **Denormalized answers** — dealing a test to a student freezes a copy of each question's text, correct verdict, image link and options into the answer tables. Grades are computed from those frozen copies (`phishing_test/grading.py`), so editing or deleting questions can no longer change grades that were already given. (The SQLite views joined the live question bank on every request.)
+- **Upload-only images** — screenshots live in a separate `QuestionImage` table, referenced with `PROTECT` from both the live question and the frozen answer snapshots. Deleting a question keeps its image; `GET /api/phishingpictures/<id>` falls back to the snapshot link when the question no longer exists.
+- **Links belong to the image** — the clickable tooltip areas (`QuestionLink`) hang off `QuestionImage`, not the question, since their coordinates only make sense on that exact image. Old graded tests keep their tooltips even after the question is deleted.
+- **No Django admin panel and no `django.contrib.auth`** — data is managed through the React admin UI; auth is a custom session scheme mirroring Flask-Login (bcrypt for admins, plaintext passcodes for students). Sessions are stored in PostgreSQL, in a cookie named `session` (HttpOnly off — the login page logs out by deleting it from JavaScript).
+- **Scoring** is unchanged (see [Scoring](#scoring) below), with one deliberate fix: a question with zero options now earns the full 1.0 point when the verdict is right (the views used to count a phantom always-wrong option).
+- **Data import** — `python3 manage.py import_flask_db` (inside the container) wipes the Django tables and re-imports everything from the Flask SQLite file, which is mounted read-only and copied to `/tmp` before reading.
+
+---
+
+## Backend (Flask — legacy standby)
 
 **Location:** `backend/`
+
+Kept running (no traffic) until the Django service is considered stable. Nothing about it changed.
 
 ```
 backend/
@@ -159,6 +198,7 @@ Caddy is the single entry point for all traffic. It handles:
 - **Routing** -- directs requests to the correct container based on URL path
 - **Security headers** -- enforces a strict Content Security Policy
 - **Forward authentication** -- protects admin-only tools (DBGate, Filebrowser) by checking `/api/checkauth/admin` before allowing access
+- **Backend switch** -- the `api_backend` and `admin_auth` snippets at the top of the Caddyfile decide whether `/api/*` (and the forward-auth checks) go to Django or Flask; edit both and run `caddy reload` inside the `fisingas-endpoint` container
 
 ---
 

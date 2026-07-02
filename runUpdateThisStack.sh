@@ -3,6 +3,7 @@
 mkdir -p ./_DATA/database
 mkdir -p ./_DATA/dropbox
 mkdir -p ./_DATA/slides
+mkdir -p ./_DATA/postgres
 sudo chown -R 1000:1000 ./_DATA
 
 sudo docker-compose down
