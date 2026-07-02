@@ -3,8 +3,14 @@
 #
 #    POST /api/phishingpictures            — upload → new question
 #    GET  /api/phishingpictures/<id>       — the image bytes
+#    POST /api/phishingpictures/<id>/links — replace the clickable areas
 #    GET  /api/phishingpictures/<id>/links — clickable areas
-#    POST /api/phishingpictures/<id>/links — replace the areas
+#
+#  Images are UPLOAD-ONLY: every upload creates an immutable
+#  QuestionImage row that both the live question and the
+#  frozen answer snapshots reference (PROTECT), so deleting a
+#  question can never take down the picture — or the tooltip
+#  links attached to it — of an already-graded test.
 ############################################################
 
 
@@ -21,9 +27,26 @@ ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
 
 
 
+
+
+
+
+############################################################
+# upload_picture
+############################################################
+#
+# POST /api/phishingpictures — multipart "image" field.
+# Creating a question STARTS with the screenshot: the upload
+# stores the image and creates an empty question around it,
+# which the admin then fills in (text, verdict, options)
+# through the question bank editor.
+#
+# Used by:
+#   - AddQuestion.jsx — the dropzone on the questions page
+############################################################
+
 @login_required
 def upload_picture(request):
-    """POST /api/phishingpictures — multipart 'image' creates an empty question."""
     if not request.current_user.admin:
         return JsonResponse({"type": "error", "reason": "Not Admin"}, status=403)
 
@@ -51,6 +74,8 @@ def upload_picture(request):
         created=timeNow,
     )
 
+    # An empty, enabled question wrapped around the new image;
+    # the admin fills in the content in the bank editor next
     Question.objects.create(
         is_enabled=1,
         points=1,
@@ -68,14 +93,26 @@ def upload_picture(request):
 
 
 
+
+
+
+
+############################################################
+# _resolve_image (helper)
+############################################################
+#
+# The QuestionImage behind a question bank ID. When the
+# question still exists its image is used directly; when it
+# was deleted, the image is found through the frozen answer
+# snapshots that reference it — so old graded tests keep
+# their pictures (and the tooltips attached to them) forever.
+#
+# Used by:
+#   - get_picture (below)
+#   - picture_links (below)
+############################################################
+
 def _resolve_image(questionID):
-    """
-    The QuestionImage behind a question bank ID. When the question
-    still exists its image is used directly; when it was deleted,
-    the image is found through the frozen answer snapshots that
-    link to it — so old graded tests keep their pictures (and the
-    tooltips attached to them) forever.
-    """
     try:
         return Question.objects.select_related("image").get(id=questionID).image
     except Question.DoesNotExist:
@@ -92,9 +129,28 @@ def _resolve_image(questionID):
 
 
 
+
+
+
+
+############################################################
+# get_picture
+############################################################
+#
+# GET /api/phishingpictures/<id> — the raw image bytes.
+# The mimetype is sniffed from the magic bytes because the
+# database stores only the blob, not the original filename's
+# extension.
+#
+# Used by:
+#   - TestHome.jsx                — the question being answered
+#   - StudentAnswers.jsx          — admin answer review
+#   - StudentTestSummaryTable.jsx — the summary thumbnails
+#   - QuestionsList.jsx           — the question bank editor
+############################################################
+
 @login_required
 def get_picture(request, questionID):
-    """GET /api/phishingpictures/<id> — raw image bytes, mimetype sniffed."""
     pictureBinary = bytes(_resolve_image(questionID).image)
 
     if pictureBinary[0:3] == b"\xff\xd8\xff":
@@ -111,8 +167,24 @@ def get_picture(request, questionID):
 
 
 
+
+
+
+
+############################################################
+# _percent (helper)
+############################################################
+#
+# '0.42' → '42%'. Coordinates are stored as fractions of the
+# image size and multiplied by 101 (not 100) on purpose —
+# the frontend positions its overlays with these slightly
+# inflated percentages. NULL stays NULL.
+#
+# Used by:
+#   - picture_links (below), GET branch
+############################################################
+
 def _percent(value):
-    """'0.42' → '42%' — CAST(X * 101 AS INTEGER) || '%', NULL stays NULL."""
     if value is None:
         return None
     return f"{int(float(value) * 101)}%"
@@ -120,13 +192,32 @@ def _percent(value):
 
 
 
+
+
+
+
+############################################################
+# picture_links
+############################################################
+#
+# GET  /api/phishingpictures/<id>/links — the clickable URL
+#      areas of the image, coordinates as CSS percentages.
+# POST /api/phishingpictures/<id>/links — replaces ALL areas
+#      with the submitted set (the editor always sends the
+#      full list).
+#
+# The links hang off the IMAGE (see models.py), but the API
+# addresses them by question ID — that is what the frontend
+# has on hand.
+#
+# Used by:
+#   - TestHome.jsx               — tooltip overlays during the test
+#   - InteractiveImageEditor.jsx — the admin area editor (POST)
+#   - QuestionsList.jsx          — preview in the bank editor
+############################################################
+
 @login_required
 def picture_links(request, questionID):
-    """
-    GET/POST /api/phishingpictures/<id>/links — the clickable URL
-    areas. The links hang off the IMAGE (see models.py), but the
-    API keeps addressing them by question ID like Flask did.
-    """
     image = _resolve_image(questionID)
 
 
@@ -149,6 +240,8 @@ def picture_links(request, questionID):
             return HttpResponse("Error: Not Admin")
         postData = get_json(request)
 
+        # Full replace: wipe the image's areas and recreate them
+        # from the submitted list
         if "areas" in postData:
             image.links.all().delete()
             for areaData in postData["areas"]:

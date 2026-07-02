@@ -16,6 +16,34 @@ from fisingas.users.models import SystemUser
 
 
 
+
+
+
+
+############################################################
+# administrators
+############################################################
+#
+# GET  /api/admin/administrators — every admin account with
+#      its enabled flag and last activity.
+# POST /api/admin/administrators — one endpoint for all
+#      mutations, dispatched by the "action" field:
+#
+#   insertupdate — id "" creates a new account; a non-empty
+#                  id edits an existing one, and the password
+#                  is only replaced when one was typed in
+#                  (an empty field means "keep the current")
+#   delete       — removes the account by id
+#
+# Passwords are stored as bcrypt hashes (12 rounds) — only
+# admin accounts have real passwords; students use generated
+# passcodes (see students_views.py).
+#
+# Used by:
+#   - AdministratorsList.jsx     — the accounts table
+#   - AddEditAdministrator.jsx   — the create/edit dialog
+############################################################
+
 @login_required
 def administrators(request):
     if not request.current_user.admin:
@@ -40,7 +68,7 @@ def administrators(request):
         if postData["action"] == "insertupdate":
             passwordHash = bcrypt.hashpw(postData["password"].encode(), bcrypt.gensalt(rounds=12)).decode()
 
-            # New account
+            # New account — the password is mandatory
             if postData["id"] == "":
                 if len(postData["password"]) == 0:
                     return JsonResponse({"type": "error", "reason": "Password must be at least 8 characters long"})
@@ -49,7 +77,7 @@ def administrators(request):
                     defaults={"password": passwordHash, "enabled": postData["enabled"]},
                 )
 
-            # Existing account (password only changed when one was typed in)
+            # Existing account — password only changed when one was typed in
             else:
                 if len(postData["password"]) != 0:
                     SystemUser.objects.filter(id=postData["id"]).update(password=passwordHash)

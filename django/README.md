@@ -13,8 +13,7 @@ django/
 ├── manage.py
 ├── compare_backends.py              # Parity check: Django vs Flask responses
 └── fisingas/
-    ├── base.py                      # Base settings (apps, DB, sessions)
-    ├── settings.py                  # Env-specific overlay (secret key, debug)
+    ├── settings.py                  # All settings (env vars for secrets/DB)
     ├── urls.py                      # ALL /api/* routes in one place
     ├── wsgi.py
     ├── common/

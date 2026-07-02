@@ -1,11 +1,14 @@
 ############################################################
 #  [*] Authentication endpoints
 #
-#  Response bodies are byte-for-byte compatible with the Flask
-#  backend (plain-text Lithuanian messages, same JSON keys):
-#    POST /api/login
-#    GET  /api/checkauth
-#    GET  /api/checkauth/admin   (also used by Caddy forward_auth)
+#    POST /api/login           — plain-text 'OK' or a message
+#    GET  /api/checkauth       — the logged-in user's info
+#    GET  /api/checkauth/admin — admin gate (Caddy forward_auth)
+#
+#  One login form serves two kinds of accounts: admins log
+#  in with an email + bcrypt-checked password, students with
+#  a username + generated passcode. The "@" in the login
+#  name is what tells them apart (see common/auth.py).
 ############################################################
 
 
@@ -25,8 +28,28 @@ DUMMY_BCRYPT_HASH = b"$2b$12$37rvWwtdP/sb.pZwBklPFeUxoH.KWOXIDjTxiiC9awCYpXIB8Eb
 
 
 
+
+
+
+
+############################################################
+# login_view
+############################################################
+#
+# POST /api/login — body {username, password}. Responds with
+# plain text: "OK" on success, otherwise a Lithuanian
+# message the login page shows verbatim. On success the
+# session cookie is set (see common/auth.py).
+#
+# The failure message never reveals whether the account
+# exists, and a dummy bcrypt check keeps the response time
+# identical either way (no user enumeration by timing).
+#
+# Used by:
+#   - Login.jsx — the sign-in form
+############################################################
+
 def login_view(request):
-    """POST /api/login — body {username, password}, returns 'OK' or a message."""
     postData = get_json(request)
 
     # Preauth Checks
@@ -70,9 +93,29 @@ def login_view(request):
 
 
 
+
+
+
+
+############################################################
+# checkauth
+############################################################
+#
+# GET /api/checkauth — who is logged in. The frontend calls
+# this on every page load to decide what to render; every
+# call also bumps the user's LastLogin, which is what the
+# "last seen" columns and the dashboard's 30-minute activity
+# list are built on.
+#
+# Students additionally get their passcode (shown on their
+# profile) and whether their test is already finished.
+#
+# Used by:
+#   - AuthProvider.jsx — the session context around the app
+############################################################
+
 @login_required
 def checkauth(request):
-    """GET /api/checkauth — the logged-in user's info; also bumps LastLogin."""
     timeNow = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     user = request.current_user
 
@@ -103,9 +146,26 @@ def checkauth(request):
 
 
 
+
+
+
+
+############################################################
+# checkauth_admin
+############################################################
+#
+# GET /api/checkauth/admin — 200 with the user info for
+# admins, 401 for everyone else. Caddy calls this as
+# forward_auth before letting requests through to the
+# admin-only services (filebrowser), so admin rights are
+# enforced at the gateway, not just in the UI.
+#
+# Used by:
+#   - Caddy (endpoint/Caddyfile) — the admin_auth snippet
+############################################################
+
 @login_required
 def checkauth_admin(request):
-    """GET /api/checkauth/admin — 200 for admins, 401 otherwise (Caddy forward_auth)."""
     timeNow = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     user = request.current_user
 

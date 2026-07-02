@@ -1,18 +1,19 @@
 ############################################################
 #  [*] Users app models
 #
-#  Mirrors the Flask SQLite tables:
-#    System_Users        → SystemUser
-#    Users_StudentGroups → StudentGroup
-#    Users_Students      → Student
-#    System_Settings     → Setting
+#  The accounts and system configuration:
 #
-#  Conventions kept from the Flask schema on purpose:
-#    - flag columns stay integers (0/1), because the API
-#      responses expose them as 0/1 and the frontend
-#      compares against those values
-#    - timestamps stay "YYYY-MM-DD HH:MM:SS" strings, because
-#      the API returns them verbatim (lastseen, lastlogin)
+#    SystemUser   — administrator accounts (bcrypt passwords)
+#    StudentGroup — optional grouping of students
+#    Student      — student accounts (generated passcodes)
+#    Setting      — key/value system settings
+#
+#  Conventions the API responses are built on:
+#    - flag columns are integers (0/1), exposed as 0/1 in the
+#      JSON — the frontend compares against those values
+#    - timestamps are "YYYY-MM-DD HH:MM:SS" strings, returned
+#      verbatim (lastseen, lastlogin); string comparison
+#      still sorts them chronologically
 ############################################################
 
 
@@ -21,9 +22,24 @@ from django.db import models
 
 
 
-class SystemUser(models.Model):
-    """Administrator account. Passwords are bcrypt hashes ($2b$12$...)."""
 
+
+
+
+############################################################
+# SystemUser — administrator account
+############################################################
+#
+# Admins log in with their email; passwords are stored as
+# bcrypt hashes ($2b$12$...). Disabled accounts keep their
+# row but cannot log in.
+#
+#   admin:   always 1 — kept as a column because the API
+#            exposes it in the user info
+#   enabled: 0 blocks the account without deleting it
+############################################################
+
+class SystemUser(models.Model):
     email = models.CharField(max_length=255, unique=True)
     password = models.CharField(max_length=255)
     admin = models.IntegerField(default=1)
@@ -36,9 +52,23 @@ class SystemUser(models.Model):
 
 
 
-class StudentGroup(models.Model):
-    """Optional grouping of students (name shown in the admin students list)."""
 
+
+
+
+############################################################
+# StudentGroup — optional grouping of students
+############################################################
+#
+# The group name shows up in the admin students list, and
+# the group carries per-group test settings:
+#
+#   show_answers: whether students see the answer review
+#                 after finishing
+#   time_limit:   test time limit in minutes (0 = none)
+############################################################
+
+class StudentGroup(models.Model):
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
     show_answers = models.IntegerField(default=0)
@@ -50,15 +80,26 @@ class StudentGroup(models.Model):
 
 
 
+
+
+
+
+############################################################
+# Student — student account
+############################################################
+#
+# Created through public self-registration (or by an admin).
+# The passcode is the login password: a generated 8-digit
+# code, stored as plain text ON PURPOSE — it is a system-
+# issued access code shown back to the student, not a
+# user-chosen secret.
+#
+#   group:       NULL = no group
+#   is_finished: 1 locks the test forever
+#   status:      1 = active account
+############################################################
+
 class Student(models.Model):
-    """
-    Student account. The passcode is the plaintext login password
-    (generated 8-digit code) — same behaviour as the Flask backend.
-
-    Legacy note: in SQLite, students without a group had GroupID=0
-    pointing at no row; here that is a NULL foreign key.
-    """
-
     group = models.ForeignKey(StudentGroup, null=True, blank=True, on_delete=models.SET_NULL, related_name="students")
     username = models.CharField(max_length=255, unique=True)
     passcode = models.CharField(max_length=64)
@@ -72,9 +113,20 @@ class Student(models.Model):
 
 
 
-class Setting(models.Model):
-    """Key/value system settings (e.g. PhishingTestSize)."""
 
+
+
+
+############################################################
+# Setting — key/value system settings
+############################################################
+#
+# One row per setting, addressed by name. Currently only
+# PhishingTestSize (how many questions a new test deals)
+# lives here.
+############################################################
+
+class Setting(models.Model):
     name = models.CharField(max_length=255, primary_key=True)
     value = models.TextField()
 

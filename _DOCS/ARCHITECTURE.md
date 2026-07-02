@@ -40,7 +40,7 @@ django/
 ├── manage.py
 ├── compare_backends.py              # Parity check: Django vs Flask responses
 └── fisingas/
-    ├── base.py / settings.py        # Settings (base + env overlay, jauka style)
+    ├── settings.py                  # All settings (env vars for secrets/DB)
     ├── urls.py                      # ALL /api/* routes in one place
     ├── common/auth.py               # Session auth (replicates Flask-Login)
     ├── users/                       # SystemUser, StudentGroup, Student, Setting

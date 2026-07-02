@@ -6,10 +6,12 @@
 #    POST /api/student/questions — save verdicts + checkboxes
 #    GET  /api/student/finish    — lock the test
 #
-#  Dealing FREEZES the questions: the text, correct verdict and
-#  every option are copied into Answer/AnswerSelectedOption, and
-#  both the test screens and the grades are built from those
-#  copies only (see models.py / grading.py).
+#  Dealing FREEZES the questions: the text, correct verdict,
+#  image link and every option are copied into
+#  Answer/AnswerSelectedOption, and both the test screens and
+#  the grades are built from those copies only (see models.py
+#  / grading.py). Admins can edit or delete bank questions
+#  without touching tests that are already in progress.
 ############################################################
 
 
@@ -25,22 +27,45 @@ from ..models import Answer, AnswerSelectedOption, Question, QuestionLink, Quest
 
 
 
+
+
+
+
+############################################################
+# _deal_questions (helper)
+############################################################
+#
+# First call of the test: pick PhishingTestSize random
+# enabled questions and snapshot them for this student.
+#
+# Two frozen copies are written:
+#   Answer               — one per question: its text, the
+#                          correct verdict and the image link
+#   AnswerSelectedOption — one per option: its text and the
+#                          expected checkbox value
+#
+# From this point on the live question bank is out of the
+# picture for this student.
+#
+# Used by:
+#   - student_questions (below), on the first GET
+############################################################
+
 def _deal_questions(studentID):
-    """
-    First call of the test: pick PhishingTestSize random enabled
-    questions and snapshot them (with their image link and their
-    options) for this student.
-    """
     try:
         testSize = int(Setting.objects.get(name="PhishingTestSize").value)
     except Setting.DoesNotExist:
         testSize = 30
 
+    # min() protects random.sample when the bank is smaller
+    # than the configured test size
     dealtQuestions = random.sample(
         list(Question.objects.filter(is_enabled=1).only("id", "question", "is_phishing", "image_id")),
         k=min(testSize, Question.objects.filter(is_enabled=1).count()),
     )
 
+    # answer_status / is_selected start as NULL = "not answered
+    # yet"; the POST handler fills them in as the student clicks
     Answer.objects.bulk_create([
         Answer(
             student_id=studentID,
@@ -68,19 +93,34 @@ def _deal_questions(studentID):
 
 
 
+
+
+
+
+############################################################
+# _questions_response (helper)
+############################################################
+#
+# The student's test, built entirely from the frozen
+# snapshots. Question order is shuffled on every request —
+# the frontend keeps its own order once loaded.
+#
+# Used by:
+#   - student_questions (below), on every GET
+############################################################
+
 def _questions_response(studentID):
-    """
-    The student's test, built from the frozen snapshots. Question
-    order is shuffled on every request (like ORDER BY RANDOM()).
-    """
     answers = list(Answer.objects.filter(student_id=studentID))
     random.shuffle(answers)
 
+    # Both lookups grouped in one query each, instead of one
+    # query per question
     selectionsByQuestion = {}
     for selection in AnswerSelectedOption.objects.filter(student_id=studentID).order_by("option_id"):
         selectionsByQuestion.setdefault(selection.question_id, []).append(selection)
 
-    # Tooltip links hang off the frozen image, not the question
+    # Tooltip links hang off the frozen IMAGE, not the question —
+    # they survive question deletion together with the image
     linksByImage = {}
     for link in QuestionLink.objects.filter(image_id__in=[answer.image_id for answer in answers]):
         linksByImage.setdefault(link.image_id, []).append(link)
@@ -114,6 +154,32 @@ def _questions_response(studentID):
 
 
 
+
+
+
+
+############################################################
+# student_questions
+############################################################
+#
+# GET  /api/student/questions — the student's test. The very
+#      first call deals (freezes) the questions; every call
+#      after that returns the same frozen set with whatever
+#      the student answered so far.
+# POST /api/student/questions — saves the current state: the
+#      Real/Phishing verdict of each question and every
+#      checkbox. Called on each click, so a student can
+#      close the browser and continue later.
+#
+# Admins get an empty {} — the test is for students only.
+# So does a student whose test is already finished: the
+# frozen answers then live on in the summary endpoints.
+#
+# Used by:
+#   - TestHome.jsx — the test-taking page (GET on load,
+#     POST on every answer)
+############################################################
+
 @login_required
 def student_questions(request):
     timeNow = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -121,15 +187,17 @@ def student_questions(request):
     if not request.current_user.admin:
         studentID = request.current_user.userid
 
-        # Update LastLogin
+        # Every touch of the test counts as activity — this is
+        # what the dashboard's 30-minute progress list keys on
         Student.objects.filter(id=studentID).update(last_login=timeNow)
 
-        # If phishing test is already finished - STOP
+        # A finished test is locked — no reading, no writing
         if Student.objects.get(id=studentID).is_finished == 1:
             return JsonResponse({})
 
 
         if request.method == "GET":
+            # No answers yet = first visit → deal the test now
             if not Answer.objects.filter(student_id=studentID).exists():
                 _deal_questions(studentID)
 
@@ -141,13 +209,15 @@ def student_questions(request):
                 if "questionid" not in questionJson:
                     return HttpResponse("Error: This is not questions state object")
 
-                # Save student Question State
+                # The Real/Phishing verdict of this question...
                 Answer.objects.filter(
                     student_id=studentID,
                     question_id=questionJson["questionid"],
                 ).update(answer_status=questionJson["selectedanswer"])
 
-                # Save student Question Options State
+                # ...and each of its checkboxes. Filtering by the
+                # student's own snapshot rows means a forged ID can
+                # never write into someone else's test
                 for questionOptionJson in questionJson["questionoptions"]:
                     if "answeroptionid" not in questionOptionJson:
                         return HttpResponse("Error: This is not questions state object")
@@ -165,9 +235,25 @@ def student_questions(request):
 
 
 
+
+
+
+
+############################################################
+# student_finish
+############################################################
+#
+# GET /api/student/finish — mark the test as finished. There
+# is no way back: student_questions refuses a finished test,
+# and the grade is computed from the answers as they were at
+# this moment (unanswered questions count as wrong).
+#
+# Used by:
+#   - TestFinish.jsx — the "finish test" confirmation page
+############################################################
+
 @login_required
 def student_finish(request):
-    """GET /api/student/finish — mark the test as finished (no way back)."""
     timeNow = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if not request.current_user.admin:

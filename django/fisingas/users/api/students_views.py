@@ -1,11 +1,11 @@
 ############################################################
 #  [*] Student endpoints
 #
-#    GET  /api/admin/students          — admin students table
-#    GET  /api/admin/students/<id>     — one student (also used
-#                                        by the student's own
-#                                        results page)
-#    POST /api/student/register        — public self-registration
+#    GET  /api/admin/students      — admin students table
+#    GET  /api/admin/students/<id> — one student (also used by
+#                                    the student's own results
+#                                    page)
+#    POST /api/student/register    — public self-registration
 ############################################################
 
 
@@ -21,13 +21,25 @@ from fisingas.users.models import Student
 
 
 
+
+
+
+
+############################################################
+# _student_row (helper)
+############################################################
+#
+# One student as a JSON row — account fields plus their
+# grading totals. The blank-field contract the frontend
+# expects: students who never started the test get "" for
+# the grade columns but null for answeredquestioncount.
+#
+# Used by:
+#   - students_list (below)  — one row per student
+#   - student_detail (below) — a single row
+############################################################
+
 def _student_row(student, question_results):
-    """
-    One row of the students table — same keys and blank-field
-    behaviour as the Flask SQL (IFNULL(x, '') for the grade
-    columns, JSON null for the progress of students who never
-    started).
-    """
     summary = summarize(question_results)
     answered_count = sum(1 for result in question_results if result.answer is not None)
 
@@ -57,9 +69,25 @@ def _student_row(student, question_results):
 
 
 
+
+
+
+
+############################################################
+# students_list
+############################################################
+#
+# GET /api/admin/students — every student, newest first,
+# each with their full grading totals. Grades everyone in
+# one pass (judge_all_students) instead of one query per
+# row.
+#
+# Used by:
+#   - StudentsListTable.jsx — the admin students table
+############################################################
+
 @login_required
 def students_list(request):
-    """GET /api/admin/students — every student, newest first."""
     if not request.current_user.admin:
         return HttpResponse("Error: Not Admin")
 
@@ -73,9 +101,27 @@ def students_list(request):
 
 
 
+
+
+
+
+############################################################
+# student_detail
+############################################################
+#
+# GET /api/admin/students/<id> — one student's row.
+#
+# Not admin-only: a student may read their own row (the
+# finished-test summary page shows their grade through this
+# endpoint), just nobody else's.
+#
+# Used by:
+#   - StudentInformation.jsx — the admin student page
+#   - TestFinish.jsx         — the student's own summary
+############################################################
+
 @login_required
 def student_detail(request, studentID):
-    """GET /api/admin/students/<id> — admins, or the student themselves."""
     if not request.current_user.admin:
         if studentID == request.current_user.userid:
             # Students may read their own row (finished-test summary page)
@@ -90,8 +136,26 @@ def student_detail(request, studentID):
 
 
 
+
+
+
+
+############################################################
+# student_register
+############################################################
+#
+# POST /api/student/register — public self-registration,
+# body {username}. The username is uppercased and stripped
+# to A-Z, 0-9 and underscore; the response carries the
+# generated 8-digit access code the student will log in
+# with. Duplicate names are refused with a Lithuanian
+# error message the login page shows verbatim.
+#
+# Used by:
+#   - Login.jsx — the "create account" form
+############################################################
+
 def student_register(request):
-    """POST /api/student/register — body {username}, returns the access code."""
     postData = get_json(request)
     username = re.sub(r"[^A-Z0-9_]", "", postData["username"].upper())
 
