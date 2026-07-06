@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Accounts must be BOTH inactive and registered longer ago
 # than this to be removed
-RETENTION_DAYS = 60
+RETENTION_DAYS = 180
 
 
 
