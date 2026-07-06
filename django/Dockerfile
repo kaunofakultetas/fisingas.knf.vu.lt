@@ -25,6 +25,11 @@ RUN pip install --no-cache-dir                  \
     bcrypt==4.2.1                               \
     gunicorn==26.0.0
 
+# Background tasks
+RUN pip install --no-cache-dir                  \
+    celery==5.6.3                               \
+    redis==8.0.1
+
 
 # Copy source code
 COPY . /app

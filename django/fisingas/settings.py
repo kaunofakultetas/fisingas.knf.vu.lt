@@ -92,6 +92,30 @@ DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 
 
 ############################################################
+# Celery
+############################################################
+#
+# Background tasks (see fisingas/celery.py for the schedule).
+# The broker is the fisingas-redis container — used only as
+# a message bus, persistence is off (a task lost on a redis
+# restart just fires again on its next scheduled run).
+# Results are not stored: every current task is fire-and-
+# forget.
+############################################################
+
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://fisingas-redis:6379/0")
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_IGNORE_RESULT = True
+
+
+
+
+
+
+
+
+
+############################################################
 # URLs
 ############################################################
 #
