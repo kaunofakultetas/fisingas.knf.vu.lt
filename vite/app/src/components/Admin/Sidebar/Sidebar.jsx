@@ -109,7 +109,7 @@ function MenuItemContent({ icon: Icon, label, open }) {
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         onClick={() => setHovered(false)}
-        className="flex items-center py-[3px] pl-[6px] pr-[10px] cursor-pointer whitespace-nowrap rounded-[3px] hover:bg-[#999] transition-colors"
+        className="flex items-center py-[1px] pl-[6px] pr-[10px] cursor-pointer whitespace-nowrap rounded-[3px] hover:bg-[#999] transition-colors"
       >
         <Icon className="text-[17px] text-[rgb(123,0,63)]" />
         {open && <span className="text-[13px] font-semibold text-[rgb(65,65,65)] ml-[10px]">{label}</span>}
