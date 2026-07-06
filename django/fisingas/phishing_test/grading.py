@@ -27,19 +27,28 @@
 #      formatted to two decimals as a string ("8.50")
 #    - fully_correct = verdict right AND every option right
 #
+#  Finished tests are NOT re-judged: student_finish freezes
+#  the totals into the TestResult table (finalize_student),
+#  and the list endpoints read those rows back as TestSummary
+#  objects (stored_summaries) — only students still taking
+#  the test are judged live.
+#
 #  Layout (top to bottom):
 #
 #    OptionResult / QuestionResult / TestSummary — the result
 #      containers, with the scoring math as properties
-#    judge_student / judge_all_students — the entry points
-#    summarize        — folds results into a TestSummary
-#    _judge_answers   — the shared internal workhorse
+#    judge_student / judge_unfinished_students — the entry
+#      points for live judging
+#    summarize          — folds results into a TestSummary
+#    finalize_student   — freezes the totals into TestResult
+#    stored_summaries / student_summary — read them back
+#    _judge_answers     — the shared internal workhorse
 ############################################################
 
 
 from dataclasses import dataclass, field
 
-from .models import Answer, AnswerSelectedOption
+from .models import Answer, AnswerSelectedOption, TestResult
 
 
 
@@ -91,7 +100,7 @@ class OptionResult:
 # student summary) is guaranteed the same math.
 #
 # Used by:
-#   - judge_student / judge_all_students (below) — returned
+#   - judge_student / judge_unfinished_students (below) — returned
 #   - summarize (below) — folded into a TestSummary
 #   - admin_views.student_answers — rendered per question
 ############################################################
@@ -143,8 +152,11 @@ class QuestionResult:
 # TestSummary
 ############################################################
 #
-# Whole-test totals of one student, derived from their
-# QuestionResults by summarize() below.
+# Whole-test totals of one student — derived live from their
+# QuestionResults by summarize(), or read back from a frozen
+# TestResult row by stored_summaries()/student_summary().
+# Both paths meet here, so a stored grade renders exactly
+# like a live one.
 #
 # Used by:
 #   - leaderboard.views.leaderboard    — grade column
@@ -154,6 +166,7 @@ class QuestionResult:
 @dataclass
 class TestSummary:
     question_count: int
+    answered_question_count: int
     fully_correct_count: int
     total_identified_correctly: int
     total_options_count: int
@@ -205,24 +218,29 @@ def judge_student(student_id):
 
 
 ############################################################
-# judge_all_students
+# judge_unfinished_students
 ############################################################
 #
-# {student_id: [QuestionResult, ...]} for EVERY student that
-# has dealt questions — the whole grading table in two
-# queries. The list endpoints call this instead of
-# judge_student per row, which would melt the leaderboard
-# (it refreshes every few seconds on the projector).
+# {student_id: [QuestionResult, ...]} for every student that
+# has dealt questions and is STILL TAKING the test — the
+# whole live-grading table in two queries. The list endpoints
+# call this instead of judge_student per row, which would
+# melt the leaderboard (it refreshes every few seconds on
+# the projector).
+#
+# Finished students are excluded on purpose: their totals
+# were frozen into TestResult at finish time and come from
+# stored_summaries() below instead.
 #
 # Used by:
 #   - leaderboard.views.leaderboard      — the public board
 #   - users.students_views.students_list — the admin table
 ############################################################
 
-def judge_all_students():
+def judge_unfinished_students():
     return _judge_answers(
-        Answer.objects.all(),
-        AnswerSelectedOption.objects.all(),
+        Answer.objects.filter(student__is_finished=0),
+        AnswerSelectedOption.objects.filter(student__is_finished=0),
     )
 
 
@@ -251,12 +269,126 @@ def summarize(question_results):
 
     return TestSummary(
         question_count=len(question_results),
+        answered_question_count=sum(1 for result in question_results if result.answer is not None),
         fully_correct_count=sum(result.is_fully_correct for result in question_results),
         total_identified_correctly=sum(result.identified_correctly for result in question_results),
         total_options_count=sum(result.total_options for result in question_results),
         total_correct_options_count=sum(result.correct_options for result in question_results),
         total_points=sum(result.points for result in question_results),
     )
+
+
+
+
+############################################################
+# finalize_student
+############################################################
+#
+# Freeze one student's totals into the TestResult table —
+# the write half of the frozen-grade scheme. Judges the
+# student one last time and stores the raw counts; from then
+# on the list endpoints read the row instead of re-judging.
+#
+# update_or_create keeps a double "finish" click harmless.
+# A student who finishes without ever dealing a test gets no
+# row — summarize() returns None, and the API renders the
+# missing row as the usual blank fields.
+#
+# Used by:
+#   - phishing_test.student_views.student_finish — in the
+#     same transaction that sets is_finished=1
+#   - migration 0006 backfills the same shape for students
+#     who finished before this table existed
+############################################################
+
+def finalize_student(student_id, finished_at):
+    summary = summarize(judge_student(student_id))
+    if summary is None:
+        return
+
+    TestResult.objects.update_or_create(
+        student_id=student_id,
+        defaults={
+            "question_count": summary.question_count,
+            "answered_question_count": summary.answered_question_count,
+            "total_identified_correctly": summary.total_identified_correctly,
+            "fully_correct_count": summary.fully_correct_count,
+            "total_options_count": summary.total_options_count,
+            "total_correct_options_count": summary.total_correct_options_count,
+            "total_points": summary.total_points,
+            "finished_at": finished_at,
+        },
+    )
+
+
+
+
+############################################################
+# stored_summaries
+############################################################
+#
+# {student_id: TestSummary} for every FROZEN TestResult row —
+# the read half of the frozen-grade scheme, one query for
+# the whole table. The list endpoints overlay these on top
+# of the live judgements of the unfinished students.
+#
+# Used by:
+#   - leaderboard.views.leaderboard      — the public board
+#   - users.students_views.students_list — the admin table
+############################################################
+
+def stored_summaries():
+    return {
+        row["student_id"]: TestSummary(
+            question_count=row["question_count"],
+            answered_question_count=row["answered_question_count"],
+            fully_correct_count=row["fully_correct_count"],
+            total_identified_correctly=row["total_identified_correctly"],
+            total_options_count=row["total_options_count"],
+            total_correct_options_count=row["total_correct_options_count"],
+            total_points=row["total_points"],
+        )
+        for row in TestResult.objects.values(
+            "student_id", "question_count", "answered_question_count",
+            "fully_correct_count", "total_identified_correctly",
+            "total_options_count", "total_correct_options_count", "total_points",
+        )
+    }
+
+
+
+
+############################################################
+# student_summary
+############################################################
+#
+# The TestSummary of ONE student: the frozen row when the
+# test is finished, a live judgement otherwise. None when
+# the student never dealt a test.
+#
+# Falls back to live judging if a finished student somehow
+# has no frozen row (finished before the backfill ran) — the
+# grade is always derivable from the answer snapshots.
+#
+# Used by:
+#   - users.students_views.student_detail — one student's row
+############################################################
+
+def student_summary(student):
+    if student.is_finished == 1:
+        row = TestResult.objects.filter(student_id=student.id).first()
+        if row is not None:
+            return TestSummary(
+                question_count=row.question_count,
+                answered_question_count=row.answered_question_count,
+                fully_correct_count=row.fully_correct_count,
+                total_identified_correctly=row.total_identified_correctly,
+                total_options_count=row.total_options_count,
+                total_correct_options_count=row.total_correct_options_count,
+                total_points=row.total_points,
+            )
+
+    return summarize(judge_student(student.id))
 
 
 
@@ -273,9 +405,13 @@ def summarize(question_results):
 # from the given Answer/AnswerSelectedOption rows in exactly
 # two queries, whatever the filter.
 #
+# Both queries fetch plain tuples (values_list) instead of
+# model instances — instantiating tens of thousands of model
+# objects used to dominate the list endpoints' response time.
+#
 # Used by:
-#   - judge_student (above)      — filtered to one student
-#   - judge_all_students (above) — unfiltered
+#   - judge_student (above)             — filtered to one student
+#   - judge_unfinished_students (above) — everyone still testing
 ############################################################
 
 def _judge_answers(answers_queryset, selections_queryset):
@@ -283,22 +419,28 @@ def _judge_answers(answers_queryset, selections_queryset):
     # by option ID so the review pages list options in the same
     # order the student saw them
     options_by_answer = {}
-    for selection in selections_queryset.order_by("option_id"):
-        options_by_answer.setdefault((selection.student_id, selection.question_id), []).append(OptionResult(
-            option_text=selection.option_text,
-            right_answer=selection.right_answer,
-            selected=selection.is_selected or 0,     # untouched checkbox counts as unchecked
+    selections = selections_queryset.order_by("option_id").values_list(
+        "student_id", "question_id", "option_text", "right_answer", "is_selected",
+    )
+    for student_id, question_id, option_text, right_answer, is_selected in selections:
+        options_by_answer.setdefault((student_id, question_id), []).append(OptionResult(
+            option_text=option_text,
+            right_answer=right_answer,
+            selected=is_selected or 0,     # untouched checkbox counts as unchecked
         ))
 
     # One QuestionResult per Answer row, its options attached
     results = {}
-    for answer in answers_queryset.order_by("student_id", "question_id"):
-        results.setdefault(answer.student_id, []).append(QuestionResult(
-            question_id=answer.question_id,
-            question_text=answer.question_text,
-            answer=answer.answer_status,
-            is_phishing=answer.is_phishing,
-            options=options_by_answer.get((answer.student_id, answer.question_id), []),
+    answers = answers_queryset.order_by("student_id", "question_id").values_list(
+        "student_id", "question_id", "question_text", "answer_status", "is_phishing",
+    )
+    for student_id, question_id, question_text, answer_status, is_phishing in answers:
+        results.setdefault(student_id, []).append(QuestionResult(
+            question_id=question_id,
+            question_text=question_text,
+            answer=answer_status,
+            is_phishing=is_phishing,
+            options=options_by_answer.get((student_id, question_id), []),
         ))
 
     return results

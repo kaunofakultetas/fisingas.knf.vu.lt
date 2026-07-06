@@ -23,6 +23,7 @@ from django.http import HttpResponse, JsonResponse
 
 from fisingas.common.auth import get_json, login_required
 from fisingas.users.models import Setting, Student
+from ..grading import finalize_student
 from ..models import Answer, AnswerSelectedOption, Question, QuestionLink, QuestionOption
 
 
@@ -266,6 +267,14 @@ def student_questions(request):
 # and the grade is computed from the answers as they were at
 # this moment (unanswered questions count as wrong).
 #
+# The totals are judged one last time and FROZEN into the
+# TestResult table right before the lock — the list endpoints
+# read that row from now on instead of re-grading. Both
+# writes land in one transaction (ATOMIC_REQUESTS), so a
+# locked-but-ungraded state cannot exist. An already-finished
+# student is left untouched — their grade was frozen when
+# they first finished.
+#
 # Used by:
 #   - TestFinish.jsx — the "finish test" confirmation page
 ############################################################
@@ -275,7 +284,12 @@ def student_finish(request):
     timeNow = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if not request.current_user.admin:
-        Student.objects.filter(id=request.current_user.userid).update(
+        studentID = request.current_user.userid
+
+        if Student.objects.get(id=studentID).is_finished != 1:
+            finalize_student(studentID, finished_at=timeNow)
+
+        Student.objects.filter(id=studentID).update(
             last_login=timeNow,
             is_finished=1,
         )

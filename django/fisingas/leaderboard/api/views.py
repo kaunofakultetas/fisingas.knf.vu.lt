@@ -16,7 +16,7 @@ import random
 
 from django.http import FileResponse, JsonResponse
 
-from fisingas.phishing_test.grading import judge_all_students, summarize
+from fisingas.phishing_test.grading import judge_unfinished_students, stored_summaries, summarize
 from fisingas.users.models import Student
 
 
@@ -37,10 +37,12 @@ ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 #
 # GET /api/leaderboard — one row per student, newest first.
 #
-# Grades every student in one pass over the frozen answer
-# snapshots (see phishing_test/grading.py) instead of one
-# query per student — the page refreshes every few seconds
-# on the projector, so this endpoint has to stay cheap.
+# Finished students come straight from their frozen
+# TestResult rows (one query); only the ones still taking
+# the test are graded live, in one pass over the frozen
+# answer snapshots (see phishing_test/grading.py) — the page
+# refreshes every few seconds on the projector, so this
+# endpoint has to stay cheap.
 #
 # Response shape the frontend depends on:
 #   - students who never dealt a test get "" for the counts
@@ -52,12 +54,12 @@ ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 ############################################################
 
 def leaderboard(request):
-    results_by_student = judge_all_students()
+    frozen = stored_summaries()
+    live = judge_unfinished_students()
 
     rows = []
     for student in Student.objects.order_by("-id"):
-        question_results = results_by_student.get(student.id, [])
-        summary = summarize(question_results)
+        summary = frozen.get(student.id) or summarize(live.get(student.id, []))
 
         rows.append({
             "id": student.id,
@@ -66,10 +68,7 @@ def leaderboard(request):
             # How many questions were dealt vs actually answered —
             # the table shows progress as "answered / dealt"
             "questioncount": summary.question_count if summary else "",
-            "answeredquestioncount": (
-                sum(1 for result in question_results if result.answer is not None)
-                if question_results else None
-            ),
+            "answeredquestioncount": summary.answered_question_count if summary else None,
 
             "testgrade": summary.test_grade if summary else "",
 

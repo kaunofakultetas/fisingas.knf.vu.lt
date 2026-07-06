@@ -1,7 +1,7 @@
 ############################################################
 #  [*] Phishing test app models
 #
-#  Three groups of tables:
+#  Four groups of tables:
 #
 #    Images (upload-only, never edited or deleted):
 #      QuestionImage
@@ -11,6 +11,9 @@
 #
 #    Student answers (DENORMALIZED — frozen at deal time):
 #      Answer, AnswerSelectedOption
+#
+#    Test results (DENORMALIZED — frozen at finish time):
+#      TestResult
 #
 #  When a test is dealt to a student, the question text, the
 #  correct verdict, the image link and every option (text +
@@ -244,6 +247,49 @@ class AnswerSelectedOption(models.Model):
     # String representation
     def __str__(self):
         return f"Selection of student #{self.student_id} for option #{self.option_id}"
+
+
+
+
+
+
+
+
+############################################################
+# TestResult — the whole-test totals, frozen
+############################################################
+#
+# One student's grading totals, written EXACTLY ONCE — by
+# student_finish, in the same transaction that locks the test
+# with is_finished=1 (grading.finalize_student does the write).
+# From that moment the list endpoints read this row instead of
+# re-judging the student's frozen answers on every request.
+#
+# Holds RAW COUNTS only — the grade string ("8.50") and the
+# percentage are still derived by grading.TestSummary, so the
+# scoring math keeps living in exactly one place and a stored
+# row renders identically to a live judgement.
+#
+# Students who finish without ever dealing a test get NO row
+# (mirroring summarize() returning None) — the API renders
+# that as the usual blank fields.
+############################################################
+
+class TestResult(models.Model):
+    # Columns
+    student = models.OneToOneField(Student, on_delete=models.CASCADE, related_name="test_result")
+    question_count = models.IntegerField()
+    answered_question_count = models.IntegerField()
+    total_identified_correctly = models.IntegerField()
+    fully_correct_count = models.IntegerField()
+    total_options_count = models.IntegerField()
+    total_correct_options_count = models.IntegerField()
+    total_points = models.FloatField()
+    finished_at = models.CharField(max_length=32, blank=True, default="")
+
+    # String representation
+    def __str__(self):
+        return f"Test result of student #{self.student_id}"
 
 
 
