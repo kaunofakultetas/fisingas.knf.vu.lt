@@ -280,6 +280,9 @@ def summarize(question_results):
 
 
 
+
+
+
 ############################################################
 # finalize_student
 ############################################################
@@ -323,6 +326,9 @@ def finalize_student(student_id, finished_at):
 
 
 
+
+
+
 ############################################################
 # stored_summaries
 ############################################################
@@ -354,6 +360,10 @@ def stored_summaries():
             "total_options_count", "total_correct_options_count", "total_points",
         )
     }
+
+
+
+
 
 
 
