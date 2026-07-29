@@ -1,0 +1,6 @@
+datadump*.json
+*.sqlite3
+.env*
+matplotlib-*
+__pycache__/
+*.pyc
