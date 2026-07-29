@@ -1,10 +1,12 @@
 services:
 
-
+  # ------------------------------------------------------------
+  #              Incoming/outgoing traffic endpoints
+  # ------------------------------------------------------------
   fisingas-endpoint:
     container_name: fisingas-endpoint
     image: caddy:2.11-alpine
-    # user: 1000:1000
+    user: 1000:1000
     read_only: true
     volumes:
       - ./endpoint/Caddyfile:/etc/caddy/Caddyfile:ro
@@ -12,37 +14,48 @@ services:
       - 80:80
     restart: unless-stopped
 
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
 
 
-  # Frontend (Pull Docker hub)
+
+
+
+
+  # ------------------------------------------------------------
+  #                   Phishing test services
+  # ------------------------------------------------------------
   fisingas-vite:
     container_name: fisingas-vite
+
+    # Pull from Docker Hub
     image: vuknf/fisingas-vite:latest
+
+    # # Self-built
+    # image: fisingas-vite
+    # build:
+    #   context: ./vite
+    #   dockerfile: Dockerfile                                                # Prod
+    #   # dockerfile: Dockerfile.dev                                            # Dev
+
     user: 1000:1000
-    read_only: true
+    read_only: true                                                         # Prod
+    # volumes:                                                                # Dev
+    #   - ./vite/app:/app                                                     # Dev
     restart: unless-stopped
-
-  # # Frontend (Self-built)
-  # fisingas-vite:
-  #   container_name: fisingas-vite
-  #   image: fisingas-vite
-  #   user: 1000:1000
-  #   build:
-  #     context: ./vite
-  #     dockerfile: Dockerfile                                                # Prod
-  #     # dockerfile: Dockerfile.dev                                            # Dev
-  #   read_only: true                                                         # Prod
-  #   # volumes:                                                                # Dev
-  #   #   - ./vite/app:/app                                                     # Dev
-  #   restart: unless-stopped
-
-
 
 
   fisingas-django:
     container_name: fisingas-django
-    image: fisingas-django
-    build: ./django
+
+    # Pull from Docker Hub
+    image: vuknf/fisingas-django:latest
+
+    # # Self-built
+    # image: fisingas-django
+    # build: ./django
+
     user: 1000:1000
     read_only: true
     environment:
@@ -56,9 +69,6 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - ./_DATA/slides:/slides
       # - ./django:/app                                                       # Dev
-    depends_on:
-      fisingas-postgres:
-        condition: service_healthy
     restart: unless-stopped
 
 
@@ -66,6 +76,7 @@ services:
     container_name: fisingas-postgres
     image: postgres:17-alpine
     user: 1000:1000
+    read_only: true
     environment:
       - POSTGRES_DB=fisingas
       - POSTGRES_USER=fisingas
@@ -75,17 +86,73 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    tmpfs:
+      - /var/run/postgresql:uid=1000,gid=1000
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ./_DATA/postgres:/var/lib/postgresql/data
     restart: unless-stopped
 
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
 
 
 
+
+
+
+
+
+
+  # ------------------------------------------------------------
+  #               Additional phishing test services
+  # ------------------------------------------------------------
+  fisingas-filebrowser-dropbox:
+    container_name: fisingas-filebrowser-dropbox
+    image: vuknf/filebrowser-noauth:latest
+    user: 1000:1000
+    read_only: false
+    volumes:
+      - ./filebrowser/dropbox.json:/config/settings.json:ro
+      - ./_DATA/dropbox:/data
+    restart: unless-stopped
+
+
+  fisingas-filebrowser-slides:
+    container_name: fisingas-filebrowser-slides
+    image: vuknf/filebrowser-noauth:latest
+    user: 1000:1000
+    read_only: false
+    volumes:
+      - ./filebrowser/slides.json:/config/settings.json:ro
+      - ./_DATA/slides:/data
+    restart: unless-stopped
+
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+  # ------------------------------------------------------------
+  #               Additional administration services 
+  # ------------------------------------------------------------
   fisingas-dbgate:
     container_name: fisingas-dbgate
-    image: dbgate/dbgate:7.1.12
+    image: dbgate/dbgate:7.2.3-alpine
+    user: root
+    read_only: true
     environment:
       WEB_ROOT: /dbgate
 
@@ -97,41 +164,25 @@ services:
       PASSWORD_con1: <CHANGE-ME-DB-PASSWORD>
       DATABASE_con1: fisingas
       ENGINE_con1: postgres@dbgate-plugin-postgres
-    read_only: false
     restart: unless-stopped
 
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
 
 
-  fisingas-filebrowser-dropbox:
-    container_name: fisingas-filebrowser-dropbox
-    image: vuknf/filebrowser-noauth:latest
-    read_only: false
-    volumes:
-      - ./filebrowser/dropbox.json:/config/settings.json:ro
-      - ./_DATA/dropbox:/data
-    environment:
-      - PUID=1000
-      - PGID=1000
-    restart: unless-stopped
 
 
-  fisingas-filebrowser-slides:
-    container_name: fisingas-filebrowser-slides
-    image: vuknf/filebrowser-noauth:latest
-    read_only: false
-    volumes:
-      - ./filebrowser/slides.json:/config/settings.json:ro
-      - ./_DATA/slides:/data
-    environment:
-      - PUID=1000
-      - PGID=1000
-    restart: unless-stopped
 
 
+
+  # ------------------------------------------------------------
+  #                      Documentation services 
+  # ------------------------------------------------------------
   fisingas-swagger:
     container_name: fisingas-swagger
     image: swaggerapi/swagger-ui:v5.29.5
-    # user: 1000:1000
+    user: 1000:1000
     read_only: false
     volumes:
       - ./swagger/swagger.yaml:/swagger.yaml:ro
@@ -139,3 +190,14 @@ services:
       - SWAGGER_JSON=/swagger.yaml
       - BASE_URL=/swagger
     restart: unless-stopped
+
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
+
+
+
+
+
+
+
