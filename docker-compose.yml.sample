@@ -8,6 +8,8 @@ services:
     image: caddy:2.11-alpine
     user: 1000:1000
     read_only: true
+    environment:
+      DBGATE_AUTH_HEADER: ${DBGATE_AUTH_HEADER}
     volumes:
       - ./endpoint/Caddyfile:/etc/caddy/Caddyfile:ro
     ports:
