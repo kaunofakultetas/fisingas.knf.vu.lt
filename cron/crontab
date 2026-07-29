@@ -1,0 +1,4 @@
+# Daily retention sweep — delete student accounts inactive
+# longer than the retention period (03:00 local time, see
+# django/fisingas/users/management/commands/delete_old_students.py)
+0 3 * * * docker exec fisingas-django python manage.py delete_old_students

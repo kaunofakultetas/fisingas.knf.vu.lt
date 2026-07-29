@@ -1,13 +1,12 @@
 ############################################################
 #  [*] Django backend — image build
 #
-#  Single image for dev and prod (jauka pattern):
+#  Single image for dev and prod:
 #    - DJANGO_DEBUG=True  → runserver (auto-reload; compose
 #      bind-mounts ./django:/app over the baked-in copy)
 #    - otherwise          → gunicorn
 #
-#  Dependencies are pinned here — there is no requirements.txt
-#  (same convention as the jauka.knf.vu.lt django service).
+#  Dependencies are pinned here
 ############################################################
 
 FROM python:3.13-slim
@@ -24,11 +23,6 @@ RUN pip install --no-cache-dir                  \
     psycopg2-binary==2.9.12                     \
     bcrypt==4.2.1                               \
     gunicorn==26.0.0
-
-# Background tasks
-RUN pip install --no-cache-dir                  \
-    celery==5.6.3                               \
-    redis==8.0.1
 
 
 # Copy source code

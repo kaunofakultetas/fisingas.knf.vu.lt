@@ -72,6 +72,25 @@ services:
     restart: unless-stopped
 
 
+  fisingas-cron:
+    container_name: fisingas-cron
+
+    # Pull from Docker Hub
+    image: vuknf/fisingas-cron:latest
+
+    # # Self-built
+    # image: fisingas-cron
+    # build: ./cron
+
+    user: root
+    read_only: true
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    network_mode: none
+    restart: unless-stopped
+
+
   fisingas-postgres:
     container_name: fisingas-postgres
     image: postgres:17-alpine
