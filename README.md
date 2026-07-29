@@ -4,11 +4,6 @@ A web-based platform for testing and teaching phishing email recognition skills.
 
 Built for **Vilnius University, Kaunas Faculty (VU KnF)**.
 
-<br>
-
-<img width="1440" alt="Image1" src="_DOCS/images/image1.png" />
-
-
 <br/>
 
 ## How It Works
@@ -45,27 +40,11 @@ The application will be available at `http://<server-ip>`.
 
 ## Documentation
 
+The full technical whitepaper covers the architecture, data model, authentication scheme, test lifecycle, grading arithmetic, web interface, deployment and known limitations:
+
 | Document | Description |
 |----------|-------------|
-| [Deployment Guide](_DOCS/DEPLOYMENT.md) | How to deploy and configure the system |
-| [Architecture](_DOCS/ARCHITECTURE.md) | Technical overview for developers |
-| [User Guide](_DOCS/USER-GUIDE.md) | How to use the platform (admin and student) |
-| [API Reference](_DOCS/API.md) | Backend API endpoints |
+| [Whitepaper (English)](_DOCS/FisingasEN.pdf) | Technical whitepaper, English ([LaTeX source](_DOCS/whitepaperEN.tex)) |
+| [Whitepaper (Lithuanian)](_DOCS/FisingasLT.pdf) | Techninė apžvalga, lietuvių kalba ([LaTeX šaltinis](_DOCS/whitepaperLT.tex)) |
 
-<br/>
-
-## Project Structure
-
-```
-fisingas.knf.vu.lt/
-├── django/             # Django API server
-├── vite/               # React (Vite) frontend
-├── endpoint/           # Caddy reverse proxy config
-├── filebrowser/        # Configuration for filebrowser services
-├── docker-compose.yml  # Docker Compose configuration
-├── _DATA/              # Persistent data
-│   ├── postgres/       # PostgreSQL data directory
-│   ├── slides/         # Presentation slides
-│   └── dropbox/        # Uploaded files
-└── _DOCS/              # Documentation
-```
+Interactive API documentation (Swagger UI) is available on a running instance at `/swagger` (admin login required).

@@ -1,0 +1,930 @@
+% ============================================================
+%  Fisingas — techninė apžvalga (lietuvių kalba)
+%
+%  Savarankiškas LaTeX šaltinis; kompiliuojamas pdflatex su
+%  standartiniais TeX Live paketais (geometry, booktabs, tikz,
+%  listings, hyperref, xcolor, graphicx, babel-lithuanian).
+%
+%      pdflatex whitepaperLT.tex   (du kartus — turiniui/nuorodoms)
+%
+%  Jei trūksta babel-lithuanian paketo, užkomentuokite babel
+%  eilutę — tekstas kompiliuosis, tik antraštės (Turinys,
+%  Santrauka ir kt.) liks angliškos.
+% ============================================================
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.6cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[lithuanian]{babel}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,backgrounds}
+\usepackage{amsmath}
+\usepackage[hidelinks,unicode]{hyperref}
+\usepackage{parskip}
+
+% ------------------------------------------------------------
+% Listings nustatymai — API JSON, komandų ir konfigūracijos
+% pavyzdžiams
+% ------------------------------------------------------------
+\definecolor{codebg}{RGB}{245,245,245}
+\definecolor{codeframe}{RGB}{210,210,210}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  framerule=0.4pt,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  aboveskip=8pt,
+  belowskip=8pt,
+}
+
+% ------------------------------------------------------------
+% TikZ stiliai architektūros / duomenų srauto schemoms
+% ------------------------------------------------------------
+\tikzset{
+  svc/.style={draw, rounded corners=2pt, fill=blue!6, minimum height=9mm,
+              minimum width=24mm, align=center, font=\small},
+  store/.style={draw, rounded corners=2pt, fill=orange!12, minimum height=9mm,
+                minimum width=26mm, align=center, font=\small},
+  ext/.style={draw, rounded corners=2pt, fill=green!8, minimum height=9mm,
+              minimum width=22mm, align=center, font=\small},
+  flow/.style={-{Stealth[length=2.5mm]}, thick},
+  lbl/.style={font=\footnotesize, midway, fill=white, inner sep=1.5pt},
+}
+
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{\textbf{Fisingas}\\[4pt]
+  \large Savarankiškai talpinama fišingo atpažinimo mokymo ir\\
+  vertinimo platforma Django, React ir Docker pagrindu}
+\author{Tomas Vanagas\\[2pt]
+  \normalsize\texttt{tomas.vanagas@knf.vu.lt}}
+\date{2026 m. liepa}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\noindent
+Fisingas — savarankiškai talpinama žiniatinklio platforma fišingo
+laiškų atpažinimui mokyti ir vertinti, sukurta Vilniaus universiteto
+Kauno fakulteto auditorijoms. Studentai užsiregistruoja patys, gauna
+sistemos sugeneruotą prieigos kodą ir sprendžia testą: nagrinėja
+tikroviškas el.~laiškų ekrano kopijas — su virš paveikslėlio
+imituojamomis nuorodų peržiūromis — ir kiekvieną laišką įvertina kaip
+tikrą arba fišingą, atsakydami į papildomus klausimus apie požymius.
+Administratoriai tvarko klausimų banką, gyvai stebi studentų progresą
+ir projektuoja automatiškai atsinaujinančią lyderių lentelę,
+kaitaliojamą su pateikties skaidrėmis. Sistema supakuota į vieną
+Docker Compose steką iš devynių konteinerių už vieno Caddy
+atvirkštinio tarpinio serverio: React vieno puslapio aplikacija,
+sąmoningai plonas Django JSON API, PostgreSQL duomenų bazė ir
+tarpinio serverio autentikacija saugomi operatoriaus įrankiai
+(duomenų bazės sąsaja, failų tvarkyklės, API dokumentacija).
+Pagrindinis projektavimo rūpestis — \emph{įvertinimų vientisumas
+kintant turiniui}: išdalijant testą kiekvieno klausimo turinys
+užšaldomas denormalizuotoje kopijoje studento atsakymų eilutėse, tad
+klausimų redagavimas ar trynimas niekada nebegali pakeisti jau
+suteiktų įvertinimų. Dokumente aprašoma architektūra, duomenų modelis
+ir jo momentinių kopijų disciplina, autentikacijos schema, testo
+gyvavimo ciklas ir tiksli vertinimo aritmetika, abiejų rolių
+naudotojo sąsaja bei sistemos diegimo ir eksploatavimo procedūros.
+Visi šio dokumento teiginiai išvesti tiesiogiai iš sistemos išeities
+kodo.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Įvadas}
+% ============================================================
+
+Fišingas tebėra dažniausias pirminės prieigos vektorius praktikoje, o
+veiksmingiausia dėstytojui prieinama priemonė — treniruotė: rodyti
+žmonėms įtikinamas klastotes šalia tikrų laiškų ir leisti mokytis jas
+atskirti. Tokio pratimo vykdymas pilnai studentų auditorijai kelia
+reikalavimus, kuriuos bendrinės apklausų sistemos tenkina prastai:
+
+\begin{itemize}
+  \item Medžiaga \emph{vizuali}. Fišingo pratimas gyvena tiksliose
+        el.~pašto klientų ekrano kopijose, o esminis įgūdis —
+        užvesti pelę ant nuorodos ir pamatyti tikrąją jos paskirtį —
+        turi veikti ant statinio paveikslėlio.
+  \item Registracija turi būti akimirksninė ir tinkama anonimiškumui.
+        Studentai per paskaitą užsiregistruoja slapyvardžiu ir gauna
+        mašinos sugeneruotą prieigos kodą; jokių el.~pašto paskyrų,
+        jokių sąrašų importo.
+  \item Pratimas vyksta \emph{gyvai}. Dėstytojui reikia realaus laiko
+        vaizdo, kas dar sprendžia, o projektuojama lyderių lentelė
+        vertinimą paverčia žaidimu.
+  \item Turinys nuolat kinta — klausimai pridedami, perrašomi ir
+        išimami tarp kursų (ir jų metu) — tačiau kartą suteiktas
+        įvertinimas privalo likti tiksliai atkuriamas.
+  \item Platforma turi veikti savarankiškai viename universiteto
+        serveryje ir būti prižiūrima vieno žmogaus su Docker.
+\end{itemize}
+
+Fisingas šiuos reikalavimus sprendžia sąmoningai „nuobodžiomis``
+technologijomis: Django API, kuris „tik perkelia duomenis``,
+PostgreSQL kiekvienam būsenos baitui (įskaitant pačias ekrano
+kopijas), React vieno puslapio aplikacija ir Docker Compose
+orkestravimui. Nėra nei žinučių eilės, nei podėlio sluoksnio, nei
+debesijos priklausomybių. Vienintelė vieta, kur dizainas turi tvirtą
+nuomonę — duomenų modelis: studentui išdalytas testas yra
+\emph{užšaldyta klausimų kopija}, o ne nuoroda į juos
+(\ref{sec:datamodel}~skyrius).
+
+Toliau dokumentas organizuotas taip. \ref{sec:architecture}~skyriuje
+pristatoma konteinerių topologija, maršrutizavimas ir saugumo
+laikysena. \ref{sec:datamodel}~skyriuje aprašomas duomenų modelis ir
+momentinių kopijų disciplina. \ref{sec:auth}~skyriuje patikslinama
+autentikacijos ir prieigos kontrolės schema.
+\ref{sec:lifecycle}~skyrius seka vieną studentą per visą testą ir
+pateikia vertinimo aritmetiką. \ref{sec:frontend}~skyriuje aprašoma
+naudotojo sąsaja studentams, administratoriams ir projektoriui.
+\ref{sec:usage}~skyrius — operatoriaus vadovas: diegimas, pagalbinės
+paslaugos, duomenų saugojimo terminai ir konfigūracijos žinynas.
+\ref{sec:limitations}~skyriuje aptariami žinomi apribojimai.
+
+% ============================================================
+\section{Sistemos architektūra}
+\label{sec:architecture}
+% ============================================================
+
+\subsection{Paslaugos}
+
+Steką sudaro devyni konteineriai, deklaruoti viename
+\code{docker-compose.yml}. Jie apibendrinti
+\ref{tab:services}~lentelėje ir pavaizduoti
+\ref{fig:architecture}~paveiksle.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Konteineris} & \textbf{Technologija} & \textbf{Vaidmuo} \\
+\midrule
+\code{fisingas-endpoint} & Caddy 2.11 & Vienintelis įėjimo taškas; maršrutai, saugumo antraštės \\
+\code{fisingas-vite}     & React 19 + Vite 7, aptarnauja Caddy & Naudotojo sąsaja (SPA) \\
+\code{fisingas-django}   & Django 5.2 + Gunicorn (Python 3.13) & JSON API: autentikacija, testas, vertinimas \\
+\code{fisingas-postgres} & PostgreSQL 17 & Visa ilgalaikė būsena, įskaitant paveikslėlius \\
+\code{fisingas-cron}     & BusyBox crond + Docker CLI & Naktinis duomenų saugojimo terminų valymas \\
+\code{fisingas-filebrowser-dropbox} & Filebrowser (be autentikacijos) & Bendra failų dėžė personalui \\
+\code{fisingas-filebrowser-slides}  & Filebrowser (be autentikacijos) & Projektoriaus skaidrių įkėlimas \\
+\code{fisingas-dbgate}   & DBGate 7.2 & Duomenų bazės valdymo sąsaja \\
+\code{fisingas-swagger}  & Swagger UI & Interaktyvi API dokumentacija \\
+\bottomrule
+\end{tabular}
+\caption{Docker Compose steko paslaugos.}
+\label{tab:services}
+\end{table}
+
+Django serverinė dalis sąmoningai plona: paprastos funkcijos-vaizdai
+be Django REST Framework, be \code{django.contrib.admin} ir be
+\code{django.contrib.auth} — įdiegtų aplikacijų sąraše tėra sesijų
+karkasas ir trys projekto aplikacijos (\code{users},
+\code{phishing\_test}, \code{leaderboard}). Visas turinio tvarkymas
+vyksta per React administratoriaus sąsają; visa prieiga prie duomenų
+bazės eina per ORM (kodo bazėje nėra nė vienos „žalios`` SQL
+užklausos). Kiekviena užklausa vykdoma transakcijoje
+(\code{ATOMIC\_REQUESTS = True}), tad pusiau įrašyta testo būsena
+negali išlikti.
+
+\begin{figure}[h]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}
+
+  % Išorinė pusė
+  \node[ext]   (client)  at (0,0)      {Naršyklė /\\projektorius};
+  \node[svc]   (caddy)   at (3.8,0)    {\code{endpoint}\\Caddy :80};
+
+  % Aplikacijos paslaugos
+  \node[svc]   (vite)    at (7.7,1.9)  {\code{vite}\\SPA};
+  \node[svc]   (django)  at (7.7,0)    {\code{django}\\Gunicorn :8000};
+  \node[store] (postgres) at (11.8,0)  {\code{postgres}\\PostgreSQL 17};
+
+  % Saugomi operatoriaus įrankiai
+  \node[svc]   (swagger) at (7.0,-2.6)  {\code{swagger}\\Swagger UI};
+  \node[svc]   (dbgate)  at (10.4,-2.6) {\code{dbgate}\\DBGate};
+  \node[svc]   (fbdrop)  at (13.8,-2.6) {\code{filebrowser}\\\code{dropbox}};
+  \node[svc]   (fbslides) at (17.2,-2.6) {\code{filebrowser}\\\code{slides}};
+
+  \node[draw, dashed, rounded corners=3pt,
+        fit=(swagger)(dbgate)(fbdrop)(fbslides),
+        inner sep=3mm,
+        label={[font=\footnotesize\itshape]below:administratoriaus įrankiai --- kiekviena užklausa saugoma forward-auth}] (tools) {};
+
+  % Srautai
+  \draw[flow] (client) -- node[lbl]{HTTP :80} (caddy);
+  \draw[flow] (caddy.north) |- node[lbl, pos=0.75]{\code{/*}} (vite.west);
+  \draw[flow] (caddy) -- node[lbl]{\code{/api/*}} (django);
+  \draw[flow] (caddy.south) |- node[lbl, pos=0.7]{\code{forward\_auth}} (tools.west);
+  \draw[flow] (django) -- node[lbl]{SQL} (postgres);
+  \draw[flow] (dbgate.north) -- node[lbl]{SQL} (postgres.south);
+
+  % Vidinio tinklo rėmelis
+  \begin{scope}[on background layer]
+    \node[draw, dashed, rounded corners=3pt, fill=gray!4,
+          fit=(vite)(django)(postgres)(tools),
+          inner sep=5mm,
+          label={[font=\footnotesize\itshape]above:vidinis Docker tinklas (jokių publikuotų prievadų)}] {};
+  \end{scope}
+
+\end{tikzpicture}}
+\caption{Paslaugų topologija. Tik Caddy įėjimo taškas publikuoja
+serverio prievadą; visi kiti konteineriai pasiekiami vien per vidinį
+Docker tinklą. Dvi Filebrowser kopijos aptarnauja prijungtus
+\code{\_DATA/dropbox} ir \code{\_DATA/slides} katalogus; Django tą
+patį skaidrių katalogą skaito projektoriaus režimui. Cron konteineris
+neparodytas: jis veikia su \code{network\_mode: none} ir Django
+pasiekia tik per Docker lizdą (\code{docker exec}).}
+\label{fig:architecture}
+\end{figure}
+
+\subsection{Maršrutizavimas}
+
+Įėjimo taško Caddy klausosi 80 prievade ir maršrutizuoja pagal kelią,
+eilės tvarka:
+
+\begin{itemize}
+  \item \code{/filebrowser/dropbox/*}, \code{/filebrowser/slides/*},
+        \code{/dbgate/*} ir \code{/swagger*} nukreipiami į atitinkamą
+        įrankį, bet tik po to, kai \code{forward\_auth} pagalbinė
+        užklausa į
+        \code{fisingas-django:8000\allowbreak/api/checkauth/admin}
+        patvirtina, kad kreipiasi administratoriaus sesija
+        (\ref{sec:gateway}~poskyris);
+  \item \code{/api/*} nukreipiamas į Django be jokio filtro tarpiniame
+        serveryje — kas ką gali kviesti, sprendžia pats Django
+        kiekviename galiniame taške;
+  \item visa kita atitenka naudotojo sąsajos konteineriui, kuriame
+        antra Caddy kopija aptarnauja iš anksto surinktą Vite paketą
+        kaip statinius failus su SPA atsarginiu keliu
+        (\code{try\_files \{path\} /index.html}), tad gilios nuorodos
+        kaip \code{/admin/students/42} išsprendžiamos kliento pusėje.
+\end{itemize}
+
+\subsection{Saugumo laikysena}
+\label{sec:posture}
+
+Vienodai visame steke taikomos apsaugos priemonės:
+
+\begin{itemize}
+  \item \textbf{Vienas įėjimas.} Prievadą publikuoja tik įėjimo taško
+        konteineris. Django, PostgreSQL ir visi įrankiai iš
+        serverio tinklo nepasiekiami.
+  \item \textbf{Tos pačios kilmės kontrolė pakraštyje.} Caddy atmeta
+        su 403 kiekvieną užklausą, kurios \code{Origin} antraštė yra
+        ir neatitinka užklausos serverio vardo. Tai ir yra steko CSRF
+        apsauga — Django CSRF tarpinė programinė įranga sąmoningai
+        neįdiegta (šio pasirinkimo ribos aptariamos
+        \ref{sec:limitations}~skyriuje).
+  \item \textbf{Content-Security-Policy.} Griežta CSP
+        (\code{default-src 'self'}; paveikslėliai papildomai iš
+        \code{data:} ir \code{blob:}, ko reikia skaidrių
+        projektoriui), \code{frame-ancestors 'self'} ir
+        \code{Strict-Transport-Security} antraštė su vienerių metų
+        galiojimu.
+  \item \textbf{Tik skaitomos failų sistemos ir ne root vykdymas.}
+        Įėjimo taško, sąsajos, serverinės dalies ir duomenų bazės
+        konteineriai veikia su \code{read\_only: true} naudotoju
+        \code{1000:1000}; rašomos vietos apribotos iki išreikštinių
+        tomų ir \code{tmpfs} prijungimų (Django gauna \code{tmpfs}
+        ties \code{/tmp} įkėlimų buferizavimui).
+  \item \textbf{Paslaptys ne compose faile.} Django pasirašymo raktas
+        ir DBGate prisijungimo duomenys diegimo skripto sugeneruojami
+        į \code{.env} (\ref{sec:deploy}~poskyris); nei \code{.env},
+        nei įdiegtas \code{docker-compose.yml} nėra sekami git.
+\end{itemize}
+
+% ============================================================
+\section{Duomenų modelis}
+\label{sec:datamodel}
+% ============================================================
+
+\subsection{Esybės}
+
+Visa būsena gyvena PostgreSQL vienuolikoje lentelių
+(\ref{tab:tables}~lentelė). Sąmoninga keistenybė: nėra nė vieno
+gimtojo datos/laiko stulpelio — kiekvienas laiko žymuo yra tekstinis
+stulpelis su \code{YYYY-MM-DD HH:MM:SS} vietos laiku
+(\code{Europe/Vilnius}). Kadangi formatas rikiuojasi leksikografiškai,
+kodas laiko žymenis lygina kaip eilutes (tuo remiasi ir skydelio
+„aktyvūs per paskutines 30 minučių`` langas, ir saugojimo terminų
+valymas).
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Lentelė} & \textbf{Paskirtis} \\
+\midrule
+\code{users\_systemuser}    & Administratorių paskyros (el.~paštas, bcrypt maiša, įjungimo žymė) \\
+\code{users\_student}       & Studentų paskyros (vardas, atviras prieigos kodas, baigimo žymė) \\
+\code{users\_setting}       & Raktas--reikšmė nustatymai; naudojamas tik \code{PhishingTestSize} \\
+\code{phishing\_test\_questionimage} & Laiškų ekrano kopijos dvejetainiais blokais; tik įkėlimas \\
+\code{phishing\_test\_question}      & Gyvas, redaguojamas klausimų bankas \\
+\code{phishing\_test\_questionoption} & Papildomi klausimo žymimieji variantai \\
+\code{phishing\_test\_questionlink}   & Spaudžiamos nuorodų sritys paveikslėlyje (trupmeninės koordinatės) \\
+\code{phishing\_test\_answer}         & \emph{Užšaldyta} klausimo kopija + studento verdiktas \\
+\code{phishing\_test\_answerselectedoption} & \emph{Užšaldyta} varianto kopija + studento žymė \\
+\code{phishing\_test\_testresult}     & Užšaldytos viso testo sumos, įrašomos baigiant \\
+\code{django\_session}      & Serverio pusės sesijų saugykla \\
+\bottomrule
+\end{tabular}
+\caption{Duomenų bazės lentelės. „Užšaldytos`` lentelės rašomos
+išdalijant ar baigiant testą ir vėlesni banko pakeitimai jų niekada
+nepaliečia.}
+\label{tab:tables}
+\end{table}
+
+\subsection{Momentinė kopija išdalijant}
+\label{sec:snapshot}
+
+Kertinis sistemos invariantas: \emph{įvertinimas privalo būti
+atkuriamas amžinai, kad ir kas nutiktų klausimų bankui}. Tai
+pasiekiama denormalizacija išdalijimo metu: studentui pirmą kartą
+paprašius savo klausimų, sistema į \code{Answer} ir
+\code{AnswerSelectedOption} eilutes nukopijuoja kiekvieno išdalyto
+klausimo tekstą, teisingą verdiktą, nuorodą į paveikslėlį ir kiekvieno
+varianto tekstą su laukiama reikšme. Kopijos į klausimą sąmoningai
+rodo paprastu sveiku skaičiumi, o ne išoriniu raktu, tad vėlesnis
+klausimo trynimas negali kaskadu paliesti išdalyto testo. Vertinimas
+(\ref{sec:grading}~poskyris) skaito išimtinai šias užšaldytas
+eilutes.
+
+Du unikalumo apribojimai — \code{(student, question\_id)} atsakymams
+ir \code{(student, question\_id, option\_id)} variantams — kartu yra
+ir lygiagretumo saugiklis: jei dvi vienalaikės pirmos užklausos abi
+bando išdalyti, nusileisti gali tik vienas masinis įrašymas;
+pralaimėjusiosios \code{IntegrityError} nuryjama ir ji tiesiog
+perskaito laimėtojos kopiją. Kartu su transakcijomis kiekvienai
+užklausai iš dalies išdalytas testas negali egzistuoti.
+
+Studentui baigus įvyksta trečias užšaldymas: suskaičiuotos sumos
+vieną kartą įrašomos į \code{TestResult}. Nuo tada kiekvienas sąrašo
+vaizdas (administratoriaus lentelė, vieša lyderių lentelė) šį studentą
+aptarnauja iš vienos saugomos eilutės, o ne pervertindamas atsakymus,
+tad karštieji puslapiai baigusiam studentui dirba pastovų darbą, o
+gyvas vertinimas lieka tik dar sprendžiantiems.
+
+\subsection{Paveikslėlių saugykla}
+
+Ekrano kopijos — vienintelis dvejetainis krovinys, joms skirta atskira
+tik įkėlimams naudojama lentelė. Naujas klausimas sukuriamas
+\emph{įkeliant} paveikslėlį (\ref{sec:adminui}~poskyris); failas —
+patikrintas pagal plėtinį (\code{png|jpg|jpeg|gif}) ir apribotas
+5\,MB — įrašomas žaliais baitais į PostgreSQL, o aplink jį sukuriama
+klausimo eilutė. Aptarnaujant turinio tipas nustatomas iš bloko
+magiškųjų baitų, o ne pasitikima įkėlimu.
+
+Ir gyvas klausimas, ir užšaldytos atsakymų kopijos į paveikslėlį rodo
+su \code{PROTECT}, o paveikslėlių netrina joks kodo kelias: ištrynus
+klausimą jo ekrano kopija lieka, o
+\code{GET /api/phishingpictures/\{id\}}, klausimui nebeegzistuojant,
+atsitraukia prie kopijos nuorodos — tad įvertintas testas visada gali
+iš naujo parodyti savo laiškus.
+
+Spaudžiamos nuorodų sritys (\code{QuestionLink}) kabo prie
+\emph{paveikslėlio}, ne prie klausimo — jų koordinatės (saugomos
+trupmeninėmis tekstinėmis reikšmėmis) prasmingos tik tame konkrečiame
+rastre, ir dėl šio priskyrimo seni įvertinti testai išlaiko savo
+užvedamas nuorodas net ištrynus klausimą.
+
+% ============================================================
+\section{Autentikacija ir prieigos kontrolė}
+\label{sec:auth}
+% ============================================================
+
+\subsection{Paskyros ir rolės}
+
+Yra lygiai dvi paskyrų rūšys, laikomos atskirose lentelėse, o rolę
+koduoja pats prisijungimo vardas: administratoriai jungiasi el.~pašto
+adresu, studentai — sugeneruotu vardu. Prisijungimo galinis taškas
+juos atskiria pagal tai, ar pateiktame varde yra \code{@} — saugu,
+nes studentų vardai registruojantis normalizuojami iki abėcėlės
+\code{A--Z 0--9 \_} (didžiosiomis, visi kiti simboliai išmetami), tad
+dvi vardų erdvės negali susikirsti.
+
+Administratorių slaptažodžiai maišomi bcrypt (12 raundų), kuriant ar
+keičiant paskyrą reikalaujama bent 8 simbolių. Studentų prisijungimo
+duomenys — sistemos sugeneruoti 8 skaitmenų prieigos kodai
+(\code{10000000}--\code{99999999}), saugomi ir lyginami
+\emph{atviru tekstu} — dokumentuotas projektinis sprendimas: kodas
+yra sistemos išduotas prieigos žetonas, studentui parodomas pagal
+pareikalavimą, o ne naudotojo pasirinkta paslaptis, kuri galėtų būti
+naudojama kitur. Nepavykęs nežinomo vardo prisijungimas vis tiek
+įvykdo bcrypt palyginimą su fiktyvia maiša, tad atsako laikas
+neišduoda, ar paskyra egzistuoja.
+
+\subsection{Sesijos}
+
+Django duomenų baze paremtas sesijų karkasas — vienintelė naudojama
+\code{django.contrib} dalis. Prisijungimas naujoje sesijos eilutėje
+išsaugo vieną reikšmę — prisijungimo vardą — ir nustato slapuką vardu
+\code{session}, galiojantį iki naršyklės uždarymo. Slapukas sąmoningai
+\emph{ne} \code{HttpOnly}: serveryje nėra atsijungimo galinio taško,
+o prisijungimo puslapis naudotoją atjungia ištrindamas slapuką iš
+JavaScript. Kiekvienoje užklausoje sesijos vardas iš naujo
+išsprendžiamas paskyrų lentelėse, o išjungtos paskyros laikomos
+neegzistuojančiomis — deaktyvuotas administratorius ar studentas
+gyvą sesiją praranda su kita savo užklausa.
+
+\subsection{Autorizacija vaizduose}
+
+Nedidelis nuosavas dekoratorius pakeičia \code{django.contrib.auth}:
+\code{@login\_required} anonimines užklausas atmeta su 401 ir prie
+užklausos prisega išspręstą paskyrą; rolės tikrinamos jau kiekviename
+vaizde. Susidaro trys prieigos pakopos: vieši galiniai taškai
+(prisijungimas, registracija, lyderių lentelė, skaidrės),
+autentikuoti (klausimų paveikslėliai ir jų nuorodų sritys) ir
+administratoriaus — iš kurių du (studento kortelė ir studento
+atsakymai) papildomai leidžia studentui skaityti \emph{savo paties}
+įrašą; taip veikia rezultatų puslapis.
+
+\subsection{Autorizacija tarpiniame serveryje}
+\label{sec:gateway}
+
+Operatoriaus įrankiai (DBGate, abu Filebrowser, Swagger UI) savos
+autentikacijos neturi. Vietoj to Caddy kiekvienai į juos nukreiptai
+užklausai atlieka \code{forward\_auth} pagalbinę užklausą į
+\code{GET /api/checkauth/admin}; galinis taškas 200 atsako tik gyvai
+administratoriaus sesijai, kitaip — 401. Paties DBGate basic-auth
+duomenys sugeneruojami diegiant, ir Caddy juos įterpia į
+persiunčiamą užklausą, tad naršyklė jų niekada nemato. Tas pats
+administratoriaus tikrinimo taškas kartu yra „paskutinį kartą
+matytas`` pulsas: kiekvienas sėkmingas kvietimas atnaujina paskyros
+paskutinio prisijungimo žymą, kuri maitina skydelio aktyvumo vaizdą.
+
+% ============================================================
+\section{Testo gyvavimo ciklas}
+\label{sec:lifecycle}
+% ============================================================
+
+\subsection{Vienas studentas nuo pradžios iki pabaigos}
+
+Studentas pereina šias stadijas (\ref{fig:lifecycle}~pav.):
+
+\begin{enumerate}
+  \item \textbf{Registracija.} \code{POST /api/student/register} su
+        norimu slapyvardžiu. Vardas paverčiamas didžiosiomis ir
+        apkarpomas iki \code{A--Z 0--9 \_}; jei laisvas, paskyra
+        sukuriama su atsitiktiniu 8 skaitmenų prieigos kodu, atsake
+        grąžinamu lygiai vieną kartą. Sąsaja abu parodo su įspėjimu
+        „užsirašykite``.
+  \item \textbf{Prisijungimas.} \code{POST /api/login} su vardu ir
+        kodu nustato sesijos slapuką. Atsako kūnas — arba pažodinė
+        eilutė \code{"OK"}, arba rodymui paruoštas lietuviškas
+        klaidos pranešimas.
+  \item \textbf{Išdalijimas.} Pirmasis
+        \code{GET /api/student/questions} paleidžia išdalijimą: testo
+        dydis skaitomas iš \code{PhishingTestSize} nustatymo
+        (atsarginė kodo reikšmė 30, administratoriui siūlomi
+        variantai 9/12/15/21/30), iš \emph{įjungtų} klausimų
+        ištraukiama tolygiai atsitiktinė tokio dydžio imtis
+        (apribota banko dydžiu) ir masiškai įrašoma
+        \ref{sec:snapshot}~poskyryje aprašyta užšaldyta kopija.
+        Vėlesni kvietimai grąžina jau išdalytą rinkinį. Serveris
+        klausimų tvarką permaišo kiekviename GET; sąsaja sesijos metu
+        laikosi savo pastovios tvarkos.
+  \item \textbf{Atsakinėjimas.} Sąsaja po kiekvieno paspaudimo
+        siunčia \emph{visą} atsakymų būseną į
+        \code{POST /api/student/questions} — verdiktus (\code{0} =
+        tikras, \code{1} = fišingas) į atsakymų eilutes, žymių
+        būsenas į variantų eilutes. Kiekvienas atnaujinimas
+        apribotas sesijos studento identifikatoriumi, tad suklastotas
+        krovinys negali rašyti į kito studento eilutes. Saugojimas
+        idempotentinis ir kartotinas; studentas gali užverti naršyklę
+        ir tęsti prisijungęs su vardu ir kodu.
+  \item \textbf{Baigimas.} \code{GET /api/student/finish} įvertina
+        užšaldytas eilutes, įrašo \code{TestResult} sumas
+        (\code{update\_or\_create}, tad dvigubas paspaudimas
+        nekenksmingas) ir nustato baigimo žymę. Žingsnis
+        negrįžtamas: nuo šiol klausimų galinis taškas šiam studentui
+        grąžina tuščią objektą, o maršruto sargas nukreipia jį į
+        rezultatų puslapį.
+  \item \textbf{Rezultatai.} Studentas savo santrauką ir klausimų
+        peržiūrą — įskaitant teisingus atsakymus — skaito per tuos
+        pačius galinius taškus, kuriais administratorius žiūri bet
+        kurį studentą; vieša lyderių lentelė rodo jo įvertinimą.
+\end{enumerate}
+
+\begin{figure}[h]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  head/.style={draw, rounded corners=2pt, minimum width=26mm, minimum height=8mm,
+               align=center, font=\small},
+  life/.style={dash pattern=on 2pt off 2pt, gray},
+  msg/.style={-{Stealth[length=2.2mm]}, semithick},
+  mlbl/.style={font=\scriptsize, midway, above=1pt, fill=white, inner sep=1pt},
+]
+
+  % Gyvavimo linijų galvos
+  \node[head, fill=green!8]   (c) at (0,0)    {Studento naršyklė};
+  \node[head, fill=blue!6]    (b) at (6.6,0)  {Django API};
+  \node[head, fill=orange!12] (r) at (13.2,0) {PostgreSQL};
+
+  % Gyvavimo linijos
+  \draw[life] (c.south) -- (0,-10.5);
+  \draw[life] (b.south) -- (6.6,-10.5);
+  \draw[life] (r.south) -- (13.2,-10.5);
+
+  % Registracija + prisijungimas
+  \draw[msg] (0,-1.0)   -- node[mlbl]{POST /api/student/register \{username\}} (6.6,-1.0);
+  \draw[msg] (6.6,-1.6) -- node[mlbl]{INSERT studentas + 8 skaitmenų kodas} (13.2,-1.6);
+  \draw[msg] (6.6,-2.2) -- node[mlbl]{vardas + prieigos kodas (rodomas vieną kartą)} (0,-2.2);
+  \draw[msg] (0,-2.9)   -- node[mlbl]{POST /api/login} (6.6,-2.9);
+  \draw[msg] (6.6,-3.5) -- node[mlbl]{"OK" + sesijos slapukas} (0,-3.5);
+
+  % Išdalijimas
+  \draw[msg] (0,-4.3)   -- node[mlbl]{GET /api/student/questions (pirmas kvietimas)} (6.6,-4.3);
+  \draw[msg] (6.6,-4.9) -- node[mlbl]{įjungtų klausimų imtis, masinis užšaldytos kopijos INSERT} (13.2,-4.9);
+  \draw[msg] (6.6,-5.5) -- node[mlbl]{išdalyti klausimai (permaišyti)} (0,-5.5);
+
+  % Atsakinėjimo ciklas
+  \draw[rounded corners=2pt, gray] (-0.9,-6.05) rectangle (14.1,-7.7);
+  \node[font=\scriptsize\itshape, gray, anchor=north west] at (-0.85,-6.1) {po kiekvieno paspaudimo};
+  \draw[msg] (0,-6.8)   -- node[mlbl]{POST /api/student/questions (visa atsakymų būsena)} (6.6,-6.8);
+  \draw[msg] (6.6,-7.35) -- node[mlbl]{UPDATE kopijos eilutės (tik šio studento)} (13.2,-7.35);
+
+  % Baigimas
+  \draw[msg] (0,-8.5)   -- node[mlbl]{GET /api/student/finish} (6.6,-8.5);
+  \draw[msg] (6.6,-9.1) -- node[mlbl]{įvertinti kopijas, INSERT TestResult, pažymėti baigtą} (13.2,-9.1);
+  \draw[msg] (0,-9.9)   -- node[mlbl]{GET /api/admin/students/\{savo id\} $\rightarrow$ užšaldyta santrauka} (6.6,-9.9);
+
+\end{tikzpicture}}
+\caption{Vieno studento pranešimų seka. Išdalijimas per pirmą
+klausimų užklausą užšaldo kopiją, su kuria dirba visas vėlesnis
+atsakinėjimas ir vertinimas; baigimo kvietimas sumas užšaldo antrą
+kartą, po kurio sąrašų vaizdai šio studento nebepervertina.}
+\label{fig:lifecycle}
+\end{figure}
+
+\subsection{Vertinimas}
+\label{sec:grading}
+
+Vertinimas skaito tik užšaldytą kopiją. Išdalytam klausimui $q$ tegul
+$v_q \in \{0,1\}$ — teisingas verdiktas, $a_q$ — studento verdiktas,
+$n_q$ — papildomų variantų skaičius, o $c_q$ — variantų, kurių žymės
+būsena sutampa su laukiama reikšme, skaičius (nepaliesta žymė
+laikoma nepažymėta). Klausimas vertas daugiausia vieno taško, o
+papildomi variantai aplink jį veikia kaip 0,1 taško
+priedo/nuoskaitos juosta:
+
+\begin{equation*}
+p_q =
+\begin{cases}
+  0 & \text{jei } a_q \neq v_q,\\[2pt]
+  1 - 0{,}1\,n_q + 0{,}1\,c_q & \text{jei } a_q = v_q.
+\end{cases}
+\end{equation*}
+
+Tai yra, teisingas verdiktas su visais teisingais variantais duoda
+lygiai 1; kiekvienas praleistas variantas kainuoja 0,1. Jei
+pagrindinis verdiktas klaidingas, klausimas vertinamas 0
+nepriklausomai nuo variantų. Testui iš $N$ išdalytų klausimų
+galutinis įvertinimas lietuviškoje dešimtbalėje skalėje yra
+
+\begin{equation*}
+G = \operatorname{round}\!\Bigl(\tfrac{10}{N}\sum_{q=1}^{N} p_q,\; 2\Bigr),
+\end{equation*}
+
+pateikiamas fiksuota dviejų skaitmenų po kablelio eilute (pvz.\
+\code{"8.50"}). Santrauka papildomai nurodo, kiek klausimų
+identifikuota teisingai (vien verdiktas), kiek \emph{visiškai}
+teisingi (verdiktas ir visi variantai), variantų sumas ir visiškai
+teisingų dalį nukirsto sveiko skaičiaus procentais. $N$ skaičiuoja
+\emph{išdalytus} klausimus, tad neatsakyti klausimai į įvertinimą
+įeina lygiai kaip klaidingi verdiktai.
+
+Dar sprendžiantiems studentams šie rodikliai skaičiuojami gyvai iš
+kopijos eilučių dviem aibinėmis užklausomis; baigus jie užšaldomi į
+\code{TestResult} ir nuo tada aptarnaujami iš ten visam laikui
+(\ref{sec:snapshot}~poskyris).
+
+% ============================================================
+\section{Naudotojo sąsaja}
+\label{sec:frontend}
+% ============================================================
+
+\subsection{Technologija}
+
+Naudotojo sąsaja — React 19 vieno puslapio aplikacija, renkama su
+Vite 7, valdikliams ir duomenų lentelėms naudojanti MUI~7, išdėstymui
+— Tailwind~4, o kliento pusės maršrutams — \code{react-router} 7.
+Nėra nei būsenos valdymo bibliotekos, nei kliento podėlio: vienas
+konteksto tiekėjas kartą per pilną puslapio įkėlimą patikrina
+\code{GET /api/checkauth}, o maršrutų sargai nukreipia pagal rolę;
+serverio būseną traukia nedidelis bendras kablys, palaikantis
+intervalinį klausinėjimą ir kiekvieną 401 paverčiantis kietu
+nukreipimu į prisijungimo puslapį. Visas naudotojui matomas tekstas —
+lietuviškas (įrašytas kode, i18n sluoksnio nėra); sąsaja spalvinta
+fakulteto bordo (\code{\#7B003F}) su savarankiškai talpinamu Inter
+kintamu šriftu, kurio latin-extended poaibis dengia lietuviškus
+diakritikus. Gamybinis atvaizdas renkamas dviem etapais — Node etapas
+įvykdo \code{vite build}, rezultatas nukopijuojamas į Caddy atvaizdą
+— tad platinamame konteineryje tėra statiniai failai ir SPA
+atsarginio kelio žiniatinklio serveris, be Node vykdymo aplinkos.
+
+Vietoj patvirtinimo dialogų visur naudojamas firminis sąveikos
+šablonas: destruktyvūs ar negrįžtami veiksmai (baigti testą, trinti
+klausimą, studentą, administratorių) — \emph{palaikyk, kad
+patvirtintum} mygtukai, kuriuos reikia laikyti 1,5 sekundės, kol
+prisipildo progreso žiedas, ir pele, ir lietimu.
+
+\subsection{Studento patirtis}
+
+Prisijungimo puslapis pagal nutylėjimą rodo \emph{registraciją} —
+nauji studentai yra pagrindinė auditorija. Užsiregistravus vardas ir
+prieigos kodas parodomi vieną kartą, lygiaplotėmis kortelėmis po
+gintariniu įspėjimu „užsirašykite``, su vienu mygtuku, kuris
+prijungia ir pradeda testą.
+
+Testo puslapis rodo po vieną laiško ekrano kopiją, pusės ekrano
+aukščio, su spustelėjimu priartinama iki viso ekrano peržyklės
+(uždaroma fono paspaudimu arba \code{Escape}). Virš ekrano kopijos
+platforma imituoja tą vieną elgseną, kurios statinis paveikslėlis
+duoti negali: \emph{nuorodų peržiūras}. Nematomi taškinių sričių
+stačiakampiai — administratoriaus apibrėžti trupmeninėmis
+koordinatėmis — seka atvaizduojamą paveikslėlio dydį, o užvedus ant
+srities virš žymeklio parodomas juodas debesėlis su tikruoju nuorodos
+URL, mėgdžiojantis tikro pašto kliento būsenos juostos peržiūrą.
+Studentams sritys sąmoningai piešiamos visiškai skaidrios, tad jas
+rasti galima tik iš tiesų tyrinėjant laišką.
+
+Po paveikslėliu — verdikto mygtukai \emph{Tikras} ir \emph{Fišingas}
+bei klausimo papildomos žymės. Kiekvienas paspaudimas automatiškai
+išsaugo visą atsakymų būseną serveryje, o nesėkmę praneša
+iššokantis pranešimas, tad nutrūkęs ryšys ar užvertas nešiojamasis
+nieko nekainuoja: prisijungus iš naujo tęsiama lygiai ten, kur
+sustota. Progreso skydelis rodo atsakytų skaitiklį, progreso juostą
+ir šuolių tinklelį su mygtuku kiekvienam klausimui (užpildytas —
+atsakytas, apvestas — dabartinis). Baigimo mygtukas — 1,5 sekundės
+palaikymas; rezultatų puslapis tada rodo įvertinimo antraštę, tris
+santykių korteles (visiškai teisingi, teisingai identifikuoti,
+teisingi variantai), studento vardą su prieigos kodu ir tą patį
+klausimų peržiūros komponentą, kurį mato administratorius — atsakymų
+rakto stulpelis neutraliai pilkas, studento pasirinkimai prieš jį
+spalvinami žaliai arba raudonai.
+
+\subsection{Administratoriaus patirtis}
+\label{sec:adminui}
+
+Administratoriai gauna sutraukiamą šoninės juostos apvalkalą (būsena
+išsaugoma \code{localStorage}) su aplikacijos puslapiais ir išorinėmis
+nuorodomis į saugomus įrankius (skaidrių tvarkyklė, failų dėžė,
+Swagger, DBGate).
+
+\textbf{Skydelis.} Klausinėja API kas 2 sekundes ir rodo studentų
+skaičių, įjungtų/visų klausimų skaičius ir gyvą „šiuo metu
+sprendžia`` sąrašą — po progreso juostą kiekvienam per paskutines 30
+minučių aktyviam studentui, baigus žaliuojančią. Testo dydžio
+parinkiklis (9/12/15/21/30) sėdi tiesiai klausimų valdiklyje ir
+išsaugo iškart pakeitus; atskiro nustatymų puslapio nėra.
+
+\textbf{Klausimų bankas.} Klausimas sukuriamas įkeliant ekrano
+kopiją (tempimas, peržiūra, 5\,MB riba); naujas klausimas tada
+pasirodo kaip pildytina kortelė. Kiekviena kortelė redaguojama
+vietoje su uždelstu automatiniu saugojimu: praėjus 500\,ms po
+paskutinio klavišo kortelė išsisaugo, o būsenos ženklelis pereina
+\emph{Saugoma\ldots}/\emph{Išsaugota} — redaktoriuje niekur nėra
+saugojimo mygtuko. Varianto pridėjimas ar trynimas ir klausimo
+trynimas saugomi iškart (jie kuria ar šalina eilutes); trynimai —
+palaikymo patvirtinimu. Kortelėje — fišingo verdikto žymė,
+neprivalomas papildomo nurodymo tekstas, variantų sąrašas su
+teisingomis reikšmėmis ir įjungimo jungiklis — dalijami tik įjungti
+klausimai, o kai įjungtų mažiau nei nustatytas testo dydis,
+rodoma įspėjimo juosta. Filtro juosta ieško pagal tekstą, varianto
+tekstą ar ID; atfiltruotos kortelės slepiamos, o ne išmontuojamos,
+tad neišsaugoti pakeitimai išgyvena filtro keitimą.
+
+Taškinių sričių redaktorius atsiveria per visą ekraną virš kortelės:
+nuorodų sritys braižomos, tempiamos ir keičiamo dydžio tiesiai ant
+ekrano kopijos (\code{react-rnd}), kiekviena su savo URL, ir
+išsaugomos trupmeninėmis koordinatėmis. Tas pats redaktorius
+pasiekiamas tiesiogiai adresu \code{/admin/questions/\{id\}}.
+
+\textbf{Studentai.} Duomenų lentelė (5 sekundžių klausinėjimas,
+greitas filtras, numatytasis „per paskutinį mėnesį`` jungiklis)
+išvardija kiekvieną studentą su progresu, įvertinimu ir laiko
+žymomis. Kortelės puslapis rodo prisijungimo duomenų kortelę —
+įskaitant prieigos kodą, kad dėstytojas galėtų išgelbėti jį pametusį
+studentą — santraukos korteles ir dvi kirptis: klausimų peržiūrą ir
+sutrauktą lentelę su ekrano kopijų miniatiūromis. Studentus galima
+trinti (palaikymo patvirtinimu); kaskadas pašalina jų išdalytą testą
+ir įvertinimus, bet paveikslėlių niekada neliečia.
+
+\textbf{Administratoriai.} Lentelė ir vienas modalinis langas
+kūrimui/redagavimui/trynimui per vieną galinį tašką; tuščias
+\code{id} reiškia įterpimą, tuščias slaptažodis redaguojant —
+„palikti dabartinį``, minimalus ilgis — 8 simboliai.
+
+\subsection{Viešieji rodiniai}
+
+Du neautentikuojami puslapiai skirti projektoriui:
+
+\begin{itemize}
+  \item \textbf{Lyderių lentelė} (\code{/leaderboard}) — rikiuoja
+        studentus pagal įvertinimą su aukso/sidabro/bronzos
+        ženkleliais, dar sprendžiantiems rodo mėlynas progreso
+        juostas, baigusiems — bordo įvertinimo juostas, atsinaujina
+        kas 5 sekundes su matoma atskaita ir pagal nutylėjimą
+        filtruoja iki per paskutinę parą matytų studentų.
+  \item \textbf{Skaidrių kioskas} (\code{/slides}) — kaitalioja
+        lyderių lentelę (įterptą iframe už paspaudimus blokuojančio
+        sluoksnio, 6 sekundės) ir atsitiktinę skaidrę iš skaidrių
+        katalogo (20 sekundžių). Kita skaidrė parsiunčiama ir
+        dekoduojama kaip blob \emph{dar rodant lyderių lentelę}, tad
+        keitimas visada akimirksninis; skaidrių failus
+        administratoriai tvarko per skaidrių Filebrowser.
+\end{itemize}
+
+% ============================================================
+\section{Diegimas ir eksploatavimas}
+\label{sec:usage}
+% ============================================================
+
+\subsection{Būtinos sąlygos}
+
+Linux serveris su Docker ir Docker Compose bei laisvas 80 prievadas.
+Kitų priklausomybių nėra: atvaizdai traukiami iš Docker Hub
+(\code{vuknf/fisingas-*}), o kiekviena paslauga compose faile turi ir
+užkomentuotą \code{build:} variantą rinkimui vietoje.
+
+\subsection{Steko paleidimas}
+\label{sec:deploy}
+
+Vienintelis rankinis žingsnis — sukurti compose failą iš pavyzdžio;
+visa kita — vienas idempotentinis skriptas:
+
+\begin{lstlisting}[language=bash]
+cp docker-compose.yml.sample docker-compose.yml
+./runUpdateThisStack.sh
+\end{lstlisting}
+
+Skriptas sukuria \code{\_DATA} katalogus (\code{postgres},
+\code{slides}, \code{dropbox}) ir sutvarko jų nuosavybę, patikrina,
+ar įdiegtas Docker, sugeneruoja \code{DJANGO\_SECRET\_KEY} ir DBGate
+prisijungimo duomenis į \code{.env} (vieną kartą), sukuria Docker
+tinklą, (iš naujo) paleidžia steką, kartojimo cikle pritaiko duomenų
+bazės migracijas (pirmas PostgreSQL paleidimas trunka kelias
+sekundes) ir — tik tuščioje duomenų bazėje — sukuria pirmą
+administratoriaus paskyrą bei išspausdina jos duomenis:
+
+\begin{lstlisting}
+El. pastas:   admin@admin.com
+Slaptazodis:  admin
+\end{lstlisting}
+
+Šį slaptažodį būtina nedelsiant pakeisti administratorių puslapyje.
+Paslauga tada pasiekiama serverio 80 prievade: \code{/} —
+aplikacija, \code{/swagger} — API dokumentacija, \code{/dbgate} —
+duomenų bazės sąsaja (visi trys įrankių keliai saugomi
+administratoriaus sesija).
+
+\subsection{Duomenų saugojimo terminai}
+
+Cron konteineris — BusyBox \code{crond} su Docker CLI, be tinklo ir
+su į atvaizdą įkepta crontab — vykdo vieną darbą: kas naktį 03:00
+Django konteineryje paleidžia valdymo komandą
+\code{delete\_old\_students}. Komanda ištrina studentų paskyras,
+kurių paskutinis prisijungimas \emph{ir} registracija abu senesni nei
+180 dienų; kaskadas pašalina jų išdalytus testus ir įvertinimus, o
+klausimų paveikslėliai niekada neliečiami. Šviežios, nė karto
+neprisijungusios paskyros išlieka. Visa kita saugoma neribotai:
+klausimų bankas, paveikslėliai, administratorių paskyros ir
+\code{\_DATA} katalogai serveryje.
+
+\subsection{Konfigūracijos žinynas}
+
+Visi nustatymai — aplinkos kintamieji, nustatomi
+\code{docker-compose.yml} arba sugeneruojami į \code{.env}
+(\ref{tab:config}~lentelė). Vienintelis aplikacijos lygmens
+nustatymas — testo dydis — gyvena duomenų bazėje ir redaguojamas iš
+skydelio.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}llp{6.0cm}@{}}
+\toprule
+\textbf{Kintamasis} & \textbf{Numatytoji} & \textbf{Reikšmė} \\
+\midrule
+\code{DJANGO\_SECRET\_KEY} & generuojamas į \code{.env} & Pasirašo sesijų slapukus; privalomas, be kodo numatytosios \\
+\code{DATABASE\_URL}       & \code{postgres://fisingas:...@fisingas-postgres:5432/fisingas} & PostgreSQL jungties eilutė \\
+\code{SLIDES\_DIRECTORY}   & \code{/slides}   & Skaidrių katalogas konteinerio viduje \\
+\code{DJANGO\_DEBUG}       & nenustatytas (\code{False}) & Perjungia konteinerį į Django kūrimo serverį su derinimo puslapiais \\
+\code{POSTGRES\_DB} / \code{\_USER} / \code{\_PASSWORD} & \code{fisingas} & Duomenų bazės paleidimo duomenys; privalo sutapti su \code{DATABASE\_URL} \\
+\code{DBGATE\_PASSWORD}    & generuojamas į \code{.env} & DBGate basic-auth slaptažodis \\
+\code{DBGATE\_AUTH\_HEADER} & generuojamas į \code{.env} & Iš anksto užkoduota basic-auth antraštė, kurią Caddy įterpia link DBGate \\
+\bottomrule
+\end{tabular}
+\caption{Konfigūracijos žinynas. Nustatymas \code{PhishingTestSize}
+(klausimų skaičius teste; kodo atsarginė reikšmė 30, skydelio
+variantai 9--30) saugomas duomenų bazėje, ne aplinkoje.}
+\label{tab:config}
+\end{table}
+
+\subsection{Kūrimo režimas}
+
+Kiekvienas paslaugos blokas compose faile turi užkomentuotas
+\code{Dev} eilutes: jas įjungus išeities kodas prijungiamas į
+konteinerius ir vietoje gamybinių serverių paleidžiamas Vite kūrimo
+serveris (su karštu perkrovimu) ir Django \code{runserver} (per
+\code{DJANGO\_DEBUG=True}). Serverinės dalies atvaizdas penkias savo
+priklausomybes prisega tiesiai Dockerfile — \code{requirements.txt}
+nėra — o lydintys \code{pushDockerhub.sh} skriptai kiekvieną atvaizdą
+surenka ir publikuoja su \code{latest} ir datos žymomis.
+
+% ============================================================
+\section{Apribojimai ir ateities darbai}
+\label{sec:limitations}
+% ============================================================
+
+Žvilgsnis iš išeities kodo lygmens aiškiai parodo ir sistemos ribas.
+Platforma sukurta prižiūrimai auditorijai patikimame tinkle, ir keli
+sprendimai prasmingi tik tokioje aplinkoje:
+
+\begin{itemize}
+  \item \textbf{Grynas HTTP.} Įėjimo taškas klausosi 80 prievade be
+        TLS; gamybiniuose diegimuose TLS turėtų būti terminuojamas
+        prieš įėjimo tašką. Sesijos slapukas neturi \code{Secure}
+        žymės, tad transporto saugumas — vien perimetro darbas.
+  \item \textbf{Nėra užklausų ribojimo.} Prisijungimas ir
+        registracija neautentikuoti ir neribojami. Studentų prieigos
+        kodai — 8 skaitmenų skaičiai, tad brutalios jėgos bandymas
+        internetu tėra skaičių žaidimas, kurio pati platforma
+        nestabdo; taip pat niekas neriboja masinės registracijos.
+        Prieigos kodai ir klausimų imtis traukiami iš numatytojo
+        Python PRNG, ne kriptografinio.
+  \item \textbf{CSRF apsauga — tik kilmės tikrinimas.} Django CSRF
+        tarpinė įranga išjungta pagal dizainą; Caddy atmeta svetimas
+        kilmes, bet užklausos be \code{Origin} antraštės praeina, o
+        baigimo galinis taškas yra būseną keičiantis GET — sukurpta
+        tarpsvetaininė navigacija galėtų negrįžtamai užbaigti
+        prisijungusio studento testą.
+  \item \textbf{Atsakymų raktas užsispyrusiam studentui pasiekiamas
+        dar sprendžiant.} Savo įrašo skaitymo taisyklė rezultatų
+        galiniuose taškuose neturi baigtumo tikrinimo, tad API
+        skaitantis studentas gali parsisiųsti savo įvertintus
+        atsakymus — įskaitant teisingus verdiktus — dar
+        atsakinėdamas. Taip pat bet kuris autentikuotas studentas
+        pagal ID gali parsisiųsti bet kurį banko paveikslėlį ir jo
+        nuorodų sritis, ne tik jam išdalytus. Sąžiningo naudojimo tai
+        neveikia; neprižiūrimam aukštos svarbos naudojimui šiems
+        taškams reikėtų baigtumo užkardo.
+  \item \textbf{Lyderių lentelė vieša pagal dizainą} ir kiekvienam,
+        kas pasiekia serverį, atskleidžia vardus, įvertinimus ir
+        paskutinio matymo laikus. Studentai renkasi slapyvardžius
+        patys — tai sušvelnina, bet nepanaikina atskleidimo.
+  \item \textbf{Nėra serverio pusės atsijungimo.} Sesijos baigiasi
+        užvėrus naršyklę arba ištrynus slapuką kliento pusėje;
+        pavogtas slapukas iki tol lieka galiojantis.
+  \item \textbf{Eksploataciniai saugikliai ploni.} Administratorius
+        gali ištrinti savo ar paskutinę administratoriaus paskyrą;
+        testo dydis API lygmenyje priima bet kokį sveikąjį skaičių;
+        paveikslėliai gyvena duomenų bazės blokais — paprasta ir
+        nuoseklu, bet duomenų bazė tampa dydžio butelio kakleliu.
+  \item \textbf{Viena kalba.} Visas sąsajos tekstas — kode įrašyta
+        lietuvių kalba; internacionalizacijai sąsajoje reikėtų i18n
+        sluoksnio.
+\end{itemize}
+
+% ============================================================
+\section{Išvados}
+% ============================================================
+
+Fisingas parodo, kad tikslinga auditorijos vertinimo platforma
+nereikalauja sunkiasvorės infrastruktūros. Vienas Caddy įėjimas,
+plonas Django API, PostgreSQL ir React SPA — devyni konteineriai,
+vienas skriptas — užtikrina pilną ciklą: savitarnos registraciją su
+generuojamais prieigos kodais, vizualų testą, kurio imituojamos
+nuorodų peržiūros moko paties vertingiausio fišingo atpažinimo
+įpročio, gyvą progresą dėstytojo skydelyje ir projektuojamą lyderių
+lentelę, pratimą paverčiančią žaidimu. Lemiamas inžinerinis
+sprendimas — momentinių kopijų disciplina: išdalijimas užšaldo
+klausimų turinį studento eilutėse, o baigimas užšaldo sumas, tad
+klausimų bankas gali laisvai kisti — kurso viduryje, net testo
+viduryje — niekada nesutrikdydamas jau suteikto įvertinimo. Visas
+stekas atkuriamas iš vieno compose failo ir prižiūrimas bet kurio,
+kam patogus Docker.
+
+\end{document}

@@ -4,39 +4,68 @@ info:
   description: |
     Phishing Recognition Test Platform API.
 
-    Authentication is session-based using cookies. Log in via `POST /api/login` to receive a session cookie,
-    which is then sent automatically with subsequent requests.
+    ## Authentication
 
-    The system has two user roles:
-    - **Admin** -- identified by an email address (contains `@`)
-    - **Student** -- identified by a username (no `@`)
-  version: 1.0.0
-  contact:
-    name: Vilnius University, Kaunas Faculty
+    Authentication is session-based using cookies. Log in via `POST /api/login` to receive
+    a session cookie (named `session`), which is then sent automatically with subsequent
+    requests. Sessions expire when the browser closes. There is **no logout endpoint** --
+    the frontend logs out by deleting the cookie client-side.
+
+    The system has two user roles, distinguished by the login name:
+    - **Admin** -- identified by an email address (contains `@`); password checked against a bcrypt hash
+    - **Student** -- identified by a generated username (`A-Z`, `0-9`, `_` only, so it can never contain `@`);
+      password is the system-generated 8-digit access code
+
+    ## Authorization levels
+
+    Each endpoint is one of:
+    - **Public** -- no session required
+    - **Login** -- any authenticated user (admin or student)
+    - **Student** -- student session (admins get an empty response)
+    - **Admin** -- administrator session
+    - **Admin or self** -- administrator session, or a student accessing their own record
+
+    ## Error conventions
+
+    The API predates a uniform error contract; clients must handle three conventions:
+
+    1. **Plain-text protocol** -- `POST /api/login`, `POST /api/student/questions` and
+       `POST /api/phishingpictures/{id}/links` respond with the literal string `OK` on
+       success and a message string on failure, always with HTTP 200.
+    2. **Object protocol** -- upload and administrator endpoints respond with
+       `{"type": "ok" | "error", "reason": ...}`; question/student mutations respond with
+       `{"status": "ok"}`.
+    3. **Role-gate quirk** -- several admin GET endpoints reject non-admins with the
+       plain-text body `Error: Not Admin` and **HTTP 200**. Do not rely on the status code
+       alone; check the body. Mutating admin endpoints return a proper `403`.
+
+    Requests with malformed JSON bodies return `400`; requests with a syntactically valid
+    body but missing keys fail loudly with a `500` (no field-level validation by design).
+  version: 2.0.0
 
 servers:
   - url: /
-    description: Same-origin (behind Caddy reverse proxy)
+    description: Same-origin (behind the Caddy reverse proxy)
 
 tags:
   - name: Authentication
-    description: Login and session management
+    description: Login and session checks
   - name: Student Registration
-    description: Public student registration
+    description: Public self-service student registration
   - name: Phishing Test
-    description: Student test-taking endpoints
+    description: Student test-taking endpoints (deal, answer, finish)
   - name: Questions (Admin)
-    description: Admin question management
+    description: Question bank management
   - name: Question Images
-    description: Image upload and retrieval for questions
+    description: Screenshot upload, retrieval and clickable link areas
   - name: Students (Admin)
-    description: Admin student management
+    description: Student monitoring, results and deletion
   - name: Administrators
-    description: Admin account management
+    description: Administrator account management
   - name: Dashboard
-    description: Admin dashboard and settings
-  - name: Leaderboard
-    description: Public leaderboard and slides
+    description: Admin dashboard and global settings
+  - name: Public
+    description: Unauthenticated leaderboard and projector slides
 
 paths:
 
@@ -49,8 +78,15 @@ paths:
       tags: [Authentication]
       summary: Log in
       description: |
-        Log in as admin or student. The system distinguishes the two by whether
-        the username contains `@` (admin) or not (student).
+        **Auth: Public.**
+
+        Log in as admin or student. The system distinguishes the two by whether the
+        submitted name contains `@` (admin email) or not (student username).
+
+        The response is **always HTTP 200** with a plain-text body: `OK` on success
+        (session cookie set), or a display-ready Lithuanian error message on failure.
+        Failed logins for unknown names still perform a dummy bcrypt comparison to
+        prevent timing-based user enumeration.
       requestBody:
         required: true
         content:
@@ -65,11 +101,17 @@ paths:
                   example: admin@admin.com
                 password:
                   type: string
-                  description: Password (admin) or access code (student)
+                  description: Password (admin) or 8-digit access code (student)
                   example: admin
       responses:
         "200":
-          description: Login result
+          description: |
+            Login result (always 200). `OK` on success; otherwise one of:
+            - `Įveskite Prisijungimo Vardą ir Slaptažodį.` (both fields missing)
+            - `Įveskite Prisijungimo Vardą.` (username missing)
+            - `Įveskite Slaptažodį.` (password missing)
+            - `El. Paštas ir/arba Slaptažodis neteisingas.` (admin login failed)
+            - `Vardas ir/arba Slaptažodis neteisingas.` (student login failed)
           content:
             text/plain:
               schema:
@@ -77,7 +119,7 @@ paths:
                 example: OK
           headers:
             Set-Cookie:
-              description: Session cookie (set on success)
+              description: "`session` cookie (set on success; expires when the browser closes)"
               schema:
                 type: string
 
@@ -86,10 +128,15 @@ paths:
       tags: [Authentication]
       summary: Check current session
       description: |
-        Returns the current user's identity. Also updates the last-login timestamp.
+        **Auth: Login.**
+
+        Returns the current user's identity and, as a side effect, updates the
+        account's last-login timestamp (this is the "last seen" heartbeat that feeds
+        the dashboard and leaderboard views).
 
         - `id` is the login name (email for admin, username for student)
         - `userid` is the database primary key (integer)
+        - students additionally receive their `passcode` and test-finished flag
       security:
         - cookieAuth: []
       responses:
@@ -117,15 +164,19 @@ paths:
                     passcode: "48291037"
                     phishingtestfinished: 0
         "401":
-          description: Not authenticated
+          $ref: "#/components/responses/Unauthorized"
 
   /api/checkauth/admin:
     get:
       tags: [Authentication]
       summary: Check admin session
       description: |
-        Same as `/api/checkauth` but returns 401 if the user is not an admin.
-        Used by Caddy for forward authentication on admin-only tools.
+        **Auth: Admin.**
+
+        Same as `/api/checkauth` but returns `401` unless the session belongs to an
+        administrator. Used by the Caddy endpoint as the `forward_auth` gate for the
+        admin-only tools (`/dbgate`, `/filebrowser/*`, `/swagger`). Also updates the
+        administrator's last-login timestamp.
       security:
         - cookieAuth: []
       responses:
@@ -137,6 +188,14 @@ paths:
                 $ref: "#/components/schemas/AdminAuth"
         "401":
           description: Not an admin or not authenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Unauthorized
 
   # ──────────────────────────────────────────────
   # Student Registration
@@ -147,8 +206,13 @@ paths:
       tags: [Student Registration]
       summary: Register a new student
       description: |
-        Register a new student account. Usernames are auto-uppercased and
-        restricted to `A-Z`, `0-9`, and `_`.
+        **Auth: Public.**
+
+        Register a new student account. The submitted username is uppercased and every
+        character outside `A-Z`, `0-9`, `_` is stripped; the normalized name is what
+        gets registered. On success the response carries the system-generated 8-digit
+        access code -- it is returned **only here** and shown to the student once
+        (administrators can look it up later on the student detail endpoint).
       requestBody:
         required: true
         content:
@@ -159,6 +223,7 @@ paths:
               properties:
                 username:
                   type: string
+                  description: Desired username (will be normalized)
                   example: John_Doe
       responses:
         "200":
@@ -173,14 +238,15 @@ paths:
                     enum: [OK, error]
                   username:
                     type: string
+                    description: The normalized username (only on success)
                     example: JOHN_DOE
                   accessCode:
                     type: string
-                    description: 8-digit access code (only returned on success)
+                    description: 8-digit access code (only on success; shown once)
                     example: "48291037"
                   error:
                     type: string
-                    description: Error message (only returned on failure)
+                    description: Error message (only on failure)
               examples:
                 success:
                   summary: Successful registration
@@ -193,6 +259,20 @@ paths:
                   value:
                     status: error
                     error: Vartotojas tokiu vardu jau registruotas
+                empty:
+                  summary: Username empty after normalization
+                  value:
+                    status: error
+                    error: Įveskite prisijungimo vardą
+        "400":
+          description: Malformed body (missing or non-string `username`)
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: error
+                  error: Neteisinga užklausa
 
   # ──────────────────────────────────────────────
   # Phishing Test (Student)
@@ -201,29 +281,53 @@ paths:
   /api/student/questions:
     get:
       tags: [Phishing Test]
-      summary: Get assigned test questions
+      summary: Get dealt test questions
       description: |
-        Returns the student's assigned test questions. On the first call, the system
-        randomly assigns questions based on the configured test size.
+        **Auth: Student.**
 
-        Returns `{}` if the test is already finished.
+        Returns the student's dealt test questions. The **first call deals the test**:
+        a uniform random sample of enabled questions (sample size = the
+        `PhishingTestSize` setting, code fallback 30, clamped to the bank size) is
+        frozen into per-student snapshot rows. Subsequent calls return the same dealt
+        set. The question order is **reshuffled on every call** -- clients that want a
+        stable order must keep their own.
+
+        Returns `{}` (an empty object instead of an array) once the test is finished,
+        or when called by an admin session.
+
+        Each question's `questionlinks` carry the clickable-area anchor coordinates as
+        **fractional strings** (e.g. `"0.15"` = 15% from the left); width/height are
+        not included here -- fetch `/api/phishingpictures/{questionID}/links` for the
+        full rectangles.
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: List of questions (or empty object if test is finished)
+          description: Array of dealt questions, or `{}` if the test is finished
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: "#/components/schemas/StudentQuestion"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
     post:
       tags: [Phishing Test]
       summary: Save answers
       description: |
-        Save the student's answers. Can be called multiple times -- answers are upserted.
+        **Auth: Student.**
+
+        Save the student's answers. The frontend posts the **entire answer state**
+        after every click; the call is idempotent and repeatable. Updates only touch
+        rows belonging to the calling session's student, so a forged `questionid`
+        cannot write into another student's test. Unknown IDs are silently ignored
+        (the filtered update matches nothing).
+
+        Note: answers of a finished test can no longer be read back (the GET returns
+        `{}`), and grading uses the state as it was; the UI never calls this after
+        finishing.
       security:
         - cookieAuth: []
       requestBody:
@@ -234,7 +338,7 @@ paths:
               type: array
               items:
                 type: object
-                required: [questionid, selectedanswer, questionoptions]
+                required: [questionid]
                 properties:
                   questionid:
                     type: integer
@@ -246,7 +350,7 @@ paths:
                     type: array
                     items:
                       type: object
-                      required: [answeroptionid, isselected]
+                      required: [answeroptionid]
                       properties:
                         answeroptionid:
                           type: integer
@@ -256,29 +360,43 @@ paths:
                           description: "`1` = selected, `0` or `null` = not selected"
       responses:
         "200":
-          description: Answers saved
+          description: |
+            `OK` on success (plain text). A body that is not a JSON list returns the
+            plain-text error `Error: This is not questions state object` (still 200).
           content:
             text/plain:
               schema:
                 type: string
                 example: OK
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/student/finish:
     get:
       tags: [Phishing Test]
       summary: Finish the test
       description: |
-        Marks the student's test as finished. **This is irreversible.**
+        **Auth: Student.**
+
+        Marks the student's test as finished: grades the frozen answer snapshot,
+        writes the whole-test totals into the results table, and sets the finished
+        flag. **This is irreversible** -- afterwards `GET /api/student/questions`
+        returns `{}` forever.
+
+        The operation is idempotent (a second call is a no-op) and is a no-op for
+        admin sessions. Note this is a **state-changing GET**.
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: Test marked as finished
+          description: Test marked as finished (empty object)
           content:
             application/json:
               schema:
                 type: object
                 example: {}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   # ──────────────────────────────────────────────
   # Questions (Admin)
@@ -288,12 +406,18 @@ paths:
     get:
       tags: [Questions (Admin)]
       summary: List all questions
-      description: Returns all questions with their options and a summary.
+      description: |
+        **Auth: Admin** (non-admins get the plain-text body `Error: Not Admin` with HTTP 200).
+
+        Returns the whole question bank (newest first) with options and summary
+        counters. On an **empty bank** the counters `phishingcount`, `goodcount`,
+        `enabledcount` and `optionscount` are `null`, not `0`. `phishingtestsize` is
+        `null` until an administrator saves the setting for the first time.
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: Questions with summary
+          description: Questions with summary counters
           content:
             application/json:
               schema:
@@ -304,10 +428,24 @@ paths:
                     description: Total number of questions
                   phishingcount:
                     type: integer
-                    description: Number of phishing questions
+                    nullable: true
+                    description: Number of phishing questions (null when the bank is empty)
                   goodcount:
                     type: integer
-                    description: Number of real (non-phishing) questions
+                    nullable: true
+                    description: Number of real (non-phishing) questions (null when the bank is empty)
+                  enabledcount:
+                    type: integer
+                    nullable: true
+                    description: Number of enabled questions (null when the bank is empty)
+                  optionscount:
+                    type: integer
+                    nullable: true
+                    description: Total number of options across all questions (null when the bank is empty)
+                  phishingtestsize:
+                    type: integer
+                    nullable: true
+                    description: Current test size setting (null if never set)
                   questions:
                     type: array
                     items:
@@ -317,7 +455,12 @@ paths:
     post:
       tags: [Questions (Admin)]
       summary: Add a new option to a question
-      description: Creates a new empty answer option for the specified question.
+      description: |
+        **Auth: Admin** (403 otherwise).
+
+        Creates a new empty answer option (`optiontext` empty, expected value unset)
+        for the specified question. Saved immediately; the returned ID is what the
+        editor uses for subsequent `updatequestion` calls.
       security:
         - cookieAuth: []
       requestBody:
@@ -340,12 +483,26 @@ paths:
                 properties:
                   new_option_id:
                     type: integer
+        "400":
+          $ref: "#/components/responses/InvalidBodyText"
+        "403":
+          $ref: "#/components/responses/NotAdminText"
 
   /api/admin/questions/updatequestion:
     post:
       tags: [Questions (Admin)]
       summary: Update a question
-      description: Update a question's text, phishing flag, and answer options.
+      description: |
+        **Auth: Admin** (403 otherwise).
+
+        Updates a question's text, phishing verdict, enabled flag and options in one
+        call (the admin UI autosaves this 500 ms after the last edit). `isenabled` is
+        optional -- when omitted, the enabled flag is left unchanged. Option updates
+        are filtered by both option ID **and** question ID, so option IDs belonging
+        to other questions are silently ignored.
+
+        Editing never affects already-dealt tests: students answer against frozen
+        snapshot copies.
       security:
         - cookieAuth: []
       requestBody:
@@ -360,9 +517,13 @@ paths:
                   type: integer
                 questiontext:
                   type: string
+                  description: Optional extra instruction shown to the student ("Papildomai")
                 isphishing:
                   type: integer
                   description: "`1` = phishing, `0` = real"
+                isenabled:
+                  type: integer
+                  description: "Optional. `1` = dealt to students, `0` = disabled"
                 questionoptions:
                   type: array
                   items:
@@ -375,18 +536,89 @@ paths:
                         type: string
                       rightoptionanswer:
                         type: integer
-                        description: "`1` = correct, `0` = incorrect"
+                        description: "`1` = should be checked, `0` = should not"
       responses:
         "200":
           description: Question updated
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: ok
+                $ref: "#/components/schemas/StatusOk"
+        "400":
+          $ref: "#/components/responses/InvalidBodyText"
+        "403":
+          $ref: "#/components/responses/NotAdminText"
+
+  /api/admin/questions/deleteoption:
+    post:
+      tags: [Questions (Admin)]
+      summary: Delete an answer option
+      description: |
+        **Auth: Admin** (403 otherwise).
+
+        Deletes one answer option from the question bank. Safe for already-graded
+        tests -- they read only their frozen snapshot copies. Deleting a nonexistent
+        option is a no-op that still returns `ok`.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [optionid]
+              properties:
+                optionid:
+                  type: integer
+      responses:
+        "200":
+          description: Option deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOk"
+        "400":
+          $ref: "#/components/responses/InvalidBodyText"
+        "403":
+          $ref: "#/components/responses/NotAdminText"
+
+  /api/admin/questions/deletequestion:
+    post:
+      tags: [Questions (Admin)]
+      summary: Delete a question
+      description: |
+        **Auth: Admin** (403 otherwise).
+
+        Deletes a question and (by cascade) its options from the bank. Safe for
+        already-graded tests: the frozen answer snapshots keep the question content,
+        and the screenshot -- with its clickable link areas -- lives in the
+        upload-only image table that deletion never touches
+        (`GET /api/phishingpictures/{id}` keeps working through the snapshot
+        fallback). Deleting a nonexistent question is a no-op that still returns `ok`.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [questionid]
+              properties:
+                questionid:
+                  type: integer
+      responses:
+        "200":
+          description: Question deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOk"
+        "400":
+          $ref: "#/components/responses/InvalidBodyText"
+        "403":
+          $ref: "#/components/responses/NotAdminText"
 
   # ──────────────────────────────────────────────
   # Question Images
@@ -395,11 +627,18 @@ paths:
   /api/phishingpictures:
     post:
       tags: [Question Images]
-      summary: Upload image (creates a new question)
+      summary: Upload an image (creates a new question)
       description: |
-        Create a new question by uploading an image. The question is created with
-        default values (empty text, `isphishing = 0`). Edit the question afterwards
-        to fill in the details.
+        **Auth: Admin** (403 otherwise).
+
+        Creating a question starts here: uploading a screenshot stores it in the
+        upload-only image table and creates a wrapper question around it with default
+        values (enabled, empty text, `isphishing = 0`). Fill in the details with
+        `updatequestion` afterwards.
+
+        Validation: multipart field must be named `image`; the filename extension
+        must be one of `png`, `jpg`, `jpeg`, `gif`; the file must not exceed 5 MB.
+        The image bytes are stored in PostgreSQL as-is (no re-encoding).
       security:
         - cookieAuth: []
       requestBody:
@@ -413,7 +652,7 @@ paths:
                 image:
                   type: string
                   format: binary
-                  description: Image file (PNG, JPG, GIF). Max 5 MB.
+                  description: Image file (PNG, JPG/JPEG, GIF). Max 5 MB.
       responses:
         "200":
           description: Image uploaded, question created
@@ -429,15 +668,40 @@ paths:
                     type: string
                     example: Image uploaded successfully
         "400":
-          description: Invalid file or file too large
+          description: |
+            Upload rejected. `reason` is one of:
+            - `No file part in the request`
+            - `No selected file`
+            - `File type not allowed`
+            - `File is too large`
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TypeError"
         "403":
           description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TypeError"
+              example:
+                type: error
+                reason: Not Admin
 
   /api/phishingpictures/{questionID}:
     get:
       tags: [Question Images]
-      summary: Get question image
-      description: Returns the question's image as a binary response with the correct MIME type.
+      summary: Get a question's image
+      description: |
+        **Auth: Login** (any authenticated user).
+
+        Returns the question's screenshot as binary. The content type is sniffed from
+        the stored bytes' magic numbers (`image/png`, `image/jpeg`, `image/gif`;
+        anything unrecognized is served as `application/octet-stream`).
+
+        When the question no longer exists (deleted from the bank), the endpoint
+        falls back to the frozen answer snapshots that reference the image, so graded
+        tests can always re-display their emails. `404` only when neither exists.
       security:
         - cookieAuth: []
       parameters:
@@ -448,28 +712,33 @@ paths:
             type: integer
       responses:
         "200":
-          description: Image binary
+          description: Image binary (content type sniffed from magic bytes)
           content:
             image/png:
-              schema:
-                type: string
-                format: binary
+              schema: { type: string, format: binary }
             image/jpeg:
-              schema:
-                type: string
-                format: binary
+              schema: { type: string, format: binary }
             image/gif:
-              schema:
-                type: string
-                format: binary
+              schema: { type: string, format: binary }
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No live question and no answer snapshot references this ID
 
   /api/phishingpictures/{questionID}/links:
     get:
       tags: [Question Images]
-      summary: Get clickable areas
+      summary: Get clickable link areas
       description: |
-        Returns clickable areas defined on the question image.
-        Coordinates are returned as percentage strings (e.g. `"15%"`).
+        **Auth: Login** (any authenticated user).
+
+        Returns the clickable link rectangles defined on the question's image,
+        ordered by ID. Coordinates are returned as **percentage strings** (e.g.
+        `"15%"`), relative to the image dimensions. The student test payload
+        (`GET /api/student/questions`) carries the same anchors as fractional
+        strings instead -- the two representations describe the same stored values.
       security:
         - cookieAuth: []
       parameters:
@@ -487,13 +756,22 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/QuestionLink"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No live question and no answer snapshot references this ID
 
     post:
       tags: [Question Images]
-      summary: Update clickable areas
+      summary: Replace clickable link areas
       description: |
-        Replace all clickable areas for a question image.
-        Existing areas are deleted first.
+        **Auth: Admin** (note: non-admins get the plain-text body `Error: Not Admin`
+        with **HTTP 200** on this endpoint).
+
+        Replaces **all** clickable areas of the question's image: existing areas are
+        deleted first, then one area is created per submitted rectangle. Coordinates
+        are fractions of the image dimensions (`0.0`--`1.0`). A body without an
+        `areas` key deletes nothing and returns `OK`.
       security:
         - cookieAuth: []
       parameters:
@@ -518,6 +796,7 @@ paths:
                     properties:
                       url:
                         type: string
+                        description: The URL shown in the hover tooltip
                         example: http://example.com
                       x:
                         type: number
@@ -541,12 +820,18 @@ paths:
                         example: 0.03
       responses:
         "200":
-          description: Areas updated
+          description: |
+            `OK` on success (plain text). Non-admins get `Error: Not Admin`
+            (also HTTP 200).
           content:
             text/plain:
               schema:
                 type: string
                 example: OK
+        "400":
+          $ref: "#/components/responses/InvalidBodyText"
+        "404":
+          description: No live question and no answer snapshot references this ID
 
   # ──────────────────────────────────────────────
   # Students (Admin)
@@ -556,7 +841,16 @@ paths:
     get:
       tags: [Students (Admin)]
       summary: List all students
-      description: Returns all students with progress and test statistics.
+      description: |
+        **Auth: Admin** (non-admins get the plain-text body `Error: Not Admin` with HTTP 200).
+
+        Returns all students (newest first) with progress and test statistics.
+        Finished students are served from their frozen result row; unfinished ones
+        are graded live from their answer snapshots.
+
+        **Blank-field contract:** for a student with no dealt test yet, the grading
+        fields (`totalidentifiedcorrectly`, `testgrade`, ...) are empty strings `""`
+        and `answeredquestioncount` is `null`.
       security:
         - cookieAuth: []
       responses:
@@ -574,8 +868,13 @@ paths:
       tags: [Students (Admin)]
       summary: Get student details
       description: |
-        Returns detailed info for a specific student.
-        Accessible by admins or by the student themselves.
+        **Auth: Admin or self** -- a student session may fetch its own record (this is
+        how the results page works); anyone else who is not an admin gets the
+        plain-text body `Error: Not Admin` with HTTP 200.
+
+        Returns the student's account data (including the `passcode`, so an
+        administrator can rescue a student who lost their access code) and the same
+        statistics block as the list endpoint.
       security:
         - cookieAuth: []
       parameters:
@@ -591,15 +890,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StudentDetail"
+        "404":
+          description: "Student not found (plain-text body `Error: Student not found`)"
 
   /api/admin/students/{studentID}/delete:
     post:
       tags: [Students (Admin)]
       summary: Delete a student
       description: |
-        Permanently removes the student account together with their dealt test
-        and grades. Question images are kept (they live in the upload-only
-        images table).
+        **Auth: Admin** (403 otherwise; non-POST methods return 405).
+
+        Permanently removes the student account together with their dealt test,
+        answers and result row (database cascade). Question images are never touched
+        (they live in the upload-only images table).
       security:
         - cookieAuth: []
       parameters:
@@ -614,21 +917,29 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: ok
+                $ref: "#/components/schemas/StatusOk"
+        "403":
+          $ref: "#/components/responses/NotAdminText"
         "404":
-          description: Student not found
+          description: "Student not found (plain-text body `Error: Student not found`)"
+        "405":
+          description: Method not allowed (only POST)
 
   /api/admin/students/{studentID}/answers:
     get:
       tags: [Students (Admin)]
-      summary: Get student answers
+      summary: Get a student's graded answers
       description: |
-        Returns the student's detailed answers with correctness, points, and selected options.
-        Accessible by admins or by the student themselves.
+        **Auth: Admin or self** -- a student session may fetch its own answers (the
+        results-page review); anyone else who is not an admin gets the plain-text
+        body `Error: Not Admin` with HTTP 200.
+
+        Returns the student's per-question review, graded from the frozen snapshot:
+        the correct verdict, the student's verdict, per-option expected and selected
+        values, and the points earned per question.
+
+        Note: there is no finished-check on the self-access path -- the response
+        includes the correct answers even while the student is still taking the test.
       security:
         - cookieAuth: []
       parameters:
@@ -639,7 +950,7 @@ paths:
             type: integer
       responses:
         "200":
-          description: Student answers
+          description: Graded answers, one entry per dealt question
           content:
             application/json:
               schema:
@@ -655,6 +966,11 @@ paths:
     get:
       tags: [Administrators]
       summary: List all administrators
+      description: |
+        **Auth: Admin** (non-admins get the plain-text body `Error: Not Admin` with HTTP 200).
+
+        Returns all administrator accounts ordered by ID. Password hashes are never
+        exposed.
       security:
         - cookieAuth: []
       responses:
@@ -670,6 +986,22 @@ paths:
     post:
       tags: [Administrators]
       summary: Create, update, or delete an administrator
+      description: |
+        **Auth: Admin** (non-admins get the plain-text body `Error: Not Admin` with HTTP 200).
+
+        One endpoint, dispatched on `action`:
+
+        - **Create**: `action: insertupdate` with `id: ""`. Requires a password of at
+          least 8 characters and a free email.
+        - **Update**: `action: insertupdate` with an existing `id`. Updates email and
+          enabled flag; the password is re-hashed only when a non-empty one is
+          submitted (empty string keeps the current password).
+        - **Delete**: `action: delete` with the `id`. There is **no guard** against
+          deleting your own or the last administrator account.
+
+        Passwords are hashed with bcrypt (12 rounds). Validation failures come back
+        as `{"type": "error", "reason": ...}` with HTTP 200; only a malformed body
+        yields a 400.
       security:
         - cookieAuth: []
       requestBody:
@@ -693,10 +1025,12 @@ paths:
                       format: email
                     password:
                       type: string
-                      description: Required for create. When updating, empty string keeps existing password.
+                      description: >
+                        Min 8 characters. Required for create. When updating,
+                        empty string keeps the existing password.
                     enabled:
                       type: integer
-                      description: "`1` = enabled, `0` = disabled"
+                      description: "`1` = enabled, `0` = disabled (disabled accounts cannot log in and lose live sessions)"
                 - title: Delete
                   type: object
                   required: [action, id]
@@ -713,10 +1047,10 @@ paths:
                   action: insertupdate
                   id: ""
                   email: new@admin.com
-                  password: secret
+                  password: longenough
                   enabled: 1
               update:
-                summary: Update existing admin
+                summary: Update existing admin (keep password)
                 value:
                   action: insertupdate
                   id: "5"
@@ -730,7 +1064,11 @@ paths:
                   id: "5"
       responses:
         "200":
-          description: Operation result
+          description: |
+            Operation result. `{"type": "ok"}` on success; on failure
+            `{"type": "error", "reason": ...}` with reasons such as
+            `Password must be at least 8 characters long` or
+            `Administrator with this email already exists`.
           content:
             application/json:
               schema:
@@ -741,6 +1079,15 @@ paths:
                     enum: [ok, error]
                   reason:
                     type: string
+        "400":
+          description: Malformed request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TypeError"
+              example:
+                type: error
+                reason: Invalid request body
 
   # ──────────────────────────────────────────────
   # Dashboard
@@ -751,7 +1098,13 @@ paths:
       tags: [Dashboard]
       summary: Get dashboard statistics
       description: |
-        Returns dashboard statistics and a list of students active in the last 30 minutes.
+        **Auth: Admin** (non-admins get the plain-text body `Error: Not Admin` with HTTP 200).
+
+        Returns the dashboard counters plus `studentsprogress`: students whose last
+        activity (any authenticated request refreshes it) is within the last 30
+        minutes **and** who have a dealt test. The admin UI polls this endpoint every
+        2 seconds. `phishingtestsize` is `null` until the setting is saved for the
+        first time.
       security:
         - cookieAuth: []
       responses:
@@ -765,8 +1118,14 @@ paths:
   /api/admin/update/phishingtestsize:
     post:
       tags: [Dashboard]
-      summary: Update test size
-      description: Update the number of questions randomly assigned to each student.
+      summary: Update the test size
+      description: |
+        **Auth: Admin** (403 otherwise).
+
+        Sets the number of questions randomly dealt to each new student (stored as
+        the `PhishingTestSize` setting; the admin UI offers 9/12/15/21/30). Applies
+        only to tests dealt after the change. The value is coerced to an integer but
+        not range-checked at the API level.
       security:
         - cookieAuth: []
       requestBody:
@@ -779,7 +1138,6 @@ paths:
               properties:
                 phishingtestsize:
                   type: integer
-                  description: New test size
                   example: 9
       responses:
         "200":
@@ -787,21 +1145,31 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: ok
+                $ref: "#/components/schemas/StatusOk"
+        "400":
+          $ref: "#/components/responses/InvalidBodyText"
+        "403":
+          $ref: "#/components/responses/NotAdminText"
 
   # ──────────────────────────────────────────────
-  # Leaderboard
+  # Public (Leaderboard & Slides)
   # ──────────────────────────────────────────────
 
   /api/leaderboard:
     get:
-      tags: [Leaderboard]
-      summary: Get leaderboard
-      description: Returns all students ranked by test score. No authentication required.
+      tags: [Public]
+      summary: Get the leaderboard
+      description: |
+        **Auth: Public.**
+
+        Returns all students with their grade and progress (newest first -- ranking
+        is up to the client; the bundled leaderboard page sorts by grade and by
+        default shows only students seen in the last 24 hours). Finished students
+        are served from their frozen result row; unfinished ones are graded live.
+        Access codes are **not** exposed here.
+
+        Same blank-field contract as the admin list: students without a dealt test
+        have `""` in the grading fields and `null` in `answeredquestioncount`.
       responses:
         "200":
           description: Leaderboard entries
@@ -814,21 +1182,40 @@ paths:
 
   /api/leaderboard/nextslide:
     get:
-      tags: [Leaderboard]
+      tags: [Public]
       summary: Get a random slide image
       description: |
-        Returns a random slide image from the slides directory as a binary response.
-        Supports PNG, JPG, GIF, and WEBP.
+        **Auth: Public.**
+
+        Returns one randomly chosen image from the slides directory
+        (`SLIDES_DIRECTORY`, managed through the slides filebrowser) as a binary
+        response. Accepted extensions: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`.
+        The projector kiosk page calls this endpoint to preload the next slide while
+        the leaderboard is showing.
       responses:
         "200":
-          description: Slide image
+          description: Slide image binary
           content:
-            image/*:
-              schema:
-                type: string
-                format: binary
+            image/png:
+              schema: { type: string, format: binary }
+            image/jpeg:
+              schema: { type: string, format: binary }
+            image/gif:
+              schema: { type: string, format: binary }
+            image/webp:
+              schema: { type: string, format: binary }
         "404":
-          description: No slides available
+          description: Slides directory missing or empty
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum:
+                      - Slides directory not found
+                      - No slide images found
 
 # ──────────────────────────────────────────────────
 # Components
@@ -840,9 +1227,51 @@ components:
       type: apiKey
       in: cookie
       name: session
-      description: Session cookie set by `POST /api/login`
+      description: |
+        Session cookie set by `POST /api/login`. Database-backed, expires when the
+        browser closes. Deliberately not `HttpOnly` -- the frontend logs out by
+        deleting it from JavaScript (there is no logout endpoint).
+
+  responses:
+    Unauthorized:
+      description: "Not authenticated (plain-text body `Unauthorized`)"
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: Unauthorized
+    NotAdminText:
+      description: "Not an admin (plain-text body `Error: Not Admin`)"
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: "Error: Not Admin"
+    InvalidBodyText:
+      description: "Malformed JSON body (plain-text body `Error: Invalid request body`)"
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: "Error: Invalid request body"
 
   schemas:
+
+    StatusOk:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+
+    TypeError:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [error]
+        reason:
+          type: string
 
     AdminAuth:
       type: object
@@ -877,7 +1306,7 @@ components:
           example: 0
         passcode:
           type: string
-          description: Student's access code
+          description: The student's access code
           example: "48291037"
         phishingtestfinished:
           type: integer
@@ -895,7 +1324,7 @@ components:
           description: "`1` = Phishing, `0` = Real, `null` = not answered"
         question:
           type: string
-          description: Question text
+          description: Optional extra instruction ("Papildomai"); empty string when unset
         questionoptions:
           type: array
           items:
@@ -909,8 +1338,13 @@ components:
               isselected:
                 type: integer
                 nullable: true
+                description: "`1` = selected, `0` = deselected, `null` = never touched"
         questionlinks:
           type: array
+          description: |
+            Clickable-area anchors for the hover tooltips. Coordinates are
+            fractional strings relative to the image (e.g. `"0.15"`); width and
+            height are not included in this payload.
           items:
             type: object
             properties:
@@ -918,17 +1352,22 @@ components:
                 type: string
               content:
                 type: string
-                description: Link URL
+                description: The link URL shown in the tooltip
               x:
                 type: string
+                example: "0.15"
               y:
                 type: string
+                example: "0.42"
 
     AdminQuestion:
       type: object
       properties:
         questionid:
           type: integer
+        isenabled:
+          type: integer
+          description: "`1` = dealt to students, `0` = disabled"
         isphishing:
           type: integer
           description: "`1` = phishing, `0` = real"
@@ -945,10 +1384,11 @@ components:
                 type: string
               rightoptionanswer:
                 type: integer
-                description: "`1` = correct, `0` = incorrect"
+                nullable: true
+                description: "`1` = should be checked, `0` = should not, `null` = never set (never counts as correct)"
         created:
           type: string
-          description: Creation timestamp
+          description: Creation timestamp (`YYYY-MM-DD HH:MM:SS`, local time)
           example: "2025-01-15 14:30:00"
 
     QuestionLink:
@@ -961,19 +1401,21 @@ components:
           example: http://example.com
         x:
           type: string
-          description: X position as percentage
+          description: X position as a percentage string
           example: "15%"
         y:
           type: string
-          description: Y position as percentage
+          description: Y position as a percentage string
           example: "42%"
         width:
           type: string
-          description: Width as percentage
+          nullable: true
+          description: Width as a percentage string
           example: "20%"
         height:
           type: string
-          description: Height as percentage
+          nullable: true
+          description: Height as a percentage string
           example: "3%"
 
     StudentDetail:
@@ -986,61 +1428,67 @@ components:
           type: string
         passcode:
           type: string
+          description: The student's access code (plaintext by design)
         questioncount:
           type: integer
-          description: Total assigned questions
+          description: "Dealt questions (`\"\"` when no test dealt yet)"
         answeredquestioncount:
           type: integer
-          description: Questions answered so far
+          nullable: true
+          description: "Questions with a verdict so far (`null` when no test dealt yet)"
         totalidentifiedcorrectly:
           type: integer
-          description: Questions where the Real/Phishing answer was correct
+          description: Questions where the Real/Phishing verdict was correct
         fullycorrectcount:
           type: integer
-          description: Questions where both main answer and all options were correct
+          description: Questions where the verdict and every option were correct
         fullycorrectpercentage:
           type: integer
+          description: Fully-correct share as a truncated integer percentage
         totaloptionscount:
           type: integer
         totalcorrectoptionscount:
           type: integer
         testgrade:
           type: string
-          description: Grade out of 10 (e.g. `"7.50"`)
+          description: Grade on the 10-point scale as a fixed 2-decimal string (e.g. `"7.50"`)
         isfinished:
           type: integer
           description: "`0` = in progress, `1` = finished"
         lastseen:
           type: string
-          description: Last login timestamp
+          description: Last activity timestamp (refreshed by any authenticated request)
         registrationtime:
           type: string
-          description: Registration timestamp ("" for accounts created before the column existed)
+          description: Registration timestamp (`""` for accounts created before the column existed)
         status:
           type: integer
+          description: "`1` = active; other values block login"
 
     StudentAnswer:
       type: object
       properties:
         id:
           type: integer
-          description: Question ID
+          description: Question ID (of the snapshot)
         questiontext:
           type: string
         isphishinganswer:
           type: integer
           nullable: true
-          description: Student's answer (`1` = Phishing, `0` = Real)
+          description: "Student's verdict (`1` = Phishing, `0` = Real, `null` = unanswered)"
         isphishing:
           type: integer
-          description: Correct answer (`1` = phishing, `0` = real)
+          description: "Correct verdict (`1` = phishing, `0` = real)"
         totaloptionscount:
           type: integer
         correctoptionscount:
           type: integer
         answerpoints:
           type: string
-          description: Points for this question (e.g. `"1.00"`)
+          description: |
+            Points for this question as a 2-decimal string (e.g. `"1.00"`).
+            0 when the verdict is wrong; otherwise 1 minus 0.1 per missed option.
         answeredoptions:
           type: array
           items:
@@ -1050,10 +1498,11 @@ components:
                 type: string
               rightansweroption:
                 type: integer
-                description: Correct value (`1` or `0`)
+                nullable: true
+                description: Expected value (`1` = should be checked, `0` = should not)
               selectedansweroption:
                 type: integer
-                description: Student's selection (`1` or `0`)
+                description: "Student's selection (`1` = checked, `0` = unchecked; untouched counts as `0`)"
 
     Administrator:
       type: object
@@ -1068,7 +1517,7 @@ components:
           description: "`1` = enabled, `0` = disabled"
         lastseen:
           type: string
-          description: Last login timestamp
+          description: Last activity timestamp
 
     DashboardData:
       type: object
@@ -1084,10 +1533,11 @@ components:
           description: Total questions (enabled + disabled)
         phishingtestsize:
           type: integer
-          description: Current test size setting
+          nullable: true
+          description: Current test size setting (null if never set)
         studentsprogress:
           type: array
-          description: Students active in the last 30 minutes
+          description: Students active in the last 30 minutes that have a dealt test
           items:
             type: object
             properties:
@@ -1114,14 +1564,17 @@ components:
           type: string
         questioncount:
           type: integer
+          description: "Dealt questions (`\"\"` when no test dealt yet)"
         answeredquestioncount:
           type: integer
+          nullable: true
+          description: "Questions answered so far (`null` when no test dealt yet)"
         testgrade:
           type: string
-          description: Grade out of 10 (e.g. `"8.50"`)
+          description: Grade on the 10-point scale as a fixed 2-decimal string (e.g. `"8.50"`)
         isfinished:
           type: integer
           description: "`0` = in progress, `1` = finished"
         lastseen:
           type: string
-          description: Last login timestamp
+          description: Last activity timestamp

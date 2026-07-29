@@ -1,0 +1,909 @@
+% ============================================================
+%  Fisingas — Technical Whitepaper
+%
+%  Self-contained LaTeX source; compiles with pdflatex using
+%  only standard TeX Live packages (geometry, booktabs, tikz,
+%  listings, hyperref, xcolor, graphicx).
+%
+%      pdflatex whitepaperEN.tex   (run twice for TOC/refs)
+% ============================================================
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.6cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,backgrounds}
+\usepackage{amsmath}
+\usepackage[hidelinks]{hyperref}
+\usepackage{parskip}
+
+% ------------------------------------------------------------
+% Listings setup — used for API JSON, shell commands and
+% configuration excerpts
+% ------------------------------------------------------------
+\definecolor{codebg}{RGB}{245,245,245}
+\definecolor{codeframe}{RGB}{210,210,210}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  framerule=0.4pt,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  aboveskip=8pt,
+  belowskip=8pt,
+}
+
+% ------------------------------------------------------------
+% TikZ styles for the architecture / data-flow figures
+% ------------------------------------------------------------
+\tikzset{
+  svc/.style={draw, rounded corners=2pt, fill=blue!6, minimum height=9mm,
+              minimum width=24mm, align=center, font=\small},
+  store/.style={draw, rounded corners=2pt, fill=orange!12, minimum height=9mm,
+                minimum width=26mm, align=center, font=\small},
+  ext/.style={draw, rounded corners=2pt, fill=green!8, minimum height=9mm,
+              minimum width=22mm, align=center, font=\small},
+  flow/.style={-{Stealth[length=2.5mm]}, thick},
+  lbl/.style={font=\footnotesize, midway, fill=white, inner sep=1.5pt},
+}
+
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{\textbf{Fisingas}\\[4pt]
+  \large A Self-Hosted Phishing-Recognition Training and\\
+  Assessment Platform Built on Django, React and Docker}
+\author{Tomas Vanagas\\[2pt]
+  \normalsize\texttt{tomas.vanagas@knf.vu.lt}}
+\date{July 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\noindent
+Fisingas is a self-hosted web platform for teaching and assessing
+phishing-email recognition, built for classroom use at Vilnius
+University Kaunas Faculty. Students register themselves, receive a
+system-generated access code, and take a test in which they examine
+screenshots of real-looking emails --- complete with hoverable link
+previews simulated over the image --- and judge each one as genuine or
+phishing, answering follow-up questions about the tell-tale signs.
+Administrators manage the question bank, watch student progress live,
+and project an auto-refreshing leaderboard interleaved with
+presentation slides. The system is packaged as a single Docker Compose
+stack of nine containers behind one Caddy reverse proxy: a React
+single-page application, a deliberately thin Django JSON API, a
+PostgreSQL database, and a set of gateway-authenticated operator tools
+(database UI, file managers, API documentation). The central design
+concern is \emph{grade integrity on mutable content}: dealing a test
+freezes a denormalized snapshot of every question into the student's
+answer rows, so editing or deleting questions can never change grades
+already given. This paper describes the architecture, the data model
+and its snapshot discipline, the authentication scheme, the test
+lifecycle and the exact grading arithmetic, the web interface for both
+roles, and the procedures for deploying and operating the service. All
+statements in this paper are derived directly from the source code of
+the system.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+Phishing remains the most common initial access vector in practice,
+and the most effective countermeasure available to an educator is
+rehearsal: show people convincing forgeries next to genuine messages
+and let them practise telling the two apart. Running such an exercise
+for a lecture hall of students raises requirements that generic quiz
+software meets poorly:
+
+\begin{itemize}
+  \item The material is \emph{visual}. A phishing exercise lives on
+        pixel-accurate screenshots of email clients, and the crucial
+        skill --- hovering a link to inspect its real destination ---
+        must work on a static image.
+  \item Enrolment must be instant and anonymous-friendly. Students
+        register themselves with a nickname during the lecture and
+        receive a machine-generated access code; no email accounts, no
+        roster imports.
+  \item The exercise is \emph{live}. The lecturer needs a real-time
+        view of who is still answering, and a projected leaderboard
+        turns assessment into a game.
+  \item Content changes constantly --- questions are added, reworded
+        and retired between (and during) course editions --- yet a
+        grade, once given, must remain exactly reproducible.
+  \item The platform must run self-hosted on a single university
+        server, operable by one person with Docker.
+\end{itemize}
+
+Fisingas addresses these requirements with deliberately boring
+technology: a Django API that ``only moves data around'', PostgreSQL
+for every byte of state (including the screenshot images themselves),
+a React single-page application, and Docker Compose for orchestration.
+There is no message queue, no cache layer, no cloud dependency and no
+JavaScript build step at runtime. The one place where the design is
+opinionated is the data model: the test a student receives is a
+\emph{frozen copy} of the questions, not a reference to them
+(Section~\ref{sec:datamodel}).
+
+The remainder of this paper is organised as follows.
+Section~\ref{sec:architecture} presents the container topology,
+routing and security posture. Section~\ref{sec:datamodel} describes
+the data model and the snapshot discipline.
+Section~\ref{sec:auth} specifies the authentication and authorization
+scheme. Section~\ref{sec:lifecycle} follows one student through the
+test and gives the grading arithmetic. Section~\ref{sec:frontend}
+describes the web interface for students, administrators and the
+projector. Section~\ref{sec:usage} is an operator's guide: deployment,
+auxiliary services, data retention and the configuration reference.
+Section~\ref{sec:limitations} discusses known limitations.
+
+% ============================================================
+\section{System Architecture}
+\label{sec:architecture}
+% ============================================================
+
+\subsection{Services}
+
+The stack consists of nine containers declared in a single
+\code{docker-compose.yml}. They are summarised in
+Table~\ref{tab:services} and depicted in Figure~\ref{fig:architecture}.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Container} & \textbf{Technology} & \textbf{Role} \\
+\midrule
+\code{fisingas-endpoint} & Caddy 2.11 & Sole entry point; routing, security headers, forward-auth \\
+\code{fisingas-vite}     & React 19 + Vite 7, served by Caddy & Web frontend (SPA) \\
+\code{fisingas-django}   & Django 5.2 + Gunicorn (Python 3.13) & JSON API: auth, test flow, grading \\
+\code{fisingas-postgres} & PostgreSQL 17 & All persistent state, including images \\
+\code{fisingas-cron}     & BusyBox crond + Docker CLI & Nightly data-retention sweep \\
+\code{fisingas-filebrowser-dropbox} & Filebrowser (no-auth build) & Shared file drop for staff \\
+\code{fisingas-filebrowser-slides}  & Filebrowser (no-auth build) & Upload of projector slides \\
+\code{fisingas-dbgate}   & DBGate 7.2 & Database management UI \\
+\code{fisingas-swagger}  & Swagger UI & Interactive API documentation \\
+\bottomrule
+\end{tabular}
+\caption{Services in the Docker Compose stack.}
+\label{tab:services}
+\end{table}
+
+The Django backend is intentionally thin: plain function views with no
+Django REST Framework, no \code{django.contrib.admin} and no
+\code{django.contrib.auth} --- the installed-apps list contains only
+the session framework and the three project apps (\code{users},
+\code{phishing\_test}, \code{leaderboard}). All content management
+happens through the React admin interface; all database access goes
+through the ORM (there is no raw SQL anywhere in the codebase). Every
+request runs in a transaction (\code{ATOMIC\_REQUESTS = True}), so a
+half-written test state cannot persist.
+
+\begin{figure}[h]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}
+
+  % External side
+  \node[ext]   (client)  at (0,0)      {Browser /\\projector};
+  \node[svc]   (caddy)   at (3.8,0)    {\code{endpoint}\\Caddy :80};
+
+  % Application services
+  \node[svc]   (vite)    at (7.7,1.9)  {\code{vite}\\SPA};
+  \node[svc]   (django)  at (7.7,0)    {\code{django}\\Gunicorn :8000};
+  \node[store] (postgres) at (11.8,0)  {\code{postgres}\\PostgreSQL 17};
+
+  % Gated operator tools
+  \node[svc]   (swagger) at (7.0,-2.6)  {\code{swagger}\\Swagger UI};
+  \node[svc]   (dbgate)  at (10.4,-2.6) {\code{dbgate}\\DBGate};
+  \node[svc]   (fbdrop)  at (13.8,-2.6) {\code{filebrowser}\\\code{dropbox}};
+  \node[svc]   (fbslides) at (17.2,-2.6) {\code{filebrowser}\\\code{slides}};
+
+  \node[draw, dashed, rounded corners=3pt,
+        fit=(swagger)(dbgate)(fbdrop)(fbslides),
+        inner sep=3mm,
+        label={[font=\footnotesize\itshape]below:administrator tools --- every request gated by forward-auth}] (tools) {};
+
+  % Flows
+  \draw[flow] (client) -- node[lbl]{HTTP :80} (caddy);
+  \draw[flow] (caddy.north) |- node[lbl, pos=0.75]{\code{/*}} (vite.west);
+  \draw[flow] (caddy) -- node[lbl]{\code{/api/*}} (django);
+  \draw[flow] (caddy.south) |- node[lbl, pos=0.7]{\code{forward\_auth}} (tools.west);
+  \draw[flow] (django) -- node[lbl]{SQL} (postgres);
+  \draw[flow] (dbgate.north) -- node[lbl]{SQL} (postgres.south);
+
+  % Internal network box
+  \begin{scope}[on background layer]
+    \node[draw, dashed, rounded corners=3pt, fill=gray!4,
+          fit=(vite)(django)(postgres)(tools),
+          inner sep=5mm,
+          label={[font=\footnotesize\itshape]above:internal Docker network (no published ports)}] {};
+  \end{scope}
+
+\end{tikzpicture}}
+\caption{Service topology. Only the Caddy endpoint publishes a host
+port; every other container is reachable solely over the internal
+Docker network. The two filebrowser instances serve the bind-mounted
+\code{\_DATA/dropbox} and \code{\_DATA/slides} directories; Django
+reads the same slides directory for the projector mode. The cron
+container is not shown: it runs with \code{network\_mode: none} and
+reaches Django only through the Docker socket (\code{docker exec}).}
+\label{fig:architecture}
+\end{figure}
+
+\subsection{Routing}
+
+The endpoint Caddy instance listens on port 80 and routes by path, in
+order:
+
+\begin{itemize}
+  \item \code{/filebrowser/dropbox/*}, \code{/filebrowser/slides/*},
+        \code{/dbgate/*} and \code{/swagger*} are reverse-proxied to
+        the respective tool, but only after a \code{forward\_auth}
+        subrequest to \code{fisingas-django:8000\allowbreak/api/checkauth/admin}
+        confirms the caller holds an administrator session
+        (Section~\ref{sec:gateway});
+  \item \code{/api/*} is proxied to the Django backend with no gate at
+        the proxy --- Django decides per endpoint who may call what;
+  \item everything else falls through to the frontend container,
+        where a second Caddy instance serves the pre-built Vite bundle
+        as static files with an SPA fallback
+        (\code{try\_files \{path\} /index.html}), so deep links such
+        as \code{/admin/students/42} resolve client-side.
+\end{itemize}
+
+\subsection{Security posture}
+\label{sec:posture}
+
+Hardening measures applied uniformly across the stack:
+
+\begin{itemize}
+  \item \textbf{Single ingress.} Only the endpoint container publishes
+        a port. Django, PostgreSQL and all tools are unreachable from
+        the host network.
+  \item \textbf{Same-origin enforcement at the edge.} Caddy rejects
+        with 403 any request whose \code{Origin} header is present and
+        does not match the request host. This is the stack's CSRF
+        defence --- Django's CSRF middleware is deliberately not
+        installed (Section~\ref{sec:limitations} discusses the
+        boundary of this choice).
+  \item \textbf{Content-Security-Policy.} A strict CSP
+        (\code{default-src 'self'}; images additionally from
+        \code{data:} and \code{blob:}, which the slide projector
+        needs) plus \code{frame-ancestors 'self'} and a
+        \code{Strict-Transport-Security} header with a one-year
+        max-age.
+  \item \textbf{Read-only filesystems and non-root execution.} The
+        endpoint, frontend, backend and database containers run with
+        \code{read\_only: true} as user \code{1000:1000}; writable
+        paths are limited to explicit volumes and \code{tmpfs} mounts
+        (Django gets a \code{tmpfs} at \code{/tmp} for upload
+        spooling).
+  \item \textbf{Secrets out of the compose file.} The Django signing
+        key and the DBGate credentials are generated by the deploy
+        script into \code{.env} (Section~\ref{sec:deploy}); neither
+        \code{.env} nor the deployed \code{docker-compose.yml} is
+        tracked in git.
+\end{itemize}
+
+% ============================================================
+\section{Data Model}
+\label{sec:datamodel}
+% ============================================================
+
+\subsection{Entities}
+
+All state lives in PostgreSQL in eleven tables
+(Table~\ref{tab:tables}). A deliberate oddity: there are no native
+date/time columns --- every timestamp is a text column holding
+\code{YYYY-MM-DD HH:MM:SS} in local time (\code{Europe/Vilnius}).
+Because the format is lexicographically sortable, the code compares
+timestamps as strings (the dashboard's ``active in the last 30
+minutes'' window and the retention sweep both rely on this).
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Table} & \textbf{Purpose} \\
+\midrule
+\code{users\_systemuser}    & Administrator accounts (email, bcrypt hash, enabled flag) \\
+\code{users\_student}       & Student accounts (username, plaintext access code, finished flag) \\
+\code{users\_setting}       & Key--value settings; the only key used is \code{PhishingTestSize} \\
+\code{phishing\_test\_questionimage} & Email screenshots, stored as binary blobs; upload-only \\
+\code{phishing\_test\_question}      & The live, editable question bank \\
+\code{phishing\_test\_questionoption} & Follow-up checkbox options of a question \\
+\code{phishing\_test\_questionlink}   & Clickable link areas on an image (fractional coordinates) \\
+\code{phishing\_test\_answer}         & \emph{Frozen} per-question snapshot + the student's verdict \\
+\code{phishing\_test\_answerselectedoption} & \emph{Frozen} per-option snapshot + the student's checkbox \\
+\code{phishing\_test\_testresult}     & Frozen whole-test totals, written once at finish \\
+\code{django\_session}      & Server-side session storage \\
+\bottomrule
+\end{tabular}
+\caption{Database tables. ``Frozen'' tables are written when a test is
+dealt or finished and are never affected by later edits to the bank.}
+\label{tab:tables}
+\end{table}
+
+\subsection{Snapshot on deal}
+\label{sec:snapshot}
+
+The core invariant of the system is that \emph{a grade must be
+reproducible forever, no matter what happens to the question bank}.
+This is achieved by denormalization at deal time: when a student first
+requests their questions, the system copies --- into
+\code{Answer} and \code{AnswerSelectedOption} rows --- each dealt
+question's text, its correct verdict, a link to its image, and every
+option's text and expected value. The copies deliberately reference
+the question by a plain integer, not a foreign key, so deleting the
+question later cannot cascade into a dealt test. Grading
+(Section~\ref{sec:grading}) reads exclusively from these frozen rows.
+
+Two uniqueness constraints ---
+\code{(student, question\_id)} on answers and
+\code{(student, question\_id, option\_id)} on options --- double as
+the concurrency guard: if two simultaneous first requests both try to
+deal, only one bulk insert can land; the loser's
+\code{IntegrityError} is swallowed and it simply reads the winner's
+snapshot. Combined with per-request transactions, a partially dealt
+test cannot exist.
+
+When the student finishes, a third freeze happens: the computed totals
+are written once into \code{TestResult}. From then on every list view
+(admin table, public leaderboard) serves that student from a single
+stored row instead of re-judging their answers, so the hot pages do
+constant work per finished student and live judging is reserved for
+students still answering.
+
+\subsection{The image store}
+
+Screenshots are the only binary payload and get their own upload-only
+table. A new question is created \emph{by} uploading an image
+(Section~\ref{sec:adminui}); the file --- extension-checked against
+\code{png|jpg|jpeg|gif} and capped at 5\,MB --- is stored as raw bytes
+in PostgreSQL, and a wrapper question row is created around it. When
+serving, the content type is sniffed from the magic bytes of the blob
+rather than trusted from the upload.
+
+Both the live question and the frozen answer snapshots reference the
+image with \code{PROTECT}, and no code path deletes images: deleting a
+question keeps its screenshot, and
+\code{GET /api/phishingpictures/\{id\}} falls back to the snapshot
+reference when the question no longer exists, so a graded test can
+always re-display its emails.
+
+The clickable link areas (\code{QuestionLink}) hang off the
+\emph{image}, not the question --- their coordinates (stored as
+fractional text values) only make sense on that exact bitmap, and this
+placement means old graded tests keep their hoverable links even after
+the question is deleted.
+
+% ============================================================
+\section{Authentication and Access Control}
+\label{sec:auth}
+% ============================================================
+
+\subsection{Accounts and roles}
+
+There are exactly two kinds of account, held in separate tables, and
+the login name itself encodes the role: administrators sign in with an
+email address, students with a generated username. The login endpoint
+distinguishes them by whether the submitted name contains \code{@} ---
+safe because student usernames are normalised at registration to the
+alphabet \code{A--Z 0--9 \_} (uppercased, all other characters
+stripped), so the two namespaces cannot collide.
+
+Administrator passwords are hashed with bcrypt (12 rounds), with an
+8-character minimum enforced when accounts are created or updated.
+Student credentials are system-generated 8-digit access codes
+(\code{10000000}--\code{99999999}) stored and compared \emph{in
+plaintext} --- a documented design decision: the code is a
+system-issued access token shown back to the student on demand, not a
+user-chosen secret that could be reused elsewhere. A failed login for
+an unknown name still executes a bcrypt comparison against a dummy
+hash, so response timing does not reveal whether an account exists.
+
+\subsection{Sessions}
+
+Django's database-backed session framework is the only piece of
+\code{django.contrib} in use. Logging in stores a single value --- the
+login name --- in a new session row and sets a cookie named
+\code{session}, configured to expire when the browser closes. The
+cookie is deliberately \emph{not} \code{HttpOnly}: there is no logout
+endpoint on the server, and the login page logs the user out by
+deleting the cookie from JavaScript. On every request the session name
+is re-resolved against the account tables, and disabled accounts are
+treated as non-existent --- a deactivated administrator or student
+loses any live session on their next request.
+
+\subsection{Per-view authorization}
+
+A small custom decorator replaces \code{django.contrib.auth}:
+\code{@login\_required} rejects anonymous requests with 401 and
+attaches the resolved account to the request; role checks are then
+per-view. Three access tiers result: public endpoints (login,
+registration, leaderboard, slides), authenticated endpoints (question
+images and their link areas), and admin endpoints --- two of which
+(\code{student detail} and \code{student answers}) also accept the
+student reading \emph{their own} record, which is how the results page
+works.
+
+\subsection{Gateway-level authorization}
+\label{sec:gateway}
+
+The operator tools (DBGate, both filebrowsers, Swagger UI) have no
+authentication of their own. Instead, Caddy performs a
+\code{forward\_auth} subrequest to
+\code{GET /api/checkauth/admin} for every request routed to them; the
+endpoint answers 200 only for a live administrator session and 401
+otherwise. DBGate's own basic-auth credentials are generated at deploy
+time and injected by Caddy into the proxied request, so the browser
+never sees them. The same admin-check endpoint doubles as the ``last
+seen'' heartbeat: every successful call updates the account's
+last-login timestamp, which feeds the dashboard's activity view.
+
+% ============================================================
+\section{The Test Lifecycle}
+\label{sec:lifecycle}
+% ============================================================
+
+\subsection{One student, end to end}
+
+A student passes through the following stages
+(Figure~\ref{fig:lifecycle}):
+
+\begin{enumerate}
+  \item \textbf{Registration.} \code{POST /api/student/register} with
+        a desired nickname. The name is uppercased and stripped to
+        \code{A--Z 0--9 \_}; if free, the account is created with a
+        random 8-digit access code, returned exactly once in the
+        response. The frontend displays both with a
+        ``write this down'' warning.
+  \item \textbf{Login.} \code{POST /api/login} with name and code sets
+        the session cookie. The response body is either the literal
+        string \code{"OK"} or a display-ready Lithuanian error
+        message.
+  \item \textbf{Deal.} The first
+        \code{GET /api/student/questions} triggers the deal: the test
+        size is read from the \code{PhishingTestSize} setting
+        (code-level fallback 30, admin-selectable values
+        9/12/15/21/30), a uniform random sample of that many
+        \emph{enabled} questions is drawn (clamped to the bank size),
+        and the frozen snapshot described in
+        Section~\ref{sec:snapshot} is bulk-inserted. Subsequent calls
+        return the already-dealt set. The server shuffles the
+        question order anew on every GET; the frontend keeps its own
+        stable order for the session.
+  \item \textbf{Answering.} The frontend posts the \emph{entire}
+        answer state to \code{POST /api/student/questions} after every
+        click --- verdicts (\code{0} = real, \code{1} = phishing) into
+        the answer rows, checkbox states into the option rows. Every
+        update is scoped to the session's student ID, so a forged
+        payload cannot write into another student's rows. Saving is
+        idempotent and repeatable; a student can close the browser and
+        resume with their name and code.
+  \item \textbf{Finish.} \code{GET /api/student/finish} grades the
+        frozen rows, writes the \code{TestResult} totals
+        (an \code{update\_or\_create}, so a double click is harmless),
+        and sets the finished flag. The step is irreversible: from now
+        on the questions endpoint returns an empty object for this
+        student, and the route guard sends them to the results page.
+  \item \textbf{Results.} The student reads their own summary and
+        per-question review --- including the correct answers ---
+        through the same endpoints an administrator uses for any
+        student; the public leaderboard shows their grade.
+\end{enumerate}
+
+\begin{figure}[h]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  head/.style={draw, rounded corners=2pt, minimum width=26mm, minimum height=8mm,
+               align=center, font=\small},
+  life/.style={dash pattern=on 2pt off 2pt, gray},
+  msg/.style={-{Stealth[length=2.2mm]}, semithick},
+  mlbl/.style={font=\scriptsize, midway, above=1pt, fill=white, inner sep=1pt},
+]
+
+  % Lifeline heads
+  \node[head, fill=green!8]   (c) at (0,0)    {Student browser};
+  \node[head, fill=blue!6]    (b) at (6.6,0)  {Django API};
+  \node[head, fill=orange!12] (r) at (13.2,0) {PostgreSQL};
+
+  % Lifelines
+  \draw[life] (c.south) -- (0,-10.5);
+  \draw[life] (b.south) -- (6.6,-10.5);
+  \draw[life] (r.south) -- (13.2,-10.5);
+
+  % Registration + login
+  \draw[msg] (0,-1.0)   -- node[mlbl]{POST /api/student/register \{username\}} (6.6,-1.0);
+  \draw[msg] (6.6,-1.6) -- node[mlbl]{INSERT student + 8-digit code} (13.2,-1.6);
+  \draw[msg] (6.6,-2.2) -- node[mlbl]{username + access code (shown once)} (0,-2.2);
+  \draw[msg] (0,-2.9)   -- node[mlbl]{POST /api/login} (6.6,-2.9);
+  \draw[msg] (6.6,-3.5) -- node[mlbl]{"OK" + session cookie} (0,-3.5);
+
+  % Deal
+  \draw[msg] (0,-4.3)   -- node[mlbl]{GET /api/student/questions (first call)} (6.6,-4.3);
+  \draw[msg] (6.6,-4.9) -- node[mlbl]{sample enabled questions, bulk-INSERT frozen snapshot} (13.2,-4.9);
+  \draw[msg] (6.6,-5.5) -- node[mlbl]{dealt questions (shuffled)} (0,-5.5);
+
+  % Answer loop
+  \draw[rounded corners=2pt, gray] (-0.9,-6.05) rectangle (14.1,-7.7);
+  \node[font=\scriptsize\itshape, gray, anchor=north west] at (-0.85,-6.1) {after every click};
+  \draw[msg] (0,-6.8)   -- node[mlbl]{POST /api/student/questions (full answer state)} (6.6,-6.8);
+  \draw[msg] (6.6,-7.35) -- node[mlbl]{UPDATE snapshot rows (scoped to this student)} (13.2,-7.35);
+
+  % Finish
+  \draw[msg] (0,-8.5)   -- node[mlbl]{GET /api/student/finish} (6.6,-8.5);
+  \draw[msg] (6.6,-9.1) -- node[mlbl]{grade snapshots, INSERT TestResult, set finished} (13.2,-9.1);
+  \draw[msg] (0,-9.9)   -- node[mlbl]{GET /api/admin/students/\{own id\} $\rightarrow$ frozen summary} (6.6,-9.9);
+
+\end{tikzpicture}}
+\caption{Message sequence for one student. The deal on the first
+questions request freezes the snapshot that all later answering and
+grading operates on; the finish call freezes the totals a second
+time, after which list views never re-judge this student.}
+\label{fig:lifecycle}
+\end{figure}
+
+\subsection{Grading}
+\label{sec:grading}
+
+Grading reads only the frozen snapshot. For a dealt question $q$ let
+$v_q \in \{0,1\}$ be the correct verdict, $a_q$ the student's verdict,
+$n_q$ the number of follow-up options, and $c_q$ the number of options
+whose checkbox state matches the expected value (an untouched checkbox
+counts as unchecked). The question is worth at most one point, and the
+follow-up options act as a 0.1-point bonus/penalty band around it:
+
+\begin{equation*}
+p_q =
+\begin{cases}
+  0 & \text{if } a_q \neq v_q,\\[2pt]
+  1 - 0.1\,n_q + 0.1\,c_q & \text{if } a_q = v_q.
+\end{cases}
+\end{equation*}
+
+That is, a correct verdict with every option right scores exactly 1;
+each missed option costs 0.1. If the main verdict is wrong the
+question scores 0 regardless of the options. For a test of $N$ dealt
+questions the final grade on the Lithuanian ten-point scale is
+
+\begin{equation*}
+G = \operatorname{round}\!\Bigl(\tfrac{10}{N}\sum_{q=1}^{N} p_q,\; 2\Bigr),
+\end{equation*}
+
+reported as a fixed two-decimal string (e.g.\ \code{"8.50"}). The
+summary additionally reports how many questions were identified
+correctly (verdict only), how many were \emph{fully} correct (verdict
+and all options), the option totals, and the fully-correct share as a
+truncated integer percentage. $N$ counts \emph{dealt} questions, so
+unanswered questions count against the grade exactly like wrong
+verdicts.
+
+For students still answering, these figures are computed live from the
+snapshot rows in two set-based queries; at finish they are frozen into
+\code{TestResult} and served from there permanently
+(Section~\ref{sec:snapshot}).
+
+% ============================================================
+\section{The Web Interface}
+\label{sec:frontend}
+% ============================================================
+
+\subsection{Technology}
+
+The frontend is a React 19 single-page application built with Vite 7,
+using MUI~7 for controls and data grids and Tailwind~4 for layout,
+with \code{react-router} 7 for client-side routing. There is no state
+management library and no client-side cache: one context provider
+checks \code{GET /api/checkauth} once per full page load and route
+guards redirect by role; server state is fetched by a small shared
+hook that supports interval polling and treats any 401 as a hard
+redirect to the login page. All user-facing text is Lithuanian
+(hardcoded --- there is no i18n layer); the interface is styled in the
+faculty's burgundy (\code{\#7B003F}) with a self-hosted Inter
+variable font whose latin-extended subset covers Lithuanian
+diacritics. The production image is built in two stages --- a Node
+stage runs \code{vite build}, and the result is copied into a Caddy
+image --- so the shipped container contains only static files and the
+SPA-fallback web server, no Node runtime.
+
+A signature interaction pattern replaces confirmation dialogs
+throughout: destructive or irreversible actions (finish test, delete
+question, delete student, delete administrator) are
+\emph{hold-to-confirm} buttons that must be pressed for 1.5 seconds
+while a progress ring fills, on both mouse and touch.
+
+\subsection{The student experience}
+
+The login page defaults to \emph{registration} --- new students are
+the main audience. After registering, the username and access code are
+displayed once, in monospace chips under an amber ``write this down''
+warning, with a single button that logs in and starts the test.
+
+The test page shows one email screenshot at a time, rendered at half
+the viewport height with click-to-zoom into a fullscreen viewer
+(dismissed by backdrop click or \code{Escape}). Over the screenshot,
+the platform simulates the one behaviour a static image cannot
+provide: \emph{link previews}. Invisible hotspot rectangles ---
+defined by the administrator in fractional coordinates --- track the
+rendered size of the image, and hovering one shows a black tooltip
+bubble with the link's real URL just above the cursor, mimicking the
+status-bar preview of a real mail client. The hotspots are
+deliberately drawn fully transparent for students, so finding them
+requires actually inspecting the email.
+
+Below the image sit the verdict buttons --- \emph{Tikras} (real)
+and \emph{Fišingas} (phishing) --- and the question's follow-up
+checkboxes. Every click autosaves the entire answer state to the
+server and a toast reports any failure, so losing a connection or
+closing the laptop costs nothing: logging in again resumes exactly
+where the student left off. A progress panel shows an answered
+counter, a progress bar, and a jump grid with one button per question
+(filled when answered, ringed when current). The finish button is a
+1.5-second hold; the results page then shows the grade headline,
+three ratio tiles (fully correct, correctly identified, correct
+options), the student's name and access code, and the same
+per-question review component the administrator sees --- the answer
+key column in neutral grey, the student's choices coloured green or
+red against it.
+
+\subsection{The administrator experience}
+\label{sec:adminui}
+
+Administrators get a collapsible sidebar shell (state persisted in
+\code{localStorage}) with the app pages and external links to the
+gated tools (slides filebrowser, dropbox filebrowser, Swagger,
+DBGate).
+
+\textbf{Dashboard.} Polls the API every 2 seconds and shows the
+student count, the enabled/total question counts, and a live
+``currently solving'' list --- one progress bar per student active in
+the last 30 minutes, turning green at completion. The test size
+selector (9/12/15/21/30) sits directly in the questions widget and
+saves immediately on change; there is no separate settings page.
+
+\textbf{Question bank.} A question is created by uploading a
+screenshot (drag-and-drop, image preview, 5\,MB limit); the new
+question then appears as a card to be filled in. Each card edits
+in place with a debounced autosave: 500\,ms after the last keystroke
+the card saves and a status chip walks through
+\emph{Saugoma\ldots}/\emph{Išsaugota} --- there is no save button
+anywhere in the editor. Adding or deleting an option and deleting a
+question save immediately (they create or remove rows); deletions are
+hold-to-confirm. Each card carries the phishing verdict checkbox, the
+optional extra-instruction text, the option list with per-option
+correct values, and an enable switch --- only enabled questions are
+dealt, and a banner warns when fewer questions are enabled than the
+configured test size. A filter bar searches by text, option text or
+ID; filtered-out cards are hidden rather than unmounted so unsaved
+edits survive filter changes.
+
+The hotspot editor opens fullscreen over the card: link areas are
+drawn, dragged and resized directly on the screenshot
+(\code{react-rnd}), each with its URL, and saved back as fractional
+coordinates. The same editor is reachable directly at
+\code{/admin/questions/\{id\}}.
+
+\textbf{Students.} A data grid (5-second polling, quick filter,
+default ``last month'' switch) lists every student with progress,
+grade and timestamps. The detail page shows the credential card ---
+including the access code, so a lecturer can rescue a student who lost
+theirs --- the summary tiles, and two tabs: the per-question review
+and a condensed table with screenshot thumbnails. Students can be
+deleted (hold-to-confirm); the cascade removes their dealt test and
+grades but never touches images.
+
+\textbf{Administrators.} A grid plus a single modal for
+create/edit/delete against one endpoint; an empty \code{id} signals
+insert, an empty password on edit means ``keep the current one'', and
+the minimum length is 8 characters.
+
+\subsection{Public displays}
+
+Two unauthenticated pages are designed for a projector:
+
+\begin{itemize}
+  \item \textbf{Leaderboard} (\code{/leaderboard}) --- ranks students
+        by grade with gold/silver/bronze badges, shows blue progress
+        bars for students still answering and burgundy grade bars for
+        finished ones, refreshes every 5 seconds with a visible
+        countdown, and by default filters to students seen in the
+        last 24 hours.
+  \item \textbf{Slides kiosk} (\code{/slides}) --- alternates between
+        the leaderboard (embedded in an iframe behind a
+        click-blocking overlay, 6 seconds) and a random slide image
+        served from the slides directory (20 seconds). The next slide
+        is fetched and decoded as a blob \emph{while the leaderboard
+        is showing}, so the swap is always instant; administrators
+        manage the slide files through the slides filebrowser.
+\end{itemize}
+
+% ============================================================
+\section{Deployment and Operations}
+\label{sec:usage}
+% ============================================================
+
+\subsection{Prerequisites}
+
+A Linux host with Docker and Docker Compose, and port 80 free. There
+are no other dependencies: images are pulled from Docker Hub
+(\code{vuknf/fisingas-*}), and each service also carries a
+commented-out \code{build:} variant in the compose file for building
+locally.
+
+\subsection{Starting the stack}
+\label{sec:deploy}
+
+The only manual step is creating the compose file from the sample;
+everything else is one idempotent script:
+
+\begin{lstlisting}[language=bash]
+cp docker-compose.yml.sample docker-compose.yml
+./runUpdateThisStack.sh
+\end{lstlisting}
+
+The script creates the \code{\_DATA} directories (\code{postgres},
+\code{slides}, \code{dropbox}) and fixes their ownership, checks that
+Docker is installed, generates \code{DJANGO\_SECRET\_KEY} and the
+DBGate credentials into \code{.env} (once), creates the Docker
+network, (re)starts the stack, applies database migrations in a retry
+loop (the first PostgreSQL start takes a few seconds), and --- only on
+an empty database --- creates the first administrator account and
+prints its credentials:
+
+\begin{lstlisting}
+Email:    admin@admin.com
+Password: admin
+\end{lstlisting}
+
+This password must be changed immediately on the Administrators page.
+The service is then reachable on port 80 of the host: \code{/} is the
+application, \code{/swagger} the API documentation, \code{/dbgate}
+the database UI (all three tool paths admin-gated).
+
+\subsection{Data retention}
+
+The cron container --- a BusyBox \code{crond} with the Docker CLI, no
+network, and the crontab baked into the image --- runs one job: every
+night at 03:00 it executes the \code{delete\_old\_students} management
+command inside the Django container. The command deletes student
+accounts whose last login \emph{and} registration are both older than
+180 days; the cascade removes their dealt tests and grades, while
+question images are never touched. Fresh accounts that never logged in
+survive. Everything else is kept indefinitely: the question bank, the
+images, the administrator accounts, and the \code{\_DATA} directories
+on the host.
+
+\subsection{Configuration reference}
+
+All settings are environment variables set in
+\code{docker-compose.yml} or generated into \code{.env}
+(Table~\ref{tab:config}). The single application-level setting --- the
+test size --- lives in the database and is edited from the dashboard.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}llp{6.4cm}@{}}
+\toprule
+\textbf{Variable} & \textbf{Default} & \textbf{Meaning} \\
+\midrule
+\code{DJANGO\_SECRET\_KEY} & generated into \code{.env} & Signs session cookies; mandatory, no code default \\
+\code{DATABASE\_URL}       & \code{postgres://fisingas:...@fisingas-postgres:5432/fisingas} & PostgreSQL connection string \\
+\code{SLIDES\_DIRECTORY}   & \code{/slides}   & Slide images directory inside the container \\
+\code{DJANGO\_DEBUG}       & unset (\code{False}) & Switches the container to Django's dev server with debug pages \\
+\code{POSTGRES\_DB} / \code{\_USER} / \code{\_PASSWORD} & \code{fisingas} & Database bootstrap credentials; must match \code{DATABASE\_URL} \\
+\code{DBGATE\_PASSWORD}    & generated into \code{.env} & DBGate basic-auth password \\
+\code{DBGATE\_AUTH\_HEADER} & generated into \code{.env} & Pre-encoded basic-auth header Caddy injects toward DBGate \\
+\bottomrule
+\end{tabular}
+\caption{Configuration reference. The \code{PhishingTestSize} setting
+(questions per test; code fallback 30, dashboard choices 9--30) is
+stored in the database, not the environment.}
+\label{tab:config}
+\end{table}
+
+\subsection{Development mode}
+
+Every service block in the compose file carries commented \code{Dev}
+lines: switching them on bind-mounts the source into the containers
+and starts the Vite dev server (with hot reload) and Django's
+\code{runserver} (via \code{DJANGO\_DEBUG=True}) instead of the
+production servers. The backend image pins its five dependencies
+directly in the Dockerfile --- there is no \code{requirements.txt} ---
+and companion \code{pushDockerhub.sh} scripts build and push each
+image with \code{latest} and date tags.
+
+% ============================================================
+\section{Limitations and Future Work}
+\label{sec:limitations}
+% ============================================================
+
+The source-level view also makes the system's boundaries clear. The
+platform is built for a supervised classroom on a trusted network, and
+several choices only make sense in that setting:
+
+\begin{itemize}
+  \item \textbf{Plain HTTP.} The endpoint listens on port 80 with no
+        TLS; production deployments should terminate TLS in front of
+        the endpoint. The session cookie carries no \code{Secure}
+        flag, so transport security is entirely the perimeter's job.
+  \item \textbf{No rate limiting.} Login and registration are
+        unauthenticated and unthrottled. Student access codes are
+        8-digit numbers, so an online brute-force is a numbers game
+        the platform itself does nothing to stop; likewise nothing
+        bounds mass registration. Access codes and the question
+        sample are drawn from Python's default PRNG, not a
+        cryptographic one.
+  \item \textbf{CSRF protection is the Origin check only.} Django's
+        CSRF middleware is off by design; Caddy rejects foreign
+        origins, but requests without an \code{Origin} header pass,
+        and the finish endpoint is a state-changing GET --- a crafted
+        cross-site navigation could irreversibly finish a logged-in
+        student's test.
+  \item \textbf{The answer key is available to a determined student
+        mid-test.} The self-access rule on the results endpoints has
+        no finished-check, so a student who reads the API (or the
+        Swagger docs, were they not admin-gated) can fetch their own
+        graded answers --- including correct verdicts --- while still
+        answering. Similarly, any authenticated student can fetch any
+        question image and its link areas by ID, not just their dealt
+        ones. Honest use is unaffected; unsupervised high-stakes use
+        would need a finished-gate on these endpoints.
+  \item \textbf{The leaderboard is public by design} and discloses
+        usernames, grades and last-seen times to anyone who can reach
+        the host. Students choose their own nicknames, which
+        mitigates but does not remove the disclosure.
+  \item \textbf{No server-side logout.} Sessions end when the browser
+        closes or the cookie is deleted client-side; a stolen cookie
+        stays valid until then.
+  \item \textbf{Operational guard rails are thin.} An administrator
+        can delete their own or the last admin account; the test size
+        accepts any integer at the API level; images live as database
+        blobs, which is simple and consistent but makes the database
+        the size bottleneck.
+  \item \textbf{Single language.} All interface text is hardcoded
+        Lithuanian; internationalisation would require an i18n layer
+        in the frontend.
+\end{itemize}
+
+% ============================================================
+\section{Conclusion}
+% ============================================================
+
+Fisingas shows that a purposeful classroom assessment platform does
+not require heavyweight infrastructure. One Caddy ingress, a thin
+Django API, PostgreSQL, and a React SPA --- nine containers, one
+script --- deliver the full loop: self-service registration with
+generated access codes, a visual test whose simulated link previews
+teach the single most valuable phishing-detection habit, live progress
+on the lecturer's dashboard, and a projected leaderboard that turns
+the exercise into a game. The defining engineering decision is the
+snapshot discipline: dealing freezes question content into the
+student's rows and finishing freezes the totals, so the question bank
+can evolve freely --- mid-course, even mid-test --- without ever
+disturbing a grade already given. The entire stack is reproducible
+from one compose file and operable by anyone comfortable with Docker.
+
+\end{document}
