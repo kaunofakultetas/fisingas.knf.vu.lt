@@ -3,6 +3,6 @@
   "baseURL": "/filebrowser/dropbox",
   "address": "",
   "log": "stdout",
-  "database": "/filebrowser.db",
+  "database": "/database/filebrowser.db",
   "root": "/data"
 }
