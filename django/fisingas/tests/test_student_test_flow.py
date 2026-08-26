@@ -11,10 +11,11 @@
 
 from unittest.mock import patch as mock_patch
 
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 from django.test import Client, TestCase
+from django.test.utils import CaptureQueriesContext
 
-from fisingas.phishing_test.models import Answer, AnswerSelectedOption, QuestionLink, TestResult
+from fisingas.phishing_test.models import Answer, AnswerSelectedOption, TestResult
 from fisingas.users.models import Setting, Student
 
 from .utils import (
@@ -69,7 +70,6 @@ class DealTests(TestCase):
             "questionoptions": [
                 {"answeroptionid": option.id, "answeroption": "Siuntėjo adresas", "isselected": None},
             ],
-            "questionlinks": [],
         })
 
         # The frozen snapshot rows
@@ -173,17 +173,15 @@ class DealTests(TestCase):
         self.assertEqual(second[0]["questionid"], first[0]["questionid"])
         self.assertEqual(second[0]["question"], "Originalus tekstas")
 
-    def test_tooltip_links_ride_along_with_raw_coordinates(self):
-        question = create_question()
-        QuestionLink.objects.create(
-            image_id=question.image_id, title="Nuoroda",
-            content="https://apgaule.example", x="0.25", y="0.5", w="0.1", h="0.2",
-        )
+    def test_tooltip_links_are_not_part_of_the_payload(self):
+        # The test page fetches /api/phishingpictures/<id>/links per
+        # question — the payload carries exactly the four question
+        # keys and nothing else (a former `questionlinks` copy had
+        # no consumer and an incompatible coordinate encoding)
+        create_question()
 
         [entry] = self.client.get(QUESTIONS_URL).json()
-        self.assertEqual(entry["questionlinks"], [
-            {"title": "Nuoroda", "content": "https://apgaule.example", "x": "0.25", "y": "0.5"},
-        ])
+        self.assertEqual(set(entry), {"questionid", "selectedanswer", "question", "questionoptions"})
 
     def test_admins_get_an_empty_object(self):
         create_admin()
@@ -427,6 +425,29 @@ class FinishTests(TestCase):
         second = TestResult.objects.get(student=self.student)
         self.assertEqual(second.total_points, first.total_points)
         self.assertEqual(second.finished_at, first.finished_at)
+
+    def test_finish_locks_the_student_row_before_grading(self):
+        # The answers POST takes the student row lock (UPDATE
+        # users_student) as its FIRST statement and holds it while
+        # it writes the answers. Finish must take that same lock
+        # before it grades — otherwise, on Postgres, a POST that
+        # commits mid-finish is missing from the frozen TestResult
+        # but visible in the live answer review, permanently.
+        # SQLite cannot reproduce the race, so this pins the
+        # statement order instead: the lock precedes every
+        # grading read and the TestResult write
+        self._take_the_test()
+
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(FINISH_URL)
+
+        sql = [query["sql"] for query in ctx.captured_queries]
+        lock = next(i for i, statement in enumerate(sql) if statement.startswith('UPDATE "users_student"'))
+        first_grading_read = next(i for i, statement in enumerate(sql) if '"phishing_test_answer' in statement)
+        freeze = next(i for i, statement in enumerate(sql) if '"phishing_test_testresult"' in statement)
+
+        self.assertLess(lock, first_grading_read)
+        self.assertLess(lock, freeze)
 
     def test_unanswered_questions_count_as_wrong(self):
         self.client.get(QUESTIONS_URL)

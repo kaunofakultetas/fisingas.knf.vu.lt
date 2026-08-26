@@ -191,7 +191,6 @@ class ContractStudentTests(ContractTestCase):
         student = create_student()
         question = create_question(is_phishing=1)
         add_option(question, answer_status=1)
-        QuestionLink.objects.create(image_id=question.image_id, title="t", content="https://x.lt", x="0.1", y="0.2")
         login_student(self.client)
 
         # The dealt array...

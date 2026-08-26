@@ -54,7 +54,7 @@ info:
     endpoints (no field-level validation by design); the answers save validates its whole
     payload shape up front and refuses bad shapes with the 200 error string, but
     non-numeric **values** in it still fail with a `500`.
-  version: 2.1.0
+  version: 2.2.0
 
 servers:
   - url: /
@@ -343,10 +343,8 @@ paths:
         Returns `{}` (an empty object instead of an array) once the test is finished,
         or when called by an admin session.
 
-        Each question's `questionlinks` carry the clickable-area anchor coordinates as
-        **fractional strings** (e.g. `"0.15"` = 15% from the left); width/height are
-        not included here -- fetch `/api/phishingpictures/{questionID}/links` for the
-        full rectangles.
+        The clickable tooltip areas are **not** part of this payload -- fetch
+        `/api/phishingpictures/{questionID}/links` per question for the rectangles.
       security:
         - cookieAuth: []
       responses:
@@ -1453,26 +1451,6 @@ components:
                 type: integer
                 nullable: true
                 description: "`1` = selected, `0` = deselected, `null` = never touched"
-        questionlinks:
-          type: array
-          description: |
-            Clickable-area anchors for the hover tooltips. Coordinates are
-            fractional strings relative to the image (e.g. `"0.15"`); width and
-            height are not included in this payload.
-          items:
-            type: object
-            properties:
-              title:
-                type: string
-              content:
-                type: string
-                description: The link URL shown in the tooltip
-              x:
-                type: string
-                example: "0.15"
-              y:
-                type: string
-                example: "0.42"
 
     AdminQuestion:
       type: object

@@ -24,7 +24,7 @@ from django.http import HttpResponse, JsonResponse
 from fisingas.common.auth import get_json, login_required
 from fisingas.users.models import Setting, Student
 from ..grading import finalize_student
-from ..models import Answer, AnswerSelectedOption, Question, QuestionLink, QuestionOption
+from ..models import Answer, AnswerSelectedOption, Question, QuestionOption
 
 
 
@@ -114,6 +114,11 @@ def _deal_questions(studentID):
 # snapshots. Question order is shuffled on every request —
 # the frontend keeps its own order once loaded.
 #
+# The clickable tooltip areas are NOT part of this payload —
+# the test page fetches them per question from
+# /api/phishingpictures/<id>/links, which carries the full
+# rectangles in the encoding the overlay component reads.
+#
 # Used by:
 #   - student_questions (below), on every GET
 ############################################################
@@ -122,17 +127,11 @@ def _questions_response(studentID):
     answers = list(Answer.objects.filter(student_id=studentID))
     random.shuffle(answers)
 
-    # Both lookups grouped in one query each, instead of one
-    # query per question
+    # Options grouped in one query, instead of one query per
+    # question
     selectionsByQuestion = {}
     for selection in AnswerSelectedOption.objects.filter(student_id=studentID).order_by("option_id"):
         selectionsByQuestion.setdefault(selection.question_id, []).append(selection)
-
-    # Tooltip links hang off the frozen IMAGE, not the question —
-    # they survive question deletion together with the image
-    linksByImage = {}
-    for link in QuestionLink.objects.filter(image_id__in=[answer.image_id for answer in answers]):
-        linksByImage.setdefault(link.image_id, []).append(link)
 
     return [
         {
@@ -146,15 +145,6 @@ def _questions_response(studentID):
                     "isselected": selection.is_selected,
                 }
                 for selection in selectionsByQuestion.get(answer.question_id, [])
-            ],
-            "questionlinks": [
-                {
-                    "title": link.title,
-                    "content": link.content,
-                    "x": link.x,
-                    "y": link.y,
-                }
-                for link in linksByImage.get(answer.image_id, [])
             ],
         }
         for answer in answers
@@ -281,9 +271,9 @@ def student_questions(request):
 # this moment (unanswered questions count as wrong).
 #
 # The totals are judged one last time and FROZEN into the
-# TestResult table right before the lock — the list endpoints
-# read that row from now on instead of re-grading. Both
-# writes land in one transaction (ATOMIC_REQUESTS), so a
+# TestResult table under the student row lock — the list
+# endpoints read that row from now on instead of re-grading.
+# All writes land in one transaction (ATOMIC_REQUESTS), so a
 # locked-but-ungraded state cannot exist. An already-finished
 # student is left untouched — their grade was frozen when
 # they first finished.
@@ -299,12 +289,16 @@ def student_finish(request):
     if not request.current_user.admin:
         studentID = request.current_user.userid
 
+        # Take the student row lock FIRST — the same first statement
+        # the answers POST issues. A save that is still committing
+        # holds this lock, so finish waits for it and the grading
+        # below sees every answer the student got a 200 for. Grading
+        # before locking would freeze a total that silently misses
+        # the last save while the answer review shows it
+        Student.objects.filter(id=studentID).update(last_login=timeNow)
+
         if Student.objects.get(id=studentID).is_finished != 1:
             finalize_student(studentID, finished_at=timeNow)
-
-        Student.objects.filter(id=studentID).update(
-            last_login=timeNow,
-            is_finished=1,
-        )
+            Student.objects.filter(id=studentID).update(is_finished=1)
 
     return JsonResponse({})
