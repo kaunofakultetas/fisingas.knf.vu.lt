@@ -222,6 +222,46 @@ class AdministratorsMutationTests(TestCase):
         self.assertEqual(other.password, ADMIN_PASSWORD_HASH)
 
 
+    def test_edit_refuses_an_email_taken_by_another_account(self):
+        # Used to die on the DB unique constraint as a raw 500 —
+        # now the same friendly error the create path always had
+        other = create_admin(email="other@example.com")
+        response = post_json(self.client, URL, {
+            "action": "insertupdate", "id": other.id,
+            "email": self.admin.email, "password": "", "enabled": 1,
+        })
+        self.assertEqual(response.json(), {"type": "error", "reason": "Administrator with this email already exists"})
+        other.refresh_from_db()
+        self.assertEqual(other.email, "other@example.com")
+
+    def test_edit_keeping_the_same_email_is_allowed(self):
+        # The uniqueness check must not trip over the account's own row
+        other = create_admin(email="other@example.com", enabled=1)
+        response = post_json(self.client, URL, {
+            "action": "insertupdate", "id": other.id,
+            "email": "other@example.com", "password": "", "enabled": 0,
+        })
+        self.assertEqual(response.json(), {"type": "ok"})
+        other.refresh_from_db()
+        self.assertEqual(other.enabled, 0)
+
+    def test_cannot_disable_your_own_account(self):
+        response = post_json(self.client, URL, {
+            "action": "insertupdate", "id": self.admin.id,
+            "email": self.admin.email, "password": "", "enabled": 0,
+        })
+        self.assertEqual(response.json(), {"type": "error", "reason": "You cannot disable your own account"})
+        self.admin.refresh_from_db()
+        self.assertEqual(self.admin.enabled, 1)
+
+    def test_editing_your_own_account_while_enabled_is_allowed(self):
+        response = post_json(self.client, URL, {
+            "action": "insertupdate", "id": self.admin.id,
+            "email": self.admin.email, "password": "", "enabled": 1,
+        })
+        self.assertEqual(response.json(), {"type": "ok"})
+
+
     # ---- delete ----
 
     def test_delete_removes_the_account(self):
@@ -229,6 +269,13 @@ class AdministratorsMutationTests(TestCase):
         response = post_json(self.client, URL, {"action": "delete", "id": other.id})
         self.assertEqual(response.json(), {"type": "ok"})
         self.assertFalse(SystemUser.objects.filter(id=other.id).exists())
+
+    def test_cannot_delete_your_own_account(self):
+        # The frontend sends ids as strings — the guard must hold
+        # for both representations
+        response = post_json(self.client, URL, {"action": "delete", "id": str(self.admin.id)})
+        self.assertEqual(response.json(), {"type": "error", "reason": "You cannot delete your own account"})
+        self.assertTrue(SystemUser.objects.filter(id=self.admin.id).exists())
 
     def test_delete_of_unknown_id_still_reports_ok(self):
         response = post_json(self.client, URL, {"action": "delete", "id": 424242})

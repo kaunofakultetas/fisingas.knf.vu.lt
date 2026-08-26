@@ -61,10 +61,12 @@ def upload_picture(request):
     if "." not in file.name or file.name.rsplit(".", 1)[1].lower() not in ALLOWED_EXTENSIONS:
         return JsonResponse({"type": "error", "reason": "File type not allowed"}, status=400)
 
-    file_binary = file.read()
-
-    if len(file_binary) > 5 * 1024 * 1024:  # 5MB
+    # Size is checked BEFORE reading — an oversized upload is
+    # refused without ever pulling its bytes into memory
+    if file.size > 5 * 1024 * 1024:  # 5MB
         return JsonResponse({"type": "error", "reason": "File is too large"}, status=400)
+
+    file_binary = file.read()
 
     timeNow = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 

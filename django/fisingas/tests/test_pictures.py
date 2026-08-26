@@ -97,6 +97,13 @@ class UploadPictureTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"type": "error", "reason": "File type not allowed"})
 
+    def test_exactly_5mb_is_still_accepted(self):
+        # The limit is strict "greater than" — an upload of exactly
+        # 5MB passes (and the size is now checked before reading)
+        exact = PNG_BYTES + b"\x00" * (5 * 1024 * 1024 - len(PNG_BYTES))
+        response = _upload(self.client, "exact.png", content=exact)
+        self.assertEqual(response.json()["type"], "ok")
+
     def test_oversized_file_is_a_400(self):
         big = PNG_BYTES + b"\x00" * (5 * 1024 * 1024)
         response = _upload(self.client, "big.png", content=big)

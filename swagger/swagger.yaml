@@ -488,6 +488,9 @@ paths:
         Creates a new empty answer option (`optiontext` empty, expected value unset)
         for the specified question. Saved immediately; the returned ID is what the
         editor uses for subsequent `updatequestion` calls.
+
+        Returns `404` when the question no longer exists (e.g. deleted by another
+        admin while the questions page was still open).
       security:
         - cookieAuth: []
       requestBody:
@@ -514,6 +517,12 @@ paths:
           $ref: "#/components/responses/InvalidBodyText"
         "403":
           $ref: "#/components/responses/NotAdminText"
+        "404":
+          description: "The question no longer exists (plain-text body `Error: Question no longer exists`)"
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /api/admin/questions/updatequestion:
     post:
@@ -1094,8 +1103,11 @@ paths:
           description: |
             Operation result. `{"type": "ok"}` on success; on failure
             `{"type": "error", "reason": ...}` with reasons such as
-            `Password must be at least 8 characters long` or
-            `Administrator with this email already exists`.
+            `Password must be at least 8 characters long`,
+            `Password must be at most 72 bytes long` (bcrypt input limit),
+            `Administrator with this email already exists` (create and edit),
+            `You cannot disable your own account` or
+            `You cannot delete your own account` (self-lockout guards).
           content:
             application/json:
               schema:
@@ -1151,8 +1163,8 @@ paths:
 
         Sets the number of questions randomly dealt to each new student (stored as
         the `PhishingTestSize` setting; the admin UI offers 9/12/15/21/30). Applies
-        only to tests dealt after the change. The value is coerced to an integer but
-        not range-checked at the API level.
+        only to tests dealt after the change. The value is coerced to an integer and
+        must be at least 1 (`400` with `Error: Test size must be at least 1` otherwise).
       security:
         - cookieAuth: []
       requestBody:

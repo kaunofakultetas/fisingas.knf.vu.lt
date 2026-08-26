@@ -398,6 +398,17 @@ class PhishingTestSizeTests(TestCase):
         post_json(self.client, TESTSIZE_URL, {"phishingtestsize": "15"})
         self.assertEqual(Setting.objects.get(name="PhishingTestSize").value, "15")
 
+    def test_zero_and_negative_sizes_are_refused(self):
+        # 0 would deal empty tests forever; a negative value would
+        # crash dealing outright (random.sample refuses negative
+        # counts) — both must never reach the Settings table
+        Setting.objects.create(name="PhishingTestSize", value="25")
+        for bad in (0, -5, "-5"):
+            response = post_json(self.client, TESTSIZE_URL, {"phishingtestsize": bad})
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.content, b"Error: Test size must be at least 1")
+        self.assertEqual(Setting.objects.get(name="PhishingTestSize").value, "25")
+
     def test_invalid_values_are_a_400(self):
         for body in ["not json", None]:
             response = self.client.post(TESTSIZE_URL, data=body or "", content_type="application/json")

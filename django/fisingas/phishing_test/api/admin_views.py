@@ -372,6 +372,12 @@ def update_phishingtestsize(request):
     except (TypeError, KeyError, ValueError):
         return HttpResponse("Error: Invalid request body", status=400)
 
+    # A test must deal at least one question — zero would deal
+    # empty tests forever, and a negative value would crash
+    # dealing outright (random.sample refuses negative counts)
+    if testSize < 1:
+        return HttpResponse("Error: Test size must be at least 1", status=400)
+
     Setting.objects.update_or_create(name="PhishingTestSize", defaults={"value": str(testSize)})
 
     return JsonResponse({"status": "ok"})

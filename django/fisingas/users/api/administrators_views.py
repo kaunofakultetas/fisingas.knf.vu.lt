@@ -33,10 +33,12 @@ from fisingas.users.models import SystemUser
 #                  must be free and the password at least 8
 #                  characters and at most 72 bytes — the
 #                  bcrypt input limit); a non-empty id edits an
-#                  existing one, and the password is only
-#                  replaced when one was typed in (an empty
-#                  field means "keep the current")
-#   delete       — removes the account by id
+#                  existing one (same unique-email rule), and
+#                  the password is only replaced when one was
+#                  typed in (an empty field means "keep the
+#                  current"); disabling your own account is
+#                  refused (self-lockout guard)
+#   delete       — removes the account by id (never your own)
 #
 # Passwords are stored as bcrypt hashes (12 rounds) — only
 # admin accounts have real passwords; students use generated
@@ -102,6 +104,17 @@ def administrators(request):
 
             # Existing account — password only changed when one was typed in
             else:
+                # The email must stay unique on edit too — otherwise
+                # the update dies on the DB constraint as a raw 500
+                if SystemUser.objects.filter(email=postData["email"]).exclude(id=postData["id"]).exists():
+                    return JsonResponse({"type": "error", "reason": "Administrator with this email already exists"})
+
+                # An admin must not disable their OWN account — the
+                # session dies on the next request, and if they were
+                # the last enabled admin nobody could log in to undo it
+                if str(postData["id"]) == str(request.current_user.userid) and str(postData["enabled"]) == "0":
+                    return JsonResponse({"type": "error", "reason": "You cannot disable your own account"})
+
                 updatedFields = {
                     "email": postData["email"],
                     "enabled": postData["enabled"],
@@ -115,6 +128,12 @@ def administrators(request):
 
 
         elif postData["action"] == "delete":
+            # Same self-lockout guard as disabling: whoever is logged
+            # in can never remove themselves, so at least one working
+            # admin account survives any sequence of actions
+            if str(postData["id"]) == str(request.current_user.userid):
+                return JsonResponse({"type": "error", "reason": "You cannot delete your own account"})
+
             SystemUser.objects.filter(id=postData["id"]).delete()
             return JsonResponse({"type": "ok"})
 
