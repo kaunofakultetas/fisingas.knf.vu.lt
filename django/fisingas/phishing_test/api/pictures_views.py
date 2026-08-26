@@ -57,11 +57,14 @@ def upload_picture(request):
 
     file = request.FILES["image"]
 
-    if file.name == "":
-        return JsonResponse({"type": "error", "reason": "No selected file"}, status=400)
-
     if "." not in file.name or file.name.rsplit(".", 1)[1].lower() not in ALLOWED_EXTENSIONS:
         return JsonResponse({"type": "error", "reason": "File type not allowed"}, status=400)
+
+    # (Django never hands over a part with an empty filename, so
+    # there is no "no selected file" case to check — but an empty
+    # FILE is possible and must not become a question)
+    if file.size == 0:
+        return JsonResponse({"type": "error", "reason": "Empty file"}, status=400)
 
     # Size is checked BEFORE reading — an oversized upload is
     # refused without ever pulling its bytes into memory
@@ -69,6 +72,12 @@ def upload_picture(request):
         return JsonResponse({"type": "error", "reason": "File is too large"}, status=400)
 
     file_binary = file.read()
+
+    # The BYTES decide, not the filename: only what get_picture can
+    # serve as an image may become a question — a renamed text file
+    # would be stored forever and served back from this origin
+    if _sniff_mimetype(file_binary) is None:
+        return JsonResponse({"type": "error", "reason": "File is not an image"}, status=400)
 
     timeNow = now()
 
@@ -107,24 +116,62 @@ def upload_picture(request):
 # snapshots that reference it — so old graded tests keep
 # their pictures (and the tooltips attached to them) forever.
 #
+# _resolve_image_id resolves the ID only — never the blob.
+# The links endpoint is called once per question per student
+# and needs nothing but the ID, so pulling a multi-megabyte
+# bytea through Postgres for it would be pure waste.
+# _resolve_image loads the row; get_picture is its only user.
+#
 # Used by:
-#   - get_picture (below)
-#   - picture_links (below)
+#   - get_picture (below)    — _resolve_image
+#   - picture_links (below)  — _resolve_image_id
 ############################################################
 
-def _resolve_image(questionID):
-    try:
-        return Question.objects.select_related("image").get(id=questionID).image
-    except Question.DoesNotExist:
-        answer = (
+def _resolve_image_id(questionID):
+    image_id = Question.objects.filter(id=questionID).values_list("image_id", flat=True).first()
+    if image_id is None:
+        image_id = (
             Answer.objects
             .filter(question_id=questionID, image__isnull=False)
-            .select_related("image")
+            .values_list("image_id", flat=True)
             .first()
         )
-        if answer is None:
-            raise Http404
-        return answer.image
+    if image_id is None:
+        raise Http404
+    return image_id
+
+
+def _resolve_image(questionID):
+    return QuestionImage.objects.get(id=_resolve_image_id(questionID))
+
+
+
+
+
+
+
+
+############################################################
+# _sniff_mimetype (helper)
+############################################################
+#
+# The image type from the magic bytes, or None when the bytes
+# are not one of the three formats the platform accepts. The
+# same table validates an upload and labels the served blob.
+#
+# Used by:
+#   - upload_picture (above) — refuses anything else
+#   - get_picture (below)    — the Content-Type
+############################################################
+
+def _sniff_mimetype(binary):
+    if binary[0:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if binary[0:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if binary[0:3] == b"GIF":
+        return "image/gif"
+    return None
 
 
 
@@ -153,14 +200,9 @@ def _resolve_image(questionID):
 def get_picture(request, questionID):
     pictureBinary = bytes(_resolve_image(questionID).image)
 
-    if pictureBinary[0:3] == b"\xff\xd8\xff":
-        mimetype = "image/jpeg"
-    elif pictureBinary[0:8] == b"\x89PNG\r\n\x1a\n":
-        mimetype = "image/png"
-    elif pictureBinary[0:3] == b"GIF":
-        mimetype = "image/gif"
-    else:
-        mimetype = "application/octet-stream"
+    # Uploads are validated by their bytes, so the fallback only
+    # ever applies to rows stored before that check existed
+    mimetype = _sniff_mimetype(pictureBinary) or "application/octet-stream"
 
     return HttpResponse(pictureBinary, content_type=mimetype)
 
@@ -176,9 +218,11 @@ def get_picture(request, questionID):
 ############################################################
 #
 # '0.42' → '42%'. Coordinates are stored as fractions of the
-# image size and multiplied by 101 (not 100) on purpose —
-# the frontend positions its overlays with these slightly
-# inflated percentages. NULL stays NULL.
+# image size; the percent is ROUNDED, never truncated — 0.29*100
+# is 28.999… in floating point, and the editor round-trips the
+# value on every save, so a truncating conversion (or the old
+# ×101 workaround for it) would creep by a percent per save.
+# NULL stays NULL.
 #
 # Used by:
 #   - picture_links (below), GET branch
@@ -191,7 +235,7 @@ def _percent(value):
     if value is None:
         return None
     try:
-        return f"{int(float(value) * 101)}%"
+        return f"{round(float(value) * 100)}%"
     except (TypeError, ValueError):
         return None
 
@@ -236,7 +280,7 @@ def _is_area(area):
 
 @login_required
 def picture_links(request, questionID):
-    image = _resolve_image(questionID)
+    image_id = _resolve_image_id(questionID)
 
 
     if request.method == "GET":
@@ -249,7 +293,7 @@ def picture_links(request, questionID):
                 "width": _percent(link.w),
                 "height": _percent(link.h),
             }
-            for link in image.links.order_by("id")
+            for link in QuestionLink.objects.filter(image_id=image_id).order_by("id")
         ], safe=False)
 
 
@@ -270,10 +314,10 @@ def picture_links(request, questionID):
             if not isinstance(areas, list) or not all(_is_area(area) for area in areas):
                 return HttpResponse("Error: Invalid request body", status=400)
 
-            image.links.all().delete()
+            QuestionLink.objects.filter(image_id=image_id).delete()
             for areaData in areas:
                 QuestionLink.objects.create(
-                    image=image,
+                    image_id=image_id,
                     title="",
                     content=areaData["url"],
                     x=str(areaData["x"]),

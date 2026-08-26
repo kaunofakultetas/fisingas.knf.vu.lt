@@ -733,8 +733,11 @@ paths:
         `updatequestion` afterwards.
 
         Validation: multipart field must be named `image`; the filename extension
-        must be one of `png`, `jpg`, `jpeg`, `gif`; the file must not exceed 5 MB.
-        The image bytes are stored in PostgreSQL as-is (no re-encoding).
+        must be one of `png`, `jpg`, `jpeg`, `gif`; the file must not be empty nor
+        exceed 5 MB (the Caddy endpoint additionally refuses request bodies over
+        6 MB before they reach Django); and the **bytes** must be a real PNG, JPEG
+        or GIF -- the magic prefix is checked, whatever the filename says. The image
+        bytes are stored in PostgreSQL as-is (no re-encoding).
       security:
         - cookieAuth: []
       requestBody:
@@ -767,9 +770,10 @@ paths:
           description: |
             Upload rejected. `reason` is one of:
             - `No file part in the request`
-            - `No selected file`
             - `File type not allowed`
+            - `Empty file`
             - `File is too large`
+            - `File is not an image` (the bytes are not PNG, JPEG or GIF -- whatever the filename says)
           content:
             application/json:
               schema:
@@ -1522,12 +1526,12 @@ components:
         x:
           type: string
           nullable: true
-          description: X position as a percentage string (`null` only for legacy rows whose stored value cannot be parsed)
+          description: X position as a whole-number percentage string, rounded from the stored fraction (`null` only for legacy rows whose stored value cannot be parsed)
           example: "15%"
         y:
           type: string
           nullable: true
-          description: Y position as a percentage string (`null` only for legacy rows whose stored value cannot be parsed)
+          description: Y position as a whole-number percentage string, rounded from the stored fraction (`null` only for legacy rows whose stored value cannot be parsed)
           example: "42%"
         width:
           type: string

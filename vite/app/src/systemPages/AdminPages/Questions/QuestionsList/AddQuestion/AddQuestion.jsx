@@ -82,13 +82,25 @@ function UploadButton({ disabled, onUpload }) {
 
 function ImageDropzone({ imagePreviewUrl, onFileSelected }) {
 
+  // accept must be the object form — react-dropzone 14+ silently
+  // ignores a plain string, which turned the filter off entirely.
+  // Mirrors the server whitelist and its 5 MB cap, so a wrong file
+  // is refused before a byte leaves the browser
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: (acceptedFiles) => {
       if (acceptedFiles && acceptedFiles.length > 0) {
         onFileSelected(acceptedFiles[0]);
       }
     },
-    accept: 'image/*',
+    onDropRejected: () => {
+      toast.error(<b>Tinka tik PNG, JPG arba GIF paveikslėlis iki 5 MB</b>, { duration: 5000 });
+    },
+    accept: {
+      'image/png': ['.png'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/gif': ['.gif'],
+    },
+    maxSize: 5 * 1024 * 1024,
     multiple: false,
   });
 
@@ -151,8 +163,15 @@ export default function AddQuestion({ setOpen, getData }) {
 
 
   // POST the image; the backend creates the question around it.
-  // On success refetch the question list and close.
+  // On success refetch the question list and close. The button is
+  // disabled while the request is in flight — every extra click
+  // would create another question and another permanent image
+  const [uploading, setUploading] = useState(false);
+
   async function handleUpload() {
+    if (uploading) return;
+    setUploading(true);
+
     const formData = new FormData();
     formData.append('image', selectedFile);
 
@@ -175,6 +194,8 @@ export default function AddQuestion({ setOpen, getData }) {
       }
     } catch (error) {
       toast.error(<b>Nepavyko įkelti:<br/>Serverio klaida.</b>, { duration: 8000 });
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -190,7 +211,7 @@ export default function AddQuestion({ setOpen, getData }) {
       showConfirm={false}   // by the custom UploadButton footer
       actions={
         <UploadButton
-          disabled={selectedFile === null}
+          disabled={selectedFile === null || uploading}
           onUpload={handleUpload}
         />
       }

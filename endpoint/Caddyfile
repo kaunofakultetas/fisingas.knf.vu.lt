@@ -156,6 +156,19 @@
         # (@login_required + per-view admin checks; the leaderboard
         # and registration are public on purpose).
         # -----------------------------------------------------------
+        # The screenshot upload is capped at 5 MB in Django, but Django
+        # only sees the size after the whole body has been spooled into
+        # its RAM-backed /tmp — so the edge refuses oversized bodies
+        # before they get there (a little headroom for the multipart
+        # framing)
+        @upload {
+            path /api/phishingpictures
+            method POST
+        }
+        request_body @upload {
+            max_size 6MB
+        }
+
         reverse_proxy /api/* fisingas-django:8000 {
             header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
         }

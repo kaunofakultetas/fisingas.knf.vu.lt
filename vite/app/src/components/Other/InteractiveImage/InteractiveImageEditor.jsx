@@ -406,12 +406,16 @@ export default function InteractiveImageEditor({ src, initialAreasUrl, onSaveBut
     const fetchAreas = async () => {
       try {
         const response = await axios.get(initialAreasUrl, { withCredentials: true });
+        // A coordinate may be null on rows older than the API's
+        // validation — treat it as 0 instead of throwing and leaving
+        // the editor on the loading placeholder forever
+        const percentValue = (value) => parseFloat(String(value ?? 0).replace('%', '')) || 0;
         setAreas(response.data.map((area) => ({
           ...area,
-          x: parseFloat(area.x.replace('%', '')),
-          y: parseFloat(area.y.replace('%', '')),
-          width: parseFloat(area.width.replace('%', '')),
-          height: parseFloat(area.height.replace('%', '')),
+          x: percentValue(area.x),
+          y: percentValue(area.y),
+          width: percentValue(area.width),
+          height: percentValue(area.height),
         })));
         setAreasFetched(true);
       } catch {

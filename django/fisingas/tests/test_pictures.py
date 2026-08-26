@@ -12,7 +12,9 @@
 
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import Client, TestCase
+from django.test.utils import CaptureQueriesContext
 
 from fisingas.phishing_test.models import Answer, Question, QuestionImage, QuestionLink
 
@@ -74,9 +76,39 @@ class UploadPictureTests(TestCase):
 
         question = Question.objects.get()
         self.assertEqual(question.image_id, image.id)
-        self.assertEqual(question.is_enabled, 1)
         self.assertEqual(question.is_phishing, 0)
         self.assertEqual(question.question, "")
+
+    def test_uploaded_question_is_enabled_immediately_by_design(self):
+        # DESIGN DECISION: an uploaded screenshot is a live, dealable
+        # question from the moment it lands — the admin fills in the
+        # card afterwards without having to flip anything. The
+        # placeholder verdict is "Real" (0)
+        _upload(self.client, "shot.png")
+        question = Question.objects.get()
+        self.assertEqual(question.is_enabled, 1)
+        self.assertEqual(question.is_phishing, 0)
+
+    def test_zero_byte_file_is_a_400(self):
+        response = self.client.post(UPLOAD_URL, {"image": SimpleUploadedFile("shot.png", b"")})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"type": "error", "reason": "Empty file"})
+        self.assertFalse(QuestionImage.objects.exists())
+        self.assertFalse(Question.objects.exists())
+
+    def test_non_image_bytes_are_a_400_whatever_the_name_says(self):
+        # The bytes are checked, not the filename — a renamed text
+        # file must not become a question
+        response = self.client.post(UPLOAD_URL, {"image": SimpleUploadedFile("shot.png", b"not an image at all")})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"type": "error", "reason": "File is not an image"})
+        self.assertFalse(QuestionImage.objects.exists())
+
+    def test_bytes_of_another_allowed_format_still_upload(self):
+        # JPEG bytes under a .png name: the type is sniffed on serve,
+        # so this is harmless and accepted
+        response = self.client.post(UPLOAD_URL, {"image": SimpleUploadedFile("shot.png", JPEG_BYTES)})
+        self.assertEqual(response.json()["type"], "ok")
 
     def test_multi_dot_filenames_use_the_last_extension(self):
         self.assertEqual(_upload(self.client, "archive.tar.png").json()["type"], "ok")
@@ -218,9 +250,10 @@ class PictureLinksTests(TestCase):
     def _links_url(self, question_id=None):
         return f"{UPLOAD_URL}/{question_id or self.question.id}/links"
 
-    def test_get_converts_coordinates_to_inflated_percentages(self):
-        # Fractions ×101 (not ×100), truncated — the frontend
-        # positions its overlays with exactly these values
+    def test_get_converts_coordinates_to_percentages(self):
+        # Fractions → whole-number percent strings, ROUNDED: the
+        # frontend divides by exactly 100, and the editor round-trips
+        # the value on every save, so the conversion must be exact
         link = QuestionLink.objects.create(
             image_id=self.question.image_id, title="", content="https://apgaule.example",
             x="0.25", y="0.5", w="0.1", h=None,
@@ -272,15 +305,42 @@ class PictureLinksTests(TestCase):
         self.assertTrue(QuestionLink.objects.filter(id=keep.id).exists())
         self.assertEqual(QuestionLink.objects.count(), 2)
 
-    def test_full_coordinate_renders_as_101_percent(self):
-        # The deliberate ×101 inflation at its edges: 1 → "101%",
-        # 0 → "0%"
+    def test_full_coordinate_renders_as_exactly_100_percent(self):
+        # The edges: 1 → "100%" (never more — an inflated value would
+        # grow by a percent on every editor save), 0 → "0%"
         QuestionLink.objects.create(
             image_id=self.question.image_id, content="https://edge.example",
             x="1", y="0", w="0.999", h="0.5",
         )
         [row] = self.client.get(self._links_url()).json()
-        self.assertEqual((row["x"], row["y"], row["width"], row["height"]), ("101%", "0%", "100%", "50%"))
+        self.assertEqual((row["x"], row["y"], row["width"], row["height"]), ("100%", "0%", "100%", "50%"))
+
+    def test_percent_conversion_survives_float_truncation(self):
+        # 0.29 * 100 is 28.999999999999996 in floating point — a
+        # truncating conversion would move the area by a percent
+        # every time it is saved
+        QuestionLink.objects.create(
+            image_id=self.question.image_id, content="https://float.example",
+            x="0.29", y="0.57", w="0.58", h="0.07",
+        )
+        [row] = self.client.get(self._links_url()).json()
+        self.assertEqual((row["x"], row["y"], row["width"], row["height"]), ("29%", "57%", "58%", "7%"))
+
+    def test_links_get_does_not_load_the_image_blob(self):
+        # The links live on the image row, but only its ID is needed —
+        # reading the multi-megabyte blob per request (this endpoint
+        # is called once per question per student) is pure waste
+        QuestionLink.objects.create(image_id=self.question.image_id, content="https://x.example", x="0.1", y="0.1")
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(self._links_url())
+        blob_reads = [q["sql"] for q in ctx.captured_queries if '"phishing_test_questionimage"."image"' in q["sql"]]
+        self.assertEqual(blob_reads, [])
+
+    def test_links_post_does_not_load_the_image_blob_either(self):
+        with CaptureQueriesContext(connection) as ctx:
+            post_json(self.client, self._links_url(), {"areas": []})
+        blob_reads = [q["sql"] for q in ctx.captured_queries if '"phishing_test_questionimage"."image"' in q["sql"]]
+        self.assertEqual(blob_reads, [])
 
     def test_post_without_areas_changes_nothing(self):
         QuestionLink.objects.create(image_id=self.question.image_id, content="https://lieka.example", x="0.1", y="0.1")
