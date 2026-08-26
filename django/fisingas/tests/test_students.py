@@ -54,8 +54,17 @@ class StudentRegisterTests(TestCase):
         self.assertEqual(student.passcode, data["accessCode"])
         self.assertEqual(student.is_finished, 0)
         self.assertEqual(student.status, 1)
-        self.assertEqual(student.last_login, "")
         self.assertRegex(student.registration_time, TIMESTAMP_RE)
+
+    def test_registration_stamps_lastseen_with_the_registration_time(self):
+        # EDGE-03 fix: a brand-new account counts as "seen" at its
+        # exact registration moment — the two columns carry the
+        # identical timestamp string, so last-seen based views
+        # (admin list month filter, dashboard) can see it right away
+        post_json(self.client, REGISTER_URL, {"username": "BRANDNEW"})
+        student = Student.objects.get(username="BRANDNEW")
+        self.assertRegex(student.last_login, TIMESTAMP_RE)
+        self.assertEqual(student.last_login, student.registration_time)
 
     def test_underscore_survives_normalization(self):
         data = post_json(self.client, REGISTER_URL, {"username": "jo_nas"}).json()

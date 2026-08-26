@@ -224,10 +224,26 @@ def student_questions(request):
             if not isinstance(postData, list):
                 return HttpResponse("Error: This is not questions state object")
 
+            # Validate the WHOLE payload before writing anything:
+            # every entry must be an object with a question ID and
+            # every option an object with an option ID — the type
+            # check must come first, because `in` on a non-dict
+            # element would raise instead of answering. Rejecting
+            # up front also means a refused body never leaves a
+            # half-saved state behind
             for questionJson in postData:
-                if "questionid" not in questionJson:
+                if not isinstance(questionJson, dict) or "questionid" not in questionJson:
                     return HttpResponse("Error: This is not questions state object")
 
+                questionOptions = questionJson.get("questionoptions", [])
+                if not isinstance(questionOptions, list):
+                    return HttpResponse("Error: This is not questions state object")
+
+                for questionOptionJson in questionOptions:
+                    if not isinstance(questionOptionJson, dict) or "answeroptionid" not in questionOptionJson:
+                        return HttpResponse("Error: This is not questions state object")
+
+            for questionJson in postData:
                 # The Real/Phishing verdict of this question...
                 Answer.objects.filter(
                     student_id=studentID,
@@ -238,9 +254,6 @@ def student_questions(request):
                 # student's own snapshot rows means a forged ID can
                 # never write into someone else's test
                 for questionOptionJson in questionJson.get("questionoptions", []):
-                    if "answeroptionid" not in questionOptionJson:
-                        return HttpResponse("Error: This is not questions state object")
-
                     AnswerSelectedOption.objects.filter(
                         student_id=studentID,
                         question_id=questionJson["questionid"],

@@ -2,7 +2,8 @@
 /_DATA
 /docker-compose.yml
 /.env
-
+/.claude
+/_DEFECTS
 
 /example/
 

@@ -31,7 +31,8 @@ from fisingas.users.models import SystemUser
 #
 #   insertupdate — id "" creates a new account (the email
 #                  must be free and the password at least 8
-#                  characters); a non-empty id edits an
+#                  characters and at most 72 bytes — the
+#                  bcrypt input limit); a non-empty id edits an
 #                  existing one, and the password is only
 #                  replaced when one was typed in (an empty
 #                  field means "keep the current")
@@ -76,6 +77,14 @@ def administrators(request):
             # both when creating and when changing an existing one
             if len(password) != 0 and len(password) < 8:
                 return JsonResponse({"type": "error", "reason": "Password must be at least 8 characters long"})
+
+            # ...and must fit bcrypt's 72-BYTE input limit: bcrypt
+            # silently ignores everything past byte 72, so a longer
+            # password would authenticate on its truncated prefix.
+            # Counted in UTF-8 bytes, not characters — Lithuanian
+            # letters are 2 bytes each, so 37 of them already exceed it
+            if len(password.encode()) > 72:
+                return JsonResponse({"type": "error", "reason": "Password must be at most 72 bytes long"})
 
             # New account — the password is mandatory and the
             # email must not be taken by another account

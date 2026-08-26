@@ -140,6 +140,51 @@ class AdministratorsMutationTests(TestCase):
         self.assertEqual(SystemUser.objects.count(), 1)
 
 
+    def test_create_refuses_password_over_the_bcrypt_72_byte_limit(self):
+        # EDGE-04 fix: bcrypt silently ignores everything past byte
+        # 72 — such a password would authenticate on its prefix
+        response = post_json(self.client, URL, {
+            "action": "insertupdate", "id": "",
+            "email": "new@example.com", "password": "a" * 73, "enabled": 1,
+        })
+        self.assertEqual(response.json(), {"type": "error", "reason": "Password must be at most 72 bytes long"})
+        self.assertFalse(SystemUser.objects.filter(email="new@example.com").exists())
+
+    def test_password_limit_counts_utf8_bytes_not_characters(self):
+        # 37 Lithuanian letters are 74 bytes — refused...
+        refused = post_json(self.client, URL, {
+            "action": "insertupdate", "id": "",
+            "email": "lt@example.com", "password": "ą" * 37, "enabled": 1,
+        })
+        self.assertEqual(refused.json(), {"type": "error", "reason": "Password must be at most 72 bytes long"})
+
+        # ...while 36 of them (exactly 72 bytes) still pass and log in
+        accepted = post_json(self.client, URL, {
+            "action": "insertupdate", "id": "",
+            "email": "lt@example.com", "password": "ą" * 36, "enabled": 1,
+        })
+        self.assertEqual(accepted.json(), {"type": "ok"})
+        login_admin(Client(), email="lt@example.com", password="ą" * 36)
+
+    def test_72_ascii_characters_still_fit(self):
+        response = post_json(self.client, URL, {
+            "action": "insertupdate", "id": "",
+            "email": "long@example.com", "password": "a" * 72, "enabled": 1,
+        })
+        self.assertEqual(response.json(), {"type": "ok"})
+        login_admin(Client(), email="long@example.com", password="a" * 72)
+
+    def test_edit_also_refuses_an_oversized_password(self):
+        other = create_admin(email="other@example.com")
+        response = post_json(self.client, URL, {
+            "action": "insertupdate", "id": other.id,
+            "email": other.email, "password": "a" * 73, "enabled": 1,
+        })
+        self.assertEqual(response.json(), {"type": "error", "reason": "Password must be at most 72 bytes long"})
+        other.refresh_from_db()
+        self.assertEqual(other.password, ADMIN_PASSWORD_HASH)
+
+
     # ---- insertupdate: edit ----
 
     def test_edit_with_empty_password_keeps_the_current_one(self):

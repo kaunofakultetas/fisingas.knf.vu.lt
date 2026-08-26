@@ -15,6 +15,7 @@
 
 from datetime import datetime, timedelta
 
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 
 from fisingas.common.auth import get_json, login_required
@@ -251,7 +252,8 @@ def questions_list(request):
 #
 #   createnewoption — adds an empty option to a question and
 #                     returns its new ID (the UI edits it
-#                     in place afterwards)
+#                     in place afterwards); 404 when the
+#                     question was deleted in the meantime
 #   updatequestion  — saves the question's verdict + text,
 #                     the enabled flag and the text/answer
 #                     of every option
@@ -279,11 +281,26 @@ def questions_update(request, action):
 
 
     if action == "createnewoption":
-        newOption = QuestionOption.objects.create(
-            question_id=postData["questionid"],
-            option_text="",
-            answer_status=None,
-        )
+        # The question may have been deleted by another admin while
+        # this page was still open — refuse with an orderly 404
+        # instead of letting the insert die on the foreign key
+        if not Question.objects.filter(id=postData["questionid"]).exists():
+            return HttpResponse("Error: Question no longer exists", status=404)
+
+        # ...and should the deletion land right between the check
+        # and the insert, the constraint still fires — the savepoint
+        # keeps the request transaction healthy and the answer is
+        # the same 404, never a 500
+        try:
+            with transaction.atomic():
+                newOption = QuestionOption.objects.create(
+                    question_id=postData["questionid"],
+                    option_text="",
+                    answer_status=None,
+                )
+        except IntegrityError:
+            return HttpResponse("Error: Question no longer exists", status=404)
+
         return JsonResponse({"new_option_id": newOption.id})
 
 

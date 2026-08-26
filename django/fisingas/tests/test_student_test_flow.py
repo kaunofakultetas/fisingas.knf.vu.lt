@@ -213,6 +213,42 @@ class SaveTests(TestCase):
         self.assertEqual(response.content, b"OK")
         self.assertFalse(Answer.objects.filter(question_id=424242).exists())
 
+    def test_scalar_entries_are_refused_not_a_crash(self):
+        # EDGE-02 fix: these used to raise TypeError → 500 (`in` on
+        # a non-dict), and "questionid" passed the substring test
+        # only to crash on subscripting
+        for body in ([0], [None], [1.5], [True], ["questionid"]):
+            response = post_json(self.client, QUESTIONS_URL, body)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.content, b"Error: This is not questions state object")
+
+    def test_scalar_options_are_refused_not_a_crash(self):
+        response = post_json(self.client, QUESTIONS_URL, [{
+            "questionid": self.question.id, "questionoptions": [5],
+        }])
+        self.assertEqual(response.content, b"Error: This is not questions state object")
+
+    def test_non_list_questionoptions_is_refused(self):
+        response = post_json(self.client, QUESTIONS_URL, [{
+            "questionid": self.question.id, "questionoptions": 5,
+        }])
+        self.assertEqual(response.content, b"Error: This is not questions state object")
+
+    def test_rejected_payload_writes_nothing(self):
+        # The whole payload is validated before any write — a body
+        # refused because of a later entry must not leave the
+        # earlier entries half-saved
+        response = post_json(self.client, QUESTIONS_URL, [
+            {
+                "questionid": self.question.id, "selectedanswer": 1,
+                "questionoptions": [{"answeroptionid": self.option.id, "isselected": 1}],
+            },
+            0,
+        ])
+        self.assertEqual(response.content, b"Error: This is not questions state object")
+        self.assertIsNone(Answer.objects.get(student=self.student).answer_status)
+        self.assertIsNone(AnswerSelectedOption.objects.get(student=self.student).is_selected)
+
     def test_students_can_only_write_their_own_snapshot(self):
         # A second student dealt the same bank question — writing
         # through the shared question id must not cross accounts

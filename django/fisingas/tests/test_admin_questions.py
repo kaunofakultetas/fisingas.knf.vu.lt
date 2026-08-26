@@ -275,6 +275,28 @@ class QuestionsUpdateTests(TestCase):
         self.assertEqual(option.option_text, "")
         self.assertIsNone(option.answer_status)
 
+    def test_createnewoption_for_a_vanished_question_is_a_404(self):
+        # EDGE-01 fix: the two-admins race — the question was
+        # deleted while the other admin's page was still open. Used
+        # to surface as a raw foreign-key IntegrityError (HTTP 500)
+        doomed = create_question()
+        post_json(self.client, f"{QUESTIONS_URL}/deletequestion", {"questionid": doomed.id})
+
+        response = post_json(self.client, f"{QUESTIONS_URL}/createnewoption", {"questionid": doomed.id})
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.content, b"Error: Question no longer exists")
+        self.assertFalse(QuestionOption.objects.filter(question_id=doomed.id).exists())
+
+        # The rolled-back savepoint leaves the transaction healthy —
+        # the very same session keeps working
+        response = post_json(self.client, f"{QUESTIONS_URL}/createnewoption", {"questionid": self.question.id})
+        self.assertIn("new_option_id", response.json())
+
+    def test_createnewoption_for_a_never_existing_question_is_a_404(self):
+        response = post_json(self.client, f"{QUESTIONS_URL}/createnewoption", {"questionid": 424242})
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.content, b"Error: Question no longer exists")
+
     def test_updatequestion_saves_verdict_text_and_options(self):
         response = post_json(self.client, f"{QUESTIONS_URL}/updatequestion", {
             "questionid": self.question.id,

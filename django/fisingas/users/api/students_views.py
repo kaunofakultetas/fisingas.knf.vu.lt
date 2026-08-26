@@ -212,13 +212,20 @@ def student_register(request):
 
     if not Student.objects.filter(username=username).exists():
         accessCode = str(random.randint(10**7, 10**8 - 1))
+
+        # lastseen starts as the exact registration moment (the same
+        # timestamp string as registration_time) — a brand-new account
+        # counts as "seen" the moment it exists, instead of staying
+        # invisible to last-seen based views until the first login
+        timeNow = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         Student.objects.create(
             username=username,
             passcode=accessCode,
             is_finished=0,
-            last_login="",
+            last_login=timeNow,
             status=1,
-            registration_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            registration_time=timeNow,
         )
         return JsonResponse({
             "status": "OK",
