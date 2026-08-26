@@ -411,7 +411,7 @@ function LoginForm({ selectedForm, setSelectedForm, handleLogin, errorBoxText })
 // Login (default export)
 // -----------------------------------------------------------
 //
-// The page itself: drops the session cookie on mount (logout),
+// The page itself: kills the session on mount (logout),
 // holds which form is visible (registration by default) and
 // does the actual login call.
 //
@@ -425,9 +425,10 @@ export default function Login() {
   const [loginErrorBoxText, setLoginErrorBoxText] = useState("");
 
 
-  // Visiting /login logs the user out — drop the session cookie
+  // Visiting /login logs the user out — kill the session on the
+  // server; the response clears the (HttpOnly) session cookie
   useEffect(() => {
-    document.cookie = "session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    axios.post("/api/logout").catch(() => {});
   }, []);
 
 

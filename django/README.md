@@ -18,7 +18,7 @@ django/
     ├── users/
     │   ├── models.py                # SystemUser, Student, Setting
     │   └── api/
-    │       ├── auth_views.py        # login, checkauth, checkauth/admin
+    │       ├── auth_views.py        # login, logout, checkauth, checkauth/admin
     │       ├── administrators_views.py
     │       └── students_views.py    # students list/detail, register
     ├── phishing_test/
@@ -56,8 +56,8 @@ django/
   accounts are refused at login and lose any live session on their next
   request.
 - **Sessions live in PostgreSQL** (`django_session`) — no Redis. The cookie
-  is named `session` with `HttpOnly` off, because the login page logs out by
-  deleting that cookie from JavaScript.
+  is named `session` and is `HttpOnly`: logout goes through `POST /api/logout`,
+  which deletes the session row server-side and clears the cookie.
 - **No CSRF middleware** — same-origin enforcement happens at the Caddy
   endpoint (Origin header check).
 - **Grading** is pure Python in `phishing_test/grading.py`:

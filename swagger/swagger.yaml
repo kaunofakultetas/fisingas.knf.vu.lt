@@ -123,6 +123,33 @@ paths:
               schema:
                 type: string
 
+  /api/logout:
+    post:
+      tags: [Authentication]
+      summary: Log out
+      description: |
+        **Auth: Public** (harmless without a session).
+
+        Deletes the current session **server-side** (the `django_session` row) and
+        clears the `session` cookie in the response — a cookie value captured
+        before logging out is dead from this moment. `POST` only: a cross-site
+        top-level `GET` navigation must not be able to log anyone out.
+      responses:
+        "200":
+          description: Logged out (plain-text body `OK`); also returned when no session existed
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+          headers:
+            Set-Cookie:
+              description: "`session` cookie cleared"
+              schema:
+                type: string
+        "405":
+          description: Method not allowed (only `POST`)
+
   /api/checkauth:
     get:
       tags: [Authentication]
@@ -1229,8 +1256,9 @@ components:
       name: session
       description: |
         Session cookie set by `POST /api/login`. Database-backed, expires when the
-        browser closes. Deliberately not `HttpOnly` -- the frontend logs out by
-        deleting it from JavaScript (there is no logout endpoint).
+        browser closes. `HttpOnly` -- scripts can never read it; logout goes
+        through `POST /api/logout`, which deletes the session server-side and
+        clears the cookie.
 
   responses:
     Unauthorized:

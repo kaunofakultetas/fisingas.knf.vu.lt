@@ -6,7 +6,7 @@
 //  and the "Atsijungti" button.
 //
 //  Logging out is just a hard navigation to /login — the
-//  login page drops the session cookie on mount.
+//  login page kills the session server-side on mount.
 //
 //  Used by:
 //    - AdminPageLayout — every admin page

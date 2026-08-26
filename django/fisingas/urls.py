@@ -32,7 +32,7 @@ urlpatterns = []
 # Users — authentication, administrators, students
 ############################################################
 #
-# Session login for both account kinds, the admin account
+# Session login/logout for both account kinds, the admin account
 # management, the admin students table, and the public
 # self-registration (the only unauthenticated path in this
 # group).
@@ -40,12 +40,13 @@ urlpatterns = []
 # Views live in fisingas/users/api/.
 ############################################################
 
-from fisingas.users.api.auth_views import checkauth, checkauth_admin, login_view
+from fisingas.users.api.auth_views import checkauth, checkauth_admin, login_view, logout_view
 from fisingas.users.api.administrators_views import administrators
 from fisingas.users.api.students_views import student_delete, student_detail, student_register, students_list
 
 urlpatterns += [
     path("api/login", login_view),                                        # POST — plain-text "OK" or an error message
+    path("api/logout", logout_view),                                      # POST — kill the session server-side (clears the cookie)
     path("api/checkauth", checkauth),                                     # GET  — who is logged in (called on every page load)
     path("api/checkauth/admin", checkauth_admin),                         # GET  — admin gate, also used by Caddy forward_auth
 

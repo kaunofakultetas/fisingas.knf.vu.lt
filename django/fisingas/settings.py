@@ -164,18 +164,19 @@ MIDDLEWARE = [
 ############################################################
 #
 # Must stay compatible with the frontend:
-#   - the cookie is named "session", because the login page
-#     performs logout by dropping that cookie from
-#     document.cookie
-#   - HttpOnly is off for the same reason (JS must be able
-#     to delete it)
+#   - the cookie is named "session" — the name the frontend
+#     was built around
+#   - logout is SERVER-SIDE: POST /api/logout flushes the
+#     django_session row and the response clears the cookie.
+#     That is what lets HttpOnly be ON — JS never needs to
+#     touch the cookie, so scripts can never read or leak it
 #   - sessions live in PostgreSQL (django_session table) —
 #     no Redis
 ############################################################
 
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 SESSION_COOKIE_NAME = "session"
-SESSION_COOKIE_HTTPONLY = False
+SESSION_COOKIE_HTTPONLY = True
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 
 

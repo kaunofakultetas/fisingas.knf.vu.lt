@@ -9,6 +9,7 @@
 ############################################################
 
 
+from django.contrib.sessions.models import Session
 from django.test import TestCase
 
 from fisingas.users.models import Student, SystemUser
@@ -80,13 +81,14 @@ class AdminLoginTests(TestCase):
         self.assertEqual(response.content, b"OK")
         self.assertIn("session", response.cookies)
 
-    def test_session_cookie_is_deletable_from_js(self):
-        # The login page logs out by dropping the cookie via
-        # document.cookie — HttpOnly must stay off, and the
-        # cookie must die with the browser (no Max-Age)
+    def test_session_cookie_is_httponly_and_browser_scoped(self):
+        # Logout goes through POST /api/logout, so JS never needs
+        # to touch the cookie — HttpOnly must be ON (out of reach
+        # of scripts), and the cookie must still die with the
+        # browser (no Max-Age)
         create_admin()
         cookie = login_admin(self.client).cookies["session"]
-        self.assertFalse(cookie["httponly"])
+        self.assertTrue(cookie["httponly"])
         self.assertEqual(cookie["max-age"], "")
 
     def test_wrong_password_refused(self):
@@ -239,6 +241,73 @@ class CheckauthAdminTests(TestCase):
         response = self.client.get("/api/checkauth/admin")
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json(), {"message": "Unauthorized"})
+
+
+
+
+
+
+
+
+############################################################
+# POST /api/logout — server-side session invalidation
+############################################################
+
+class LogoutTests(TestCase):
+
+    def test_logout_kills_the_server_side_session(self):
+        create_admin()
+        login_admin(self.client)
+        self.assertEqual(Session.objects.count(), 1)
+
+        response = self.client.post("/api/logout")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"OK")
+
+        # The django_session row is gone — not just the cookie
+        self.assertEqual(Session.objects.count(), 0)
+        self.assertEqual(self.client.get("/api/checkauth").status_code, 401)
+
+    def test_captured_cookie_value_is_dead_after_logout(self):
+        # The point of the whole fix: a cookie value captured
+        # BEFORE logging out (shared/kiosk machines at events)
+        # must not be resumable afterwards
+        create_admin()
+        login_admin(self.client)
+        stolen = self.client.cookies["session"].value
+
+        self.client.post("/api/logout")
+
+        self.client.cookies["session"] = stolen
+        self.assertEqual(self.client.get("/api/checkauth").status_code, 401)
+
+    def test_logout_clears_the_browser_cookie(self):
+        create_admin()
+        login_admin(self.client)
+        cookie = self.client.post("/api/logout").cookies["session"]
+        self.assertEqual(cookie.value, "")
+        self.assertIn(cookie["max-age"], (0, "0"))
+
+    def test_logout_works_for_students_too(self):
+        create_student()
+        login_student(self.client)
+        self.client.post("/api/logout")
+        self.assertEqual(Session.objects.count(), 0)
+        self.assertEqual(self.client.get("/api/checkauth").status_code, 401)
+
+    def test_logout_without_a_session_is_harmless(self):
+        response = self.client.post("/api/logout")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"OK")
+
+    def test_logout_refuses_get(self):
+        # Deliberately POST-only — a cross-site top-level GET
+        # navigation must not be able to log people out
+        create_admin()
+        login_admin(self.client)
+        self.assertEqual(self.client.get("/api/logout").status_code, 405)
+        # ...and the session survived the refused attempt
+        self.assertEqual(self.client.get("/api/checkauth").status_code, 200)
 
 
 

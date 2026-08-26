@@ -2,6 +2,7 @@
 #  [*] Authentication endpoints
 #
 #    POST /api/login           — plain-text 'OK' or a message
+#    POST /api/logout          — kill the session server-side
 #    GET  /api/checkauth       — the logged-in user's info
 #    GET  /api/checkauth/admin — admin gate (Caddy forward_auth)
 #
@@ -96,6 +97,43 @@ def login_view(request):
             return HttpResponse("El. Paštas ir/arba Slaptažodis neteisingas.")
         else:
             return HttpResponse("Vardas ir/arba Slaptažodis neteisingas.")
+
+
+
+
+
+
+
+
+############################################################
+# logout_view
+############################################################
+#
+# POST /api/logout — kill the session SERVER-SIDE. flush()
+# deletes the django_session row and rotates the session key,
+# and the response clears the cookie — so a cookie value
+# captured before logging out (shared/kiosk machines at
+# events) is dead from this moment, which deleting the cookie
+# in the browser alone never achieved. This is also what lets
+# the cookie be HttpOnly (see settings.py).
+#
+# POST only, on purpose: a cross-site top-level GET
+# navigation must not be able to log people out (the Caddy
+# origin check covers cross-site POSTs).
+#
+# No @login_required — logging out without a session is a
+# harmless "OK", so stale clients never see an error here.
+#
+# Used by:
+#   - Login.jsx — on mount ("Atsijungti" navigates to /login)
+############################################################
+
+def logout_view(request):
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    request.session.flush()
+    return HttpResponse("OK")
 
 
 
