@@ -293,10 +293,16 @@ def questions_update(request, action):
         # the same 404, never a 500
         try:
             with transaction.atomic():
+                # answer_status starts at 0 ("should not be checked"),
+                # which is what the admin UI assumes and shows. It
+                # must never start as NULL: a NULL expectation can
+                # never be scored correct, looks identical to 0 in
+                # the UI, and would cost every student dealt the
+                # question a tenth of a point with nothing to notice
                 newOption = QuestionOption.objects.create(
                     question_id=postData["questionid"],
                     option_text="",
-                    answer_status=None,
+                    answer_status=0,
                 )
         except IntegrityError:
             return HttpResponse("Error: Question no longer exists", status=404)

@@ -10,8 +10,9 @@
 //  backend assigns each student a random subset on first
 //  request). Every click POSTs the whole answer state back,
 //  so progress survives a page reload and the admin dashboard
-//  sees it live. The sidebar jumps between questions and ends
-//  the test.
+//  sees it live — one save at a time, in order, and finishing
+//  waits for the last one to land so no click is ever lost.
+//  The sidebar jumps between questions and ends the test.
 //
 //  Clicking the email opens it fullscreen; hovering a link
 //  area shows its URL in both views (via InteractiveImage).
@@ -219,13 +220,20 @@ function OptionsList({ options, onOptionClick }) {
 //     a 401 bounces to /login)
 //   - autosaves by POSTing the whole answer state after every
 //     change, so progress survives a reload and the admin
-//     dashboard sees it live
+//     dashboard sees it live. Saves are SERIALISED: only one
+//     POST is in flight, clicks made meanwhile are coalesced
+//     into one follow-up POST of the newest state — so an
+//     older state can never overtake and overwrite a newer one
 //   - exposes the two mutations the page needs: the
 //     "Tikras"/"Fišingas" verdict and the option toggles
+//   - finishTest waits for the pending save (retrying once if
+//     the last one failed) BEFORE navigating away — a hard
+//     navigation would abort an in-flight POST and the backend
+//     would freeze a grade missing the last click
 //
 // Returns { questionsData, currentQuestionIndex,
-//           setCurrentQuestionIndex, loading,
-//           answerQuestion, toggleOption }.
+//           setCurrentQuestionIndex, loading, empty,
+//           answerQuestion, toggleOption, finishTest }.
 //
 // Used by:
 //   - TestHome (below)
@@ -235,15 +243,20 @@ function useTestQuestions() {
 
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(undefined);
   const [questionsData, setQuestionsData] = useState([]);
+  const [loaded, setLoaded] = useState(false);
 
 
-  // Load the student's questions (assigned server-side)
+  // Load the student's questions (assigned server-side). A
+  // finished test answers {} instead of an array — treated as
+  // empty rather than crashing the page (the route guard
+  // normally redirects finished students before this runs)
   useEffect(() => {
     async function getData() {
       try {
         const response = await axios.get("/api/student/questions", { withCredentials: true });
-        setQuestionsData(response.data);
+        setQuestionsData(Array.isArray(response.data) ? response.data : []);
         setCurrentQuestionIndex(0);
+        setLoaded(true);
       } catch (error) {
         if (error.response && error.response.status === 401) {
           window.location.href = '/login';
@@ -254,23 +267,69 @@ function useTestQuestions() {
   }, []);
 
 
-  // Autosave — POST the whole answer state after every change.
+  // Autosave — POST the whole answer state after every change,
+  // one request at a time. latestState always holds the newest
+  // answers; if a save is already running, the change only
+  // marks the queue dirty and the running save sends the newest
+  // state again once it is done. Every POST therefore carries a
+  // state at least as new as the one before it.
+  const latestState = useRef([]);
+  const saveInFlight = useRef(null);      // Promise<boolean> of the running save chain
+  const saveDirty = useRef(false);
+  const lastSaveFailed = useRef(false);
+
+  const save = () => {
+    if (saveInFlight.current) {
+      saveDirty.current = true;
+      return saveInFlight.current;
+    }
+    saveInFlight.current = (async () => {
+      do {
+        saveDirty.current = false;
+        try {
+          await axios.post("/api/student/questions", latestState.current, { withCredentials: true });
+          lastSaveFailed.current = false;
+        } catch {
+          lastSaveFailed.current = true;
+          toast.error(<b>Nepavyko išsaugoti atsakymo — patikrinkite ryšį</b>, { duration: 5000 });
+        }
+      } while (saveDirty.current);
+      saveInFlight.current = null;
+      return !lastSaveFailed.current;
+    })();
+    return saveInFlight.current;
+  };
+
   // The GET above also sets questionsData, so the first run(s)
   // are skipped: there is nothing to save until the student
   // actually clicks something
   const hasUserAnswered = useRef(false);
   useEffect(() => {
-    async function sendData() {
-      try {
-        await axios.post("/api/student/questions", questionsData, { withCredentials: true });
-      } catch {
-        toast.error(<b>Nepavyko išsaugoti atsakymo — patikrinkite ryšį</b>, { duration: 5000 });
-      }
-    }
+    latestState.current = questionsData;
     if (hasUserAnswered.current && questionsData.length > 0) {
-      sendData();
+      save();
     }
   }, [questionsData]);
+
+
+  // Finish — only once the answers are safely on the server.
+  // Waits for the running save; if the last save had failed,
+  // sends the newest state once more. Still failing → the
+  // student stays on the test with an error instead of
+  // finishing with answers that never arrived. The navigation
+  // is a full page load on purpose: the session is re-checked
+  // and a finished student can no longer return to the test
+  const finishTest = async () => {
+    let saved = await (saveInFlight.current ?? Promise.resolve(!lastSaveFailed.current));
+    if (!saved) {
+      saved = await save();
+    }
+    if (!saved) {
+      toast.error(<b>Paskutiniai atsakymai neišsaugoti — patikrinkite ryšį ir bandykite dar kartą</b>, { duration: 6000 });
+      return;
+    }
+    window.location.href = "/student/finish";
+  };
 
 
   // "Tikras" (0) / "Fišingas" (1) answer for the open question
@@ -299,9 +358,11 @@ function useTestQuestions() {
     questionsData,
     currentQuestionIndex,
     setCurrentQuestionIndex,
-    loading: questionsData.length === 0 || currentQuestionIndex === undefined,
+    loading: !loaded || currentQuestionIndex === undefined,
+    empty: loaded && questionsData.length === 0,
     answerQuestion,
     toggleOption,
+    finishTest,
   };
 }
 
@@ -425,8 +486,10 @@ export default function TestHome() {
     currentQuestionIndex,
     setCurrentQuestionIndex,
     loading,
+    empty,
     answerQuestion,
     toggleOption,
+    finishTest,
   } = useTestQuestions();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -438,6 +501,29 @@ export default function TestHome() {
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-[#EBECEF]">
         <div className="w-10 h-10 rounded-full border-4 border-gray-300 border-t-[rgb(123,0,63)] animate-spin" />
         <div className="text-gray-500">Kraunasi...</div>
+      </div>
+    );
+  }
+
+  // Loaded but nothing to answer — the question bank is empty
+  // (or entirely disabled). Say so instead of spinning forever;
+  // the test is dealt on the next visit once questions exist
+  if (empty) {
+    return (
+      <div>
+        <Navbar/>
+        <div className="min-h-[calc(100vh-135px)] flex flex-col items-center justify-center gap-3 bg-[#EBECEF] px-6 text-center">
+          <div className="text-xl font-semibold text-gray-700">Testas dar neparuoštas</div>
+          <div className="text-gray-500">Šiuo metu nėra nė vieno klausimo. Bandykite dar kartą vėliau.</div>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="mt-3 px-5 py-2 rounded-xl bg-[rgb(123,0,63)] text-white font-semibold cursor-pointer hover:opacity-90"
+          >
+            Bandyti dar kartą
+          </button>
+        </div>
+        <Footer />
       </div>
     );
   }
@@ -478,6 +564,7 @@ export default function TestHome() {
           currentQuestionIndex={currentQuestionIndex}
           setCurrentQuestionIndex={setCurrentQuestionIndex}
           questionsData={questionsData}
+          onFinish={finishTest}
         />
       </div>
 

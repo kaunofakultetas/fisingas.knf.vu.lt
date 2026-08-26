@@ -19,6 +19,7 @@
 
 from unittest import expectedFailure
 
+from django.db import connection
 from django.test import TestCase
 
 from fisingas.phishing_test.grading import OptionResult, QuestionResult
@@ -386,3 +387,258 @@ class KB10AdminEmailWithoutAtSign(TestCase):
             "email": "not-an-email", "password": "long-enough-password", "enabled": 1,
         })
         self.assertEqual(response.json()["type"], "error")
+
+
+
+
+
+
+
+
+############################################################
+# KB-11 — the test-size update crashes on a JSON infinity
+############################################################
+#
+# WHERE:   phishing_test/api/admin_views.py,
+#          update_phishingtestsize
+# TRIGGER: {"phishingtestsize": 1e999} — Python's json parses
+#          an out-of-range literal as inf, and int(inf)
+#          raises OverflowError, which the except tuple
+#          (TypeError, KeyError, ValueError) does not cover.
+# IMPACT:  HTTP 500 instead of the endpoint's own 400.
+# FIX:     add OverflowError to the tuple.
+############################################################
+
+class KB11TestSizeInfinity(TestCase):
+
+    @expectedFailure
+    def test_infinite_test_size_is_a_400(self):
+        create_admin()
+        login_admin(self.client)
+        response = post_json(self.client, "/api/admin/update/phishingtestsize", {"phishingtestsize": float("inf")})
+        self.assertEqual(response.status_code, 400)
+
+
+
+
+
+
+
+
+############################################################
+# KB-12 — two views return None for unhandled HTTP verbs
+############################################################
+#
+# WHERE:   users/api/administrators_views.py administrators
+#          and phishing_test/api/pictures_views.py
+#          picture_links — both dispatch `if GET / elif
+#          POST` with no final return.
+# TRIGGER: any other verb (PUT, DELETE, PATCH) with a valid
+#          session — the view falls off the end and returns
+#          None, which Django reports as "didn't return an
+#          HttpResponse object".
+# IMPACT:  HTTP 500 instead of 405 (student_delete and
+#          logout already answer 405 correctly).
+# FIX:     `return HttpResponse(status=405)` at the end of
+#          both views.
+############################################################
+
+class KB12UnhandledVerbsAre500(TestCase):
+
+    def setUp(self):
+        create_admin()
+        login_admin(self.client)
+
+    @expectedFailure
+    def test_put_on_administrators_is_a_405(self):
+        self.assertEqual(self.client.put("/api/admin/administrators").status_code, 405)
+
+    @expectedFailure
+    def test_delete_on_picture_links_is_a_405(self):
+        question = create_question()
+        self.assertEqual(self.client.delete(f"/api/phishingpictures/{question.id}/links").status_code, 405)
+
+
+
+
+
+
+
+
+############################################################
+# KB-13 — the links POST trusts the shape of every area
+############################################################
+#
+# WHERE:   phishing_test/api/pictures_views.py picture_links,
+#          POST branch (and _percent on the GET side)
+# TRIGGER: a body that is not an object (`"areas" in 5` is
+#          a TypeError), an area that is not an object
+#          (indexing an int), an area missing url/x/y/
+#          width/height (KeyError), or an area whose
+#          coordinate is a non-numeric string — stored
+#          verbatim, so every later GET dies in float().
+# IMPACT:  HTTP 500s from an admin endpoint, and for the
+#          string coordinate the same permanent poisoning as
+#          KB-06 (that pin covers the null case).
+# FIX:     validate the whole body before the delete+insert:
+#          object with an `areas` list of objects carrying
+#          the five keys with numeric coordinates → 400
+#          otherwise; and make _percent return None instead
+#          of raising for a value it cannot parse.
+############################################################
+
+class KB13LinksPostUncheckedShape(TestCase):
+
+    def setUp(self):
+        create_admin()
+        login_admin(self.client)
+        self.question = create_question()
+        self.url = f"/api/phishingpictures/{self.question.id}/links"
+
+    def _good_area(self, **overrides):
+        return {"url": "https://x.example", "x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4, **overrides}
+
+    @expectedFailure
+    def test_non_object_body_is_a_400(self):
+        self.assertEqual(post_json(self.client, self.url, 5).status_code, 400)
+
+    @expectedFailure
+    def test_non_object_area_is_a_400(self):
+        self.assertEqual(post_json(self.client, self.url, {"areas": [5]}).status_code, 400)
+
+    @expectedFailure
+    def test_area_missing_keys_is_a_400(self):
+        self.assertEqual(post_json(self.client, self.url, {"areas": [{"url": "https://x.example"}]}).status_code, 400)
+
+    @expectedFailure
+    def test_string_coordinate_does_not_poison_the_links_get(self):
+        post_json(self.client, self.url, {"areas": [self._good_area(x="abc")]})
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+
+
+
+
+
+
+
+############################################################
+# KB-14 — administrator insertupdate indexes every field
+#         unchecked
+############################################################
+#
+# WHERE:   users/api/administrators_views.py administrators,
+#          POST insertupdate
+# TRIGGER: {"action": "insertupdate"} alone (KeyError on
+#          id); an id that is not a number (ValueError in
+#          the ORM filter); a password that is not a string
+#          (TypeError in len()).
+# IMPACT:  HTTP 500 from the admin console endpoint instead
+#          of the {"type": "error"} answer its other
+#          validations give. The swagger header currently
+#          documents this as "fails loudly with a 500" —
+#          update that clause together with the fix.
+# FIX:     type-check id/email/password/enabled up front and
+#          answer 400 {"type": "error", "reason": ...}.
+############################################################
+
+class KB14AdministratorsUncheckedFields(TestCase):
+
+    def setUp(self):
+        create_admin()
+        login_admin(self.client)
+
+    def _post(self, payload):
+        return post_json(self.client, "/api/admin/administrators", {"action": "insertupdate", **payload})
+
+    @expectedFailure
+    def test_missing_fields_are_a_400(self):
+        response = self._post({})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["type"], "error")
+
+    @expectedFailure
+    def test_non_numeric_id_is_a_400(self):
+        response = self._post({"id": "abc", "email": "kitas@example.com", "password": "", "enabled": 1})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["type"], "error")
+
+    @expectedFailure
+    def test_non_string_password_is_a_400(self):
+        response = self._post({"id": "", "email": "kitas@example.com", "password": 12345678, "enabled": 1})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["type"], "error")
+
+
+
+
+
+
+
+
+############################################################
+# KB-15 — question actions crash on a body without their keys
+############################################################
+#
+# WHERE:   phishing_test/api/admin_views.py questions_update
+# TRIGGER: a valid JSON object missing the key the action
+#          reads — {} to createnewoption or deletequestion
+#          raises KeyError on postData["questionid"].
+# IMPACT:  HTTP 500 instead of the view's own
+#          "Error: Invalid request body" 400. As with KB-14,
+#          the swagger header documents the 500 today.
+# FIX:     resolve the required keys up front (a missing or
+#          non-integer id → 400) before dispatching on the
+#          action.
+############################################################
+
+class KB15QuestionActionsMissingKeys(TestCase):
+
+    def setUp(self):
+        create_admin()
+        login_admin(self.client)
+
+    @expectedFailure
+    def test_createnewoption_without_a_question_id_is_a_400(self):
+        self.assertEqual(post_json(self.client, "/api/admin/questions/createnewoption", {}).status_code, 400)
+
+    @expectedFailure
+    def test_deletequestion_without_a_question_id_is_a_400(self):
+        self.assertEqual(post_json(self.client, "/api/admin/questions/deletequestion", {}).status_code, 400)
+
+
+
+
+
+
+
+
+
+############################################################
+# KB-16 — Answer.question_id has no index of its own
+############################################################
+#
+# WHERE:   phishing_test/models.py Answer.question_id (plain
+#          IntegerField); the only index covering it is the
+#          composite unique (student, question_id), whose
+#          leading column is student.
+# TRIGGER: the deleted-question image fallback in
+#          pictures_views._resolve_image filters Answer by
+#          question_id alone — a full scan of every answer
+#          row ever written, on every picture/links request
+#          for a deleted question.
+# IMPACT:  performance only (INFO); grows with the table.
+# FIX:     db_index=True on Answer.question_id (or a
+#          models.Index) + a migration.
+############################################################
+
+class KB16AnswerQuestionIdUnindexed(TestCase):
+
+    @expectedFailure
+    def test_answer_question_id_is_indexed(self):
+        with connection.cursor() as cursor:
+            constraints = connection.introspection.get_constraints(cursor, Answer._meta.db_table)
+        self.assertTrue(any(
+            c["columns"] and c["columns"][0] == "question_id" and (c["index"] or c["unique"])
+            for c in constraints.values()
+        ), sorted(tuple(c["columns"]) for c in constraints.values()))

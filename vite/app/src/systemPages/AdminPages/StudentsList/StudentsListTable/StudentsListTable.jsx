@@ -48,6 +48,15 @@ const STUDENT_COLUMNS = [
     field: "testgrade",
     headerName: "Įvertinimas",
     width: 100,
+    // The API sends the grade as a fixed 2-decimal STRING ("7.50",
+    // "" when the test was never started). Without a numeric type
+    // the grid sorts lexicographically and puts "10.00" below
+    // "2.00" — so sort on the number, still print the string
+    type: "number",
+    align: "left",
+    headerAlign: "left",
+    valueGetter: (value) => (value === "" || value == null ? null : Number(value)),
+    valueFormatter: (value) => (value == null ? "" : value.toFixed(2)),
   },
   {
     field: "isfinished",

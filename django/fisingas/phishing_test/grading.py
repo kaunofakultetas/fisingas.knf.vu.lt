@@ -258,6 +258,14 @@ def judge_unfinished_students():
 # Returns None when the student has no dealt questions — the
 # API renders that as '' fields.
 #
+# The option totals count only the options of CORRECTLY
+# IDENTIFIED questions — the same options the points formula
+# scores (a wrong or missing verdict zeroes the question, so
+# its options never matter). Counting every dealt question
+# would credit each "should not be checked" option of an
+# untouched question as correct by default and show a student
+# who answered nothing 80% "correct options" next to 0.00.
+#
 # Used by:
 #   - leaderboard.views.leaderboard     — grade per row
 #   - users.students_views._student_row — list + detail rows
@@ -272,8 +280,8 @@ def summarize(question_results):
         answered_question_count=sum(1 for result in question_results if result.answer is not None),
         fully_correct_count=sum(result.is_fully_correct for result in question_results),
         total_identified_correctly=sum(result.identified_correctly for result in question_results),
-        total_options_count=sum(result.total_options for result in question_results),
-        total_correct_options_count=sum(result.correct_options for result in question_results),
+        total_options_count=sum(result.total_options for result in question_results if result.identified_correctly),
+        total_correct_options_count=sum(result.correct_options for result in question_results if result.identified_correctly),
         total_points=sum(result.points for result in question_results),
     )
 
@@ -333,10 +341,16 @@ def finalize_student(student_id, finished_at):
 # stored_summaries
 ############################################################
 #
-# {student_id: TestSummary} for every FROZEN TestResult row —
-# the read half of the frozen-grade scheme, one query for
-# the whole table. The list endpoints overlay these on top
-# of the live judgements of the unfinished students.
+# {student_id: TestSummary} for every FROZEN TestResult row
+# of a FINISHED student — the read half of the frozen-grade
+# scheme, one query for the whole table. The list endpoints
+# overlay these on top of the live judgements of the
+# unfinished students.
+#
+# The is_finished filter is the same rule student_summary
+# applies: a row left behind by a student reopened for a
+# retake (is_finished cleared by hand) must not keep their
+# old grade on the lists while the detail page grades live.
 #
 # Used by:
 #   - leaderboard.views.leaderboard      — the public board
@@ -354,7 +368,7 @@ def stored_summaries():
             total_correct_options_count=row["total_correct_options_count"],
             total_points=row["total_points"],
         )
-        for row in TestResult.objects.values(
+        for row in TestResult.objects.filter(student__is_finished=1).values(
             "student_id", "question_count", "answered_question_count",
             "fully_correct_count", "total_identified_correctly",
             "total_options_count", "total_correct_options_count", "total_points",

@@ -12,9 +12,10 @@
 //
 //  Finishing is IRREVERSIBLE (the backend locks the test), so
 //  the button must be long pressed to complete — no accidental
-//  clicks can end the test. It then navigates with a full
-//  page load on purpose: the session is re-checked and the
-//  finished student can no longer return to the test.
+//  clicks can end the test. Completing calls onFinish, which
+//  TestHome uses to wait for the pending autosave before
+//  navigating (a full page load on purpose: the session is
+//  re-checked and the finished student can no longer return).
 //
 //  Used by:
 //    - TestHome — the student test page
@@ -23,7 +24,7 @@
 import { LongPressButton } from "@/components/Other/LongPressButton";
 
 
-export default function StudentSidebar({ currentQuestionIndex, setCurrentQuestionIndex, questionsData }) {
+export default function StudentSidebar({ currentQuestionIndex, setCurrentQuestionIndex, questionsData, onFinish }) {
 
   const answeredCount = questionsData.filter((question) => question.selectedanswer !== null).length;
 
@@ -69,7 +70,7 @@ export default function StudentSidebar({ currentQuestionIndex, setCurrentQuestio
 
       {/* Finish the test — hold to confirm, there is no way back */}
       <LongPressButton
-        onComplete={() => { window.location.href = "/student/finish" }}
+        onComplete={onFinish}
         duration={1500}
         color="primary"
         variant="contained"

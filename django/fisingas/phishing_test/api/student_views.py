@@ -15,6 +15,7 @@
 ############################################################
 
 
+import logging
 import random
 from datetime import datetime
 
@@ -25,6 +26,8 @@ from fisingas.common.auth import get_json, login_required
 from fisingas.users.models import Setting, Student
 from ..grading import finalize_student
 from ..models import Answer, AnswerSelectedOption, Question, QuestionOption
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -49,11 +52,11 @@ from ..models import Answer, AnswerSelectedOption, Question, QuestionOption
 # From this point on the live question bank is out of the
 # picture for this student.
 #
-# Runs in a transaction: two concurrent first calls both
-# reach this point, but the unique student+question
-# constraint lets only one snapshot land — the loser's
-# IntegrityError is swallowed by the caller and it simply
-# reads the winner's snapshot.
+# Runs in its own savepoint: the caller holds the student
+# row lock, so concurrent first calls never get here twice —
+# and if the unique student+question constraint ever fires
+# anyway, the savepoint keeps the request transaction
+# usable so the caller can serve the snapshot that landed.
 #
 # Used by:
 #   - student_questions (below), on the first GET
@@ -61,17 +64,24 @@ from ..models import Answer, AnswerSelectedOption, Question, QuestionOption
 
 @transaction.atomic
 def _deal_questions(studentID):
+    # The API only ever stores a validated positive integer here;
+    # a missing row OR a hand-edited value (non-numeric, zero,
+    # negative) falls back to the code default instead of taking
+    # every student's first request down with it
     try:
         testSize = int(Setting.objects.get(name="PhishingTestSize").value)
-    except Setting.DoesNotExist:
+    except (Setting.DoesNotExist, ValueError):
+        testSize = 30
+    if testSize < 1:
         testSize = 30
 
-    # min() protects random.sample when the bank is smaller
-    # than the configured test size
-    dealtQuestions = random.sample(
-        list(Question.objects.filter(is_enabled=1).only("id", "question", "is_phishing", "image_id")),
-        k=min(testSize, Question.objects.filter(is_enabled=1).count()),
-    )
+    # The pool is read ONCE and the sample size comes from that
+    # same list — min() protects random.sample when the bank is
+    # smaller than the configured test size, and sizing from the
+    # list (not a second count query) means a question an admin
+    # enables mid-request can never make k exceed the pool
+    pool = list(Question.objects.filter(is_enabled=1).only("id", "question", "is_phishing", "image_id"))
+    dealtQuestions = random.sample(pool, k=min(testSize, len(pool)))
 
     # answer_status / is_selected start as NULL = "not answered
     # yet"; the POST handler fills them in as the student clicks
@@ -111,8 +121,12 @@ def _deal_questions(studentID):
 ############################################################
 #
 # The student's test, built entirely from the frozen
-# snapshots. Question order is shuffled on every request —
-# the frontend keeps its own order once loaded.
+# snapshots, in DEAL ORDER: random.sample already drew the
+# questions in random order and bulk_create inserted them
+# that way, so ascending Answer.id is a per-student random
+# order that stays the same on every request — the sidebar
+# numbers questions by position, so a reload must not
+# renumber them.
 #
 # The clickable tooltip areas are NOT part of this payload —
 # the test page fetches them per question from
@@ -124,8 +138,7 @@ def _deal_questions(studentID):
 ############################################################
 
 def _questions_response(studentID):
-    answers = list(Answer.objects.filter(student_id=studentID))
-    random.shuffle(answers)
+    answers = list(Answer.objects.filter(student_id=studentID).order_by("id"))
 
     # Options grouped in one query, instead of one query per
     # question
@@ -197,14 +210,20 @@ def student_questions(request):
 
         if request.method == "GET":
             # No answers yet = first visit → deal the test now.
-            # A concurrent request may have dealt in the meantime —
-            # then the unique constraint fires and we just read
-            # the snapshot that request created
+            # The last_login UPDATE above holds the student row
+            # lock, so concurrent first visits are serialised and
+            # the second one already sees this snapshot. Should the
+            # unique constraint still fire, the snapshot exists and
+            # is simply served — but any OTHER integrity failure
+            # must not be hidden behind a 200 with an empty test
             if not Answer.objects.filter(student_id=studentID).exists():
                 try:
                     _deal_questions(studentID)
                 except IntegrityError:
-                    pass
+                    if not Answer.objects.filter(student_id=studentID).exists():
+                        logger.error("Dealing the test for student #%s failed and left no snapshot", studentID)
+                        raise
+                    logger.warning("Deal collision for student #%s — serving the snapshot that landed first", studentID)
 
             return JsonResponse(_questions_response(studentID), safe=False)
 

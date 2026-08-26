@@ -120,17 +120,92 @@ class DealTests(TestCase):
         self.assertEqual(len(first), 3)
         self.assertEqual(first, second)
 
-    def test_deal_collision_is_swallowed(self):
-        # Two concurrent first GETs: the loser's IntegrityError is
-        # swallowed and it just reads whatever snapshot exists
+    def test_deal_reads_the_enabled_bank_exactly_once(self):
+        # The pool and the sample size must come from ONE read —
+        # a second count query could see a question an admin
+        # enabled in between, hand random.sample a k larger than
+        # the pool and crash the student's first request
         create_question()
-        with mock_patch(
-            "fisingas.phishing_test.api.student_views._deal_questions",
-            side_effect=IntegrityError,
-        ):
+        create_question()
+
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(QUESTIONS_URL)
+
+        bank_reads = [q["sql"] for q in ctx.captured_queries if 'FROM "phishing_test_question"' in q["sql"]]
+        self.assertEqual(len(bank_reads), 1, bank_reads)
+
+    def test_deal_that_collides_with_an_existing_snapshot_serves_it(self):
+        # The one IntegrityError the deal may swallow: a snapshot
+        # landed in the meantime (the unique student+question
+        # constraint fired). It is logged and the snapshot served
+        question = create_question()
+
+        def winner_landed_first(studentID):
+            Answer.objects.create(
+                student_id=studentID, question_id=question.id, question_text="laimėtojo",
+                image_id=question.image_id, is_phishing=question.is_phishing, answer_status=None,
+            )
+            raise IntegrityError("duplicate key")
+
+        with mock_patch("fisingas.phishing_test.api.student_views._deal_questions", side_effect=winner_landed_first), \
+                self.assertLogs("fisingas.phishing_test.api.student_views", level="WARNING"):
             response = self.client.get(QUESTIONS_URL)
+
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), [])
+        self.assertEqual([entry["question"] for entry in response.json()], ["laimėtojo"])
+
+    def test_deal_that_fails_without_leaving_a_snapshot_is_not_hidden(self):
+        # Any OTHER integrity failure must not be answered with a
+        # 200 and an empty test that looks like success — it is
+        # logged and re-raised
+        create_question()
+        with mock_patch("fisingas.phishing_test.api.student_views._deal_questions", side_effect=IntegrityError("broken")), \
+                self.assertLogs("fisingas.phishing_test.api.student_views", level="ERROR"), \
+                self.assertRaises(IntegrityError):
+            self.client.get(QUESTIONS_URL)
+        self.assertFalse(Answer.objects.exists())
+
+    def test_question_order_is_fixed_at_deal_time(self):
+        # The order is random per student when dealt and then
+        # STABLE — the sidebar numbers questions by position, so a
+        # reload must not renumber them
+        for _ in range(6):
+            create_question()
+
+        first = [entry["questionid"] for entry in self.client.get(QUESTIONS_URL).json()]
+        self.assertEqual(len(first), 6)
+        for _ in range(5):
+            self.assertEqual([entry["questionid"] for entry in self.client.get(QUESTIONS_URL).json()], first)
+
+    def test_corrupt_test_size_setting_falls_back_to_the_default(self):
+        # Only a hand edit (DBGate) can leave a non-numeric or
+        # non-positive value — it must not take every student's
+        # first request down with a 500
+        create_question()
+        create_question()
+        for value in ("abc", "", "0", "-3"):
+            Answer.objects.all().delete()
+            AnswerSelectedOption.objects.all().delete()
+            Setting.objects.update_or_create(name="PhishingTestSize", defaults={"value": value})
+            self.assertEqual(len(self.client.get(QUESTIONS_URL).json()), 2, value)
+
+    def test_deal_locks_the_student_row_before_checking_for_a_snapshot(self):
+        # Two concurrent first GETs are serialised on the student
+        # row: the lock (UPDATE users_student) must come before the
+        # snapshot check and the deal writes, so the second request
+        # blocks, then sees the first one's rows and skips dealing
+        # — otherwise disjoint samples would deal a double test
+        create_question()
+
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(QUESTIONS_URL)
+
+        sql = [q["sql"] for q in ctx.captured_queries]
+        lock = next(i for i, st in enumerate(sql) if st.startswith('UPDATE "users_student"'))
+        snapshot_check = next(i for i, st in enumerate(sql) if 'FROM "phishing_test_answer"' in st)
+        deal_write = next(i for i, st in enumerate(sql) if st.startswith('INSERT INTO "phishing_test_answer"'))
+        self.assertLess(lock, snapshot_check)
+        self.assertLess(lock, deal_write)
 
     def test_empty_bank_deals_nothing_until_questions_exist(self):
         # A student who opens the test before any questions exist

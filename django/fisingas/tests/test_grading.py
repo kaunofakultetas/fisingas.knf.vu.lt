@@ -179,9 +179,39 @@ class SummarizeTests(TestCase):
         self.assertEqual(summary.answered_question_count, 2)
         self.assertEqual(summary.fully_correct_count, 1)
         self.assertEqual(summary.total_identified_correctly, 1)
-        self.assertEqual(summary.total_options_count, 3)
+        # The option totals cover the CORRECTLY IDENTIFIED questions
+        # only — the second question's option is dropped (wrong
+        # verdict), and so is the unanswered third. Those are exactly
+        # the options the points formula scores, and what the
+        # "Teisingos Opcijos" tile claims to count
+        self.assertEqual(summary.total_options_count, 2)
         self.assertEqual(summary.total_correct_options_count, 2)
         self.assertAlmostEqual(summary.total_points, 1.0)
+
+    def test_option_totals_ignore_questions_with_a_wrong_or_missing_verdict(self):
+        # A student who touched nothing: every "should not be
+        # checked" option is in its expected state by default, but
+        # none of it counts — no verdict, no options. Otherwise the
+        # tile would show e.g. 4/5 = 80% next to a grade of 0.00
+        untouched = [
+            _question(answer=None, is_phishing=1, options=[
+                OptionResult("", 0, 0), OptionResult("", 0, 0), OptionResult("", 0, 0),
+                OptionResult("", 0, 0), OptionResult("", 1, 0),
+            ]),
+        ]
+        summary = summarize(untouched)
+        self.assertEqual((summary.total_options_count, summary.total_correct_options_count), (0, 0))
+
+        # A wrong verdict drops its options too, even the ones that
+        # were ticked right — they score nothing in the grade either
+        wrong_verdict = [_question(answer=0, is_phishing=1, options=[OptionResult("", 1, 1), OptionResult("", 0, 0)])]
+        summary = summarize(wrong_verdict)
+        self.assertEqual((summary.total_options_count, summary.total_correct_options_count), (0, 0))
+
+        # A right verdict keeps them, missed ones included
+        right_verdict = [_question(answer=1, is_phishing=1, options=[OptionResult("", 1, 1), OptionResult("", 0, 1)])]
+        summary = summarize(right_verdict)
+        self.assertEqual((summary.total_options_count, summary.total_correct_options_count), (2, 1))
 
 
 
@@ -298,6 +328,8 @@ class FreezeAndReadBackTests(TestCase):
 
     def test_stored_summary_renders_exactly_like_a_live_one(self):
         finalize_student(self.student.id, finished_at="2026-08-01 12:00:00")
+        self.student.is_finished = 1
+        self.student.save()
         live = summarize(judge_student(self.student.id))
         stored = stored_summaries()[self.student.id]
         self.assertEqual(stored, live)
@@ -324,6 +356,18 @@ class FreezeAndReadBackTests(TestCase):
 
     def test_stored_summaries_is_empty_when_nothing_is_frozen(self):
         self.assertEqual(stored_summaries(), {})
+
+    def test_stored_summaries_skip_unfinished_students(self):
+        # Same rule as student_summary: a frozen row only counts
+        # while the student is finished. Otherwise a student
+        # reopened for a retake keeps their OLD grade on the lists
+        # while the detail page shows the live one
+        finalize_student(self.student.id, finished_at="2026-08-01 12:00:00")
+        self.assertEqual(stored_summaries(), {})
+
+        self.student.is_finished = 1
+        self.student.save()
+        self.assertIn(self.student.id, stored_summaries())
 
     def test_student_summary_judges_live_while_unfinished(self):
         # A frozen row of a still-running test is ignored

@@ -292,7 +292,11 @@ class QuestionsUpdateTests(TestCase):
         option = QuestionOption.objects.get(id=new_id)
         self.assertEqual(option.question_id, self.question.id)
         self.assertEqual(option.option_text, "")
-        self.assertIsNone(option.answer_status)
+        # Starts as "should not be checked" (0), never NULL — the
+        # admin UI shows both the same way, but a NULL expectation
+        # can never be scored correct, so an option whose autosave
+        # never landed would silently cost every student a tenth
+        self.assertEqual(option.answer_status, 0)
 
     def test_createnewoption_for_a_vanished_question_is_a_404(self):
         # EDGE-01 fix: the two-admins race — the question was

@@ -200,6 +200,24 @@ class StudentsListTests(TestCase):
         self.assertEqual(rows["LIVE"]["testgrade"], "10.00")
         self.assertEqual(rows["BLANK"]["testgrade"], "")
 
+    def test_reopened_student_is_graded_live_not_from_the_stale_row(self):
+        # is_finished cleared (a retake) but the old TestResult
+        # left behind: the list must agree with the detail page
+        # and grade the live answers, not republish the old row
+        student = create_student()
+        Answer.objects.create(student=student, question_id=1, question_text="q1", is_phishing=1, answer_status=1)
+        TestResult.objects.create(
+            student=student, question_count=4, answered_question_count=3,
+            total_identified_correctly=2, fully_correct_count=1,
+            total_options_count=5, total_correct_options_count=3,
+            total_points=2.0, finished_at="2026-08-01 10:00:00",
+        )
+
+        [row] = self.client.get(LIST_URL).json()
+        detail = self.client.get(f"{LIST_URL}/{student.id}").json()
+        self.assertEqual(row["testgrade"], "10.00")
+        self.assertEqual(row["testgrade"], detail["testgrade"])
+
     def test_finished_students_come_from_the_frozen_row(self):
         # The tampered TestResult (not the answers) must win —
         # that proves the list reads the frozen totals
