@@ -609,13 +609,15 @@ follow-up options act as a 0.1-point bonus/penalty band around it:
 p_q =
 \begin{cases}
   0 & \text{if } a_q \neq v_q,\\[2pt]
-  1 - 0.1\,n_q + 0.1\,c_q & \text{if } a_q = v_q.
+  \max\bigl(0,\; 1 - 0.1\,n_q + 0.1\,c_q\bigr) & \text{if } a_q = v_q.
 \end{cases}
 \end{equation*}
 
 That is, a correct verdict with every option right scores exactly 1;
-each missed option costs 0.1. If the main verdict is wrong the
-question scores 0 regardless of the options. For a test of $N$ dealt
+each missed option costs 0.1, down to a floor of zero (so a question
+with more than ten options can never subtract from the rest of the
+test). If the main verdict is wrong the question scores 0 regardless
+of the options. For a test of $N$ dealt
 questions the final grade on the Lithuanian ten-point scale is
 
 \begin{equation*}

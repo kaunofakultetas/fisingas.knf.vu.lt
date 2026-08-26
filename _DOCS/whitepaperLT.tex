@@ -625,14 +625,15 @@ priedo/nuoskaitos juosta:
 p_q =
 \begin{cases}
   0 & \text{jei } a_q \neq v_q,\\[2pt]
-  1 - 0{,}1\,n_q + 0{,}1\,c_q & \text{jei } a_q = v_q.
+  \max\bigl(0,\; 1 - 0{,}1\,n_q + 0{,}1\,c_q\bigr) & \text{jei } a_q = v_q.
 \end{cases}
 \end{equation*}
 
 Tai yra, teisingas verdiktas su visais teisingais variantais duoda
-lygiai 1; kiekvienas praleistas variantas kainuoja 0,1. Jei
-pagrindinis verdiktas klaidingas, klausimas vertinamas 0
-nepriklausomai nuo variantų. Testui iš $N$ išdalytų klausimų
+lygiai 1; kiekvienas praleistas variantas kainuoja 0,1 — iki nulio
+ribos (tad klausimas su daugiau nei dešimčia variantų niekada negali
+atimti iš likusio testo). Jei pagrindinis verdiktas klaidingas,
+klausimas vertinamas 0 nepriklausomai nuo variantų. Testui iš $N$ išdalytų klausimų
 galutinis įvertinimas lietuviškoje dešimtbalėje skalėje yra
 
 \begin{equation*}
