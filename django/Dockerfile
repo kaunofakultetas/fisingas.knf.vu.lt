@@ -13,6 +13,12 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        dnsutils \
+    && rm -rf /var/lib/apt/lists/*
+
+
 # Django + configuration helpers
 RUN pip install --no-cache-dir                  \
     django==5.2.15                              \
@@ -23,6 +29,7 @@ RUN pip install --no-cache-dir                  \
     psycopg2-binary==2.9.12                     \
     bcrypt==4.2.1                               \
     gunicorn==26.0.0
+
 
 
 # Copy source code
