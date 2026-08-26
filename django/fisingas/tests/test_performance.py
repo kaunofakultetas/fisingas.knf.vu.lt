@@ -15,6 +15,7 @@
 ############################################################
 
 
+from django.db import connection
 from django.test import TestCase
 
 from fisingas.phishing_test.models import Answer, AnswerSelectedOption, TestResult
@@ -62,3 +63,26 @@ class QueryBudgetTests(TestCase):
         login_admin(self.client)
         with self.assertNumQueries(10):
             self.client.get("/api/admin/home")
+
+
+
+
+
+
+
+############################################################
+# Indexes the hot lookups rely on
+############################################################
+
+class IndexTests(TestCase):
+
+    def test_answer_question_id_is_indexed(self):
+        # The deleted-question image fallback looks answers up by
+        # question_id alone — the composite (student, question_id)
+        # unique index cannot serve that
+        with connection.cursor() as cursor:
+            constraints = connection.introspection.get_constraints(cursor, Answer._meta.db_table)
+        self.assertTrue(any(
+            c["columns"] and c["columns"][0] == "question_id" and (c["index"] or c["unique"])
+            for c in constraints.values()
+        ), sorted(tuple(c["columns"]) for c in constraints.values()))

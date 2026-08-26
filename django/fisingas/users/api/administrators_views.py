@@ -50,6 +50,18 @@ from fisingas.users.models import SystemUser
 #   - AddEditAdministrator.jsx   — the create/edit dialog
 ############################################################
 
+def _is_account_id(value):
+    # "" = create; otherwise a positive integer, as a number or a
+    # digit string (the form sends what the grid gave it)
+    if value == "":
+        return True
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return value > 0
+    return isinstance(value, str) and value.isdigit()
+
+
 @login_required
 def administrators(request):
     if not request.current_user.admin:
@@ -70,11 +82,31 @@ def administrators(request):
 
     elif request.method == "POST":
         postData = get_json(request)
-        if postData is None or "action" not in postData:
+        if not isinstance(postData, dict) or "action" not in postData:
             return JsonResponse({"type": "error", "reason": "Invalid request body"}, status=400)
 
         if postData["action"] == "insertupdate":
+            # Field shape first — a body that is not what the admin
+            # form sends is refused with a 400 instead of a crash
+            email = postData.get("email")
             password = postData.get("password", "")
+            enabled = postData.get("enabled")
+            accountId = postData.get("id")
+            if not isinstance(email, str) or len(email) > 255:
+                return JsonResponse({"type": "error", "reason": "Invalid email"}, status=400)
+            if not isinstance(password, str):
+                return JsonResponse({"type": "error", "reason": "Invalid password"}, status=400)
+            if not _is_account_id(accountId):
+                return JsonResponse({"type": "error", "reason": "Invalid id"}, status=400)
+            if isinstance(enabled, bool) or enabled not in (0, 1, "0", "1"):
+                return JsonResponse({"type": "error", "reason": "Invalid enabled flag"}, status=400)
+            enabled = int(enabled)
+
+            # The login name decides the role by its "@": an
+            # administrator without one would be routed into the
+            # student branch and could never log in
+            if "@" not in email:
+                return JsonResponse({"type": "error", "reason": "Email address must contain @"})
 
             # A typed-in password must meet the minimum length —
             # both when creating and when changing an existing one
@@ -91,51 +123,57 @@ def administrators(request):
 
             # New account — the password is mandatory and the
             # email must not be taken by another account
-            if postData["id"] == "":
+            if accountId == "":
                 if len(password) == 0:
                     return JsonResponse({"type": "error", "reason": "Password must be at least 8 characters long"})
-                if SystemUser.objects.filter(email=postData["email"]).exists():
+                if SystemUser.objects.filter(email=email).exists():
                     return JsonResponse({"type": "error", "reason": "Administrator with this email already exists"})
 
                 SystemUser.objects.create(
-                    email=postData["email"],
+                    email=email,
                     password=bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode(),
-                    enabled=postData["enabled"],
+                    enabled=enabled,
                 )
 
             # Existing account — password only changed when one was typed in
             else:
                 # The email must stay unique on edit too — otherwise
                 # the update dies on the DB constraint as a raw 500
-                if SystemUser.objects.filter(email=postData["email"]).exclude(id=postData["id"]).exists():
+                if SystemUser.objects.filter(email=email).exclude(id=accountId).exists():
                     return JsonResponse({"type": "error", "reason": "Administrator with this email already exists"})
 
                 # An admin must not disable their OWN account — the
                 # session dies on the next request, and if they were
                 # the last enabled admin nobody could log in to undo it
-                if str(postData["id"]) == str(request.current_user.userid) and str(postData["enabled"]) == "0":
+                if int(accountId) == request.current_user.userid and enabled == 0:
                     return JsonResponse({"type": "error", "reason": "You cannot disable your own account"})
 
                 updatedFields = {
-                    "email": postData["email"],
-                    "enabled": postData["enabled"],
+                    "email": email,
+                    "enabled": enabled,
                 }
                 if len(password) != 0:
                     updatedFields["password"] = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
 
-                SystemUser.objects.filter(id=postData["id"]).update(**updatedFields)
+                SystemUser.objects.filter(id=accountId).update(**updatedFields)
 
             return JsonResponse({"type": "ok"})
 
 
         elif postData["action"] == "delete":
+            accountId = postData.get("id")
+            if not _is_account_id(accountId) or accountId == "":
+                return JsonResponse({"type": "error", "reason": "Invalid id"}, status=400)
+
             # Same self-lockout guard as disabling: whoever is logged
             # in can never remove themselves, so at least one working
             # admin account survives any sequence of actions
-            if str(postData["id"]) == str(request.current_user.userid):
+            if int(accountId) == request.current_user.userid:
                 return JsonResponse({"type": "error", "reason": "You cannot delete your own account"})
 
-            SystemUser.objects.filter(id=postData["id"]).delete()
+            SystemUser.objects.filter(id=accountId).delete()
             return JsonResponse({"type": "ok"})
 
         return JsonResponse({"type": "error"})
+
+    return HttpResponse(status=405)

@@ -415,3 +415,35 @@ class SessionInvalidationTests(TestCase):
         login_student(self.client)
         Student.objects.update(username="RENAMED")
         self.assertEqual(self.client.get("/api/checkauth").status_code, 401)
+
+
+
+
+
+
+
+############################################################
+# POST /api/login — malformed bodies get the validation
+# message, never a crash
+############################################################
+
+class LoginMalformedBodyTests(TestCase):
+
+    def test_json_array_body_gets_the_both_fields_message(self):
+        response = self.client.post("/api/login", data="[1, 2]", content_type="application/json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content.decode(), "Įveskite Prisijungimo Vardą ir Slaptažodį.")
+
+    def test_numeric_username_counts_as_missing(self):
+        response = post_json(self.client, "/api/login", {"username": 123, "password": "x"})
+        self.assertEqual(response.content.decode(), "Įveskite Prisijungimo Vardą.")
+
+    def test_numeric_password_counts_as_missing_even_for_a_real_admin(self):
+        create_admin()
+        response = post_json(self.client, "/api/login", {"username": ADMIN_EMAIL, "password": 123})
+        self.assertEqual(response.content.decode(), "Įveskite Slaptažodį.")
+
+    def test_non_string_fields_never_log_in(self):
+        create_admin()
+        post_json(self.client, "/api/login", {"username": ADMIN_EMAIL, "password": ["x"]})
+        self.assertEqual(self.client.get("/api/checkauth").status_code, 401)

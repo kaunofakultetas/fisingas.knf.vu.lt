@@ -463,3 +463,57 @@ class PhishingTestSizeTests(TestCase):
         self.assertEqual(post_json(self.client, TESTSIZE_URL, {"phishingtestsize": "daug"}).status_code, 400)
         self.assertEqual(post_json(self.client, TESTSIZE_URL, {"kitas": 5}).status_code, 400)
         self.assertFalse(Setting.objects.exists())
+
+
+
+
+
+
+
+############################################################
+# POST /api/admin/questions/<action> — body validation
+############################################################
+
+class QuestionActionsBodyValidationTests(TestCase):
+
+    def setUp(self):
+        create_admin()
+        login_admin(self.client)
+        self.question = create_question()
+        self.option = add_option(self.question)
+
+    def _refused(self, action, body):
+        response = post_json(self.client, f"{QUESTIONS_URL}/{action}", body)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.content.decode(), "Error: Invalid request body")
+
+    def test_createnewoption_without_a_question_id_is_a_400(self):
+        self._refused("createnewoption", {})
+        self.assertEqual(QuestionOption.objects.count(), 1)
+
+    def test_deletequestion_without_a_question_id_is_a_400(self):
+        self._refused("deletequestion", {})
+        self._refused("deletequestion", {"questionid": "abc"})
+        self.assertTrue(Question.objects.filter(id=self.question.id).exists())
+
+    def test_deleteoption_without_an_option_id_is_a_400(self):
+        self._refused("deleteoption", {"questionid": self.question.id})
+        self.assertTrue(QuestionOption.objects.filter(id=self.option.id).exists())
+
+    def test_updatequestion_missing_fields_is_a_400(self):
+        self._refused("updatequestion", {"questionid": self.question.id})
+        self._refused("updatequestion", {"questionid": self.question.id, "isphishing": 1, "questiontext": "", "questionoptions": [5]})
+        self._refused("updatequestion", {"questionid": self.question.id, "isphishing": 1, "questiontext": "", "questionoptions": [{"optionid": "x"}]})
+
+    def test_non_object_body_is_a_400(self):
+        self._refused("deletequestion", [self.question.id])
+
+    def test_unknown_action_is_still_a_404(self):
+        response = post_json(self.client, f"{QUESTIONS_URL}/explode", {"questionid": self.question.id})
+        self.assertEqual(response.status_code, 404)
+
+    def test_infinite_test_size_is_a_400(self):
+        # JSON 1e999 parses as inf; int(inf) raises OverflowError
+        response = post_json(self.client, TESTSIZE_URL, {"phishingtestsize": float("inf")})
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Setting.objects.filter(name="PhishingTestSize").exists())

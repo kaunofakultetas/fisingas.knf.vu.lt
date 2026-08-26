@@ -56,12 +56,12 @@ info:
 
     Malformed JSON bodies return `400` on the object-protocol endpoints (and on
     `/api/student/register` and the links POST); `POST /api/login` and
-    `POST /api/student/questions` answer them with an HTTP 200 message instead. A
-    syntactically valid body with missing keys fails loudly with a `500` on the admin
-    endpoints (no field-level validation by design); the answers save validates its whole
-    payload shape up front and refuses bad shapes with the 200 error string, but
-    non-numeric **values** in it still fail with a `500`.
-  version: 3.0.0
+    `POST /api/student/questions` answer them with an HTTP 200 message instead. Every
+    endpoint validates the **shape** of its body before touching anything -- missing
+    keys, wrong types, non-integer IDs and out-of-range verdict/checkbox values are
+    refused (`400` on the admin endpoints and the links POST, the 200 message on login
+    and the answers save); no request body can produce a `500`.
+  version: 3.1.0
 
 servers:
   - url: /
@@ -126,7 +126,9 @@ paths:
       responses:
         "200":
           description: |
-            Login result (always 200). `OK` on success; otherwise one of:
+            Login result (always 200). `OK` on success; otherwise one of the messages
+            below. A body that is not a JSON object, or a field that is not a string,
+            counts as that field being missing:
             - `Įveskite Prisijungimo Vardą ir Slaptažodį.` (both fields missing)
             - `Įveskite Prisijungimo Vardą.` (username missing)
             - `Įveskite Slaptažodį.` (password missing)
@@ -262,6 +264,10 @@ paths:
       summary: Register a new student
       description: |
         **Auth: Public.**
+
+        The normalized username must be at most 255 characters -- longer names are
+        refused with `Prisijungimo vardas per ilgas (daugiausia 255 simboliai)` (HTTP
+        200, `status: error`, like the other name validations).
 
         Register a new student account. The submitted username is uppercased and every
         character outside `A-Z`, `0-9`, `_` is stripped; the normalized name is what
@@ -426,9 +432,11 @@ paths:
         "200":
           description: |
             `OK` on success (plain text, served as `text/html`). Any shape violation --
-            a non-list body, a non-object entry, a missing `questionid`/`answeroptionid`,
-            a non-list `questionoptions` -- returns the plain-text error
-            `Error: This is not questions state object` (still 200, nothing written).
+            a non-list body, a non-object entry, a missing or non-integer
+            `questionid`/`answeroptionid`, a non-list `questionoptions`, a
+            `selectedanswer`/`isselected` value other than `0`, `1` or `null` --
+            returns the plain-text error `Error: This is not questions state object`
+            (still 200, nothing written).
             Admin sessions and finished tests get the JSON object `{}` instead.
           content:
             text/html:
@@ -860,10 +868,12 @@ paths:
 
         Replaces **all** clickable areas of the question's image: existing areas are
         deleted first, then one area is created per submitted rectangle. Coordinates
-        are fractions of the image dimensions (`0.0`--`1.0`) and **must be numeric** --
-        they are stored as text without validation, and non-numeric values (e.g.
-        `null`) permanently break the GET for this image. A body without an
-        `areas` key deletes nothing and returns `OK`.
+        are fractions of the image dimensions (`0.0`--`1.0`) and **must be numeric**:
+        the whole `areas` list is validated before anything is deleted, and a body
+        that is not an object, an `areas` that is not a list, an area that is not an
+        object, is missing a key, has a non-string `url` or a non-numeric coordinate
+        (`null` included) is refused with `400` and touches nothing. A body without
+        an `areas` key deletes nothing and returns `OK`.
       security:
         - cookieAuth: []
       parameters:
@@ -944,7 +954,9 @@ paths:
 
         **Blank-field contract:** for a student with no dealt test yet, the grading
         fields (`totalidentifiedcorrectly`, `testgrade`, ...) are empty strings `""`
-        and `answeredquestioncount` is `null`.
+        and `answeredquestioncount` is `null`. A finished student whose frozen
+        `TestResult` row is missing (only possible after a hand edit) is judged live
+        like an unfinished one, so this list never disagrees with the detail page.
       security:
         - cookieAuth: []
       responses:
@@ -1105,9 +1117,14 @@ paths:
         - **Delete**: `action: delete` with the `id`. Deleting your **own** account is
           refused, so at least one working administrator always remains.
 
+        The email must contain `@` -- it is the role discriminator at login; an
+        administrator without one could never log in.
+
         Passwords are hashed with bcrypt (12 rounds). Validation failures come back
-        as `{"type": "error", "reason": ...}` with HTTP 200; only a malformed body
-        yields a 400.
+        as `{"type": "error", "reason": ...}` with HTTP 200; a malformed body or a
+        field of the wrong shape (non-string email/password, an `id` that is neither
+        `""` nor a positive integer, an `enabled` outside `0`/`1`) yields the same
+        object with a 400.
       security:
         - cookieAuth: []
       requestBody:
@@ -1177,6 +1194,7 @@ paths:
             `Password must be at least 8 characters long`,
             `Password must be at most 72 bytes long` (bcrypt input limit),
             `Administrator with this email already exists` (create and edit),
+            `Email address must contain @`,
             `You cannot disable your own account` or
             `You cannot delete your own account` (self-lockout guards).
           content:
@@ -1190,7 +1208,7 @@ paths:
                   reason:
                     type: string
         "400":
-          description: Malformed request body
+          description: "Malformed request body or a field of the wrong shape (`{\"type\": \"error\", \"reason\": ...}`)"
           content:
             application/json:
               schema:
@@ -1287,7 +1305,8 @@ paths:
         Access codes are **not** exposed here.
 
         Same blank-field contract as the admin list: students without a dealt test
-        have `""` in the grading fields and `null` in `answeredquestioncount`.
+        have `""` in the grading fields and `null` in `answeredquestioncount`, and a
+        finished student without a frozen row is judged live.
       responses:
         "200":
           description: Leaderboard entries
@@ -1502,11 +1521,13 @@ components:
           example: http://example.com
         x:
           type: string
-          description: X position as a percentage string
+          nullable: true
+          description: X position as a percentage string (`null` only for legacy rows whose stored value cannot be parsed)
           example: "15%"
         y:
           type: string
-          description: Y position as a percentage string
+          nullable: true
+          description: Y position as a percentage string (`null` only for legacy rows whose stored value cannot be parsed)
           example: "42%"
         width:
           type: string
@@ -1619,7 +1640,8 @@ components:
           type: string
           description: |
             Points for this question as a 2-decimal string (e.g. `"1.00"`).
-            0 when the verdict is wrong; otherwise 1 minus 0.1 per missed option.
+            0 when the verdict is wrong; otherwise 1 minus 0.1 per missed option,
+            never below 0.
         answeredoptions:
           type: array
           items:

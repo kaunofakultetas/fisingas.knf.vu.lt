@@ -17,7 +17,7 @@ from django.http import HttpResponse, JsonResponse
 
 from fisingas.common.auth import get_json, login_required
 from fisingas.common.timestamps import now, to_api
-from fisingas.phishing_test.grading import judge_unfinished_students, stored_summaries, student_summary, summarize
+from fisingas.phishing_test.grading import judge_unfinished_students, overlay_summary, stored_summaries, student_summary
 from fisingas.users.models import Student
 
 
@@ -98,7 +98,7 @@ def students_list(request):
     live = judge_unfinished_students()
 
     return JsonResponse([
-        _student_row(student, frozen.get(student.id) or summarize(live.get(student.id, [])))
+        _student_row(student, overlay_summary(student, frozen, live))
         for student in Student.objects.order_by("-id")
     ], safe=False)
 
@@ -208,6 +208,11 @@ def student_register(request):
     username = re.sub(r"[^A-Z0-9_]", "", postData["username"].upper())
     if not username:
         return JsonResponse({"status": "error", "error": "Įveskite prisijungimo vardą"})
+
+    # The column holds 255 characters — refuse longer names with a
+    # display-ready message instead of letting the INSERT die
+    if len(username) > 255:
+        return JsonResponse({"status": "error", "error": "Prisijungimo vardas per ilgas (daugiausia 255 simboliai)"})
 
 
     if not Student.objects.filter(username=username).exists():

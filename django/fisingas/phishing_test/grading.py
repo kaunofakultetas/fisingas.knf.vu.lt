@@ -136,10 +136,12 @@ class QuestionResult:
     @property
     def points(self):
         # A wrong verdict zeroes the question no matter the options;
-        # a right one starts at 1.0 and loses 0.1 per missed option
+        # a right one starts at 1.0 and loses 0.1 per missed option —
+        # down to a floor of zero, so a question with more than ten
+        # options can never subtract from the rest of the test
         if not self.identified_correctly:
             return 0.0
-        return 1.0 - self.total_options * 0.1 + self.correct_options * 0.1
+        return max(0.0, 1.0 - self.total_options * 0.1 + self.correct_options * 0.1)
 
 
 
@@ -284,6 +286,39 @@ def summarize(question_results):
         total_correct_options_count=sum(result.correct_options for result in question_results if result.identified_correctly),
         total_points=sum(result.points for result in question_results),
     )
+
+
+
+
+
+
+
+############################################################
+# overlay_summary
+############################################################
+#
+# The list endpoints' summary for one student, given the
+# frozen rows (stored_summaries) and the live judgements
+# (judge_unfinished_students) they fetched in bulk: the
+# frozen row when there is one, live judging otherwise. A
+# FINISHED student without a frozen row — only possible after
+# a hand edit of the database — is judged live on the spot,
+# the same fallback student_summary applies, so the lists can
+# never show a blank where the detail page shows a grade.
+#
+# Used by:
+#   - leaderboard.views.leaderboard      — the public board
+#   - users.students_views.students_list — the admin table
+############################################################
+
+def overlay_summary(student, frozen, live):
+    summary = frozen.get(student.id)
+    if summary is not None:
+        return summary
+    if student.is_finished == 1:
+        return summarize(judge_student(student.id))
+    return summarize(live.get(student.id, []))
+
 
 
 

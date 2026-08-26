@@ -30,6 +30,16 @@ from ..models import Answer, AnswerSelectedOption, Question, QuestionOption
 logger = logging.getLogger(__name__)
 
 
+# Payload value checks for the answers save. Booleans are ints in
+# Python, so they are ruled out explicitly — True is not a verdict
+def _is_id(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_flag(value):
+    return value is None or (isinstance(value, int) and not isinstance(value, bool) and value in (0, 1))
+
+
 
 
 
@@ -234,14 +244,17 @@ def student_questions(request):
                 return HttpResponse("Error: This is not questions state object")
 
             # Validate the WHOLE payload before writing anything:
-            # every entry must be an object with a question ID and
-            # every option an object with an option ID — the type
-            # check must come first, because `in` on a non-dict
-            # element would raise instead of answering. Rejecting
-            # up front also means a refused body never leaves a
+            # every entry must be an object with an integer question
+            # ID, every option an object with an integer option ID,
+            # and every verdict / checkbox value one of 0, 1, null —
+            # the type checks come first, because `in` on a non-dict
+            # element would raise instead of answering. Rejecting up
+            # front also means a refused body never leaves a
             # half-saved state behind
             for questionJson in postData:
-                if not isinstance(questionJson, dict) or "questionid" not in questionJson:
+                if not isinstance(questionJson, dict) or not _is_id(questionJson.get("questionid")):
+                    return HttpResponse("Error: This is not questions state object")
+                if not _is_flag(questionJson.get("selectedanswer")):
                     return HttpResponse("Error: This is not questions state object")
 
                 questionOptions = questionJson.get("questionoptions", [])
@@ -249,7 +262,9 @@ def student_questions(request):
                     return HttpResponse("Error: This is not questions state object")
 
                 for questionOptionJson in questionOptions:
-                    if not isinstance(questionOptionJson, dict) or "answeroptionid" not in questionOptionJson:
+                    if not isinstance(questionOptionJson, dict) or not _is_id(questionOptionJson.get("answeroptionid")):
+                        return HttpResponse("Error: This is not questions state object")
+                    if not _is_flag(questionOptionJson.get("isselected")):
                         return HttpResponse("Error: This is not questions state object")
 
             for questionJson in postData:

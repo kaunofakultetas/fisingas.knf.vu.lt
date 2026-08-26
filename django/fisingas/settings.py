@@ -226,12 +226,12 @@ TEMPLATES = [
 # Security
 ############################################################
 #
-# The API itself must never render inside an iframe (the
-# frontend pages that do embed things, like /slides, embed
-# frontend routes — not API responses).
+# No X_FRAME_OPTIONS here: the middleware that would send it
+# is not installed, so the setting was inert. Framing is
+# governed at the edge — the Caddy endpoint sends
+# `frame-ancestors 'self'` in its Content-Security-Policy
+# for every response, API included.
 ############################################################
-
-X_FRAME_OPTIONS = "DENY"
 
 
 

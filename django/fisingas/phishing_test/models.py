@@ -190,7 +190,7 @@ class QuestionLink(models.Model):
 class Answer(models.Model):
     # Columns
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="answers")
-    question_id = models.IntegerField()
+    question_id = models.IntegerField(db_index=True)
     question_text = models.TextField(blank=True, default="")
     image = models.ForeignKey(QuestionImage, null=True, blank=True, on_delete=models.PROTECT, related_name="answers")
     is_phishing = models.IntegerField(null=True, blank=True)

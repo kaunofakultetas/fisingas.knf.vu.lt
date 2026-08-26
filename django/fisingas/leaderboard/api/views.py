@@ -17,7 +17,7 @@ import random
 from django.http import FileResponse, JsonResponse
 
 from fisingas.common.timestamps import to_api
-from fisingas.phishing_test.grading import judge_unfinished_students, stored_summaries, summarize
+from fisingas.phishing_test.grading import judge_unfinished_students, overlay_summary, stored_summaries
 from fisingas.users.models import Student
 
 
@@ -60,7 +60,7 @@ def leaderboard(request):
 
     rows = []
     for student in Student.objects.order_by("-id"):
-        summary = frozen.get(student.id) or summarize(live.get(student.id, []))
+        summary = overlay_summary(student, frozen, live)
 
         rows.append({
             "id": student.id,

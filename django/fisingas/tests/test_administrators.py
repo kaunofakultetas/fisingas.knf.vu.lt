@@ -298,3 +298,72 @@ class AdministratorsMutationTests(TestCase):
     def test_delete_of_unknown_id_still_reports_ok(self):
         response = post_json(self.client, URL, {"action": "delete", "id": 424242})
         self.assertEqual(response.json(), {"type": "ok"})
+
+
+
+
+
+
+
+############################################################
+# POST /api/admin/administrators — field validation
+############################################################
+
+class AdministratorsFieldValidationTests(TestCase):
+
+    def setUp(self):
+        self.admin = create_admin()
+        login_admin(self.client)
+
+    def _post(self, payload):
+        return post_json(self.client, URL, {"action": "insertupdate", **payload})
+
+    def _refused_400(self, response):
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["type"], "error")
+
+    def test_missing_fields_are_a_400(self):
+        self._refused_400(self._post({}))
+
+    def test_non_string_email_is_a_400(self):
+        self._refused_400(self._post({"id": "", "email": 5, "password": "long-enough-password", "enabled": 1}))
+
+    def test_non_numeric_id_is_a_400(self):
+        self._refused_400(self._post({"id": "abc", "email": "kitas@example.com", "password": "", "enabled": 1}))
+
+    def test_non_string_password_is_a_400(self):
+        self._refused_400(self._post({"id": "", "email": "kitas@example.com", "password": 12345678, "enabled": 1}))
+
+    def test_bad_enabled_flag_is_a_400(self):
+        self._refused_400(self._post({"id": "", "email": "kitas@example.com", "password": "long-enough-password", "enabled": "yes"}))
+
+    def test_non_object_body_is_a_400(self):
+        response = post_json(self.client, URL, 7)
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_without_a_numeric_id_is_a_400(self):
+        response = post_json(self.client, URL, {"action": "delete", "id": "abc"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(SystemUser.objects.count(), 1)
+
+    def test_email_without_at_sign_is_refused(self):
+        # "@" is the role discriminator at login — an admin without
+        # one would be routed into the student branch and never log in
+        response = self._post({"id": "", "email": "not-an-email", "password": "long-enough-password", "enabled": 1})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"type": "error", "reason": "Email address must contain @"})
+        self.assertEqual(SystemUser.objects.count(), 1)
+
+    def test_edit_cannot_remove_the_at_sign_either(self):
+        response = self._post({"id": self.admin.id, "email": "renamed", "password": "", "enabled": 1})
+        self.assertEqual(response.json()["type"], "error")
+        self.admin.refresh_from_db()
+        self.assertIn("@", self.admin.email)
+
+    def test_digit_string_id_and_string_flags_from_the_form_still_work(self):
+        response = self._post({"id": str(self.admin.id), "email": self.admin.email, "password": "", "enabled": "1"})
+        self.assertEqual(response.json(), {"type": "ok"})
+
+    def test_other_verbs_are_a_405(self):
+        self.assertEqual(self.client.put(URL).status_code, 405)
+        self.assertEqual(self.client.delete(URL).status_code, 405)

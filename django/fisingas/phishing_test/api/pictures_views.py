@@ -17,6 +17,8 @@
 
 from django.http import Http404, HttpResponse, JsonResponse
 
+import math
+
 from fisingas.common.timestamps import now
 from fisingas.common.auth import get_json, login_required
 from ..models import Answer, Question, QuestionImage, QuestionLink
@@ -183,9 +185,27 @@ def get_picture(request, questionID):
 ############################################################
 
 def _percent(value):
+    # A value that cannot be parsed (only possible on rows written
+    # before the POST validated coordinates) renders as null instead
+    # of taking the whole GET down
     if value is None:
         return None
-    return f"{int(float(value) * 101)}%"
+    try:
+        return f"{int(float(value) * 101)}%"
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_area(area):
+    # One submitted rectangle: an object with a URL and four finite
+    # numeric coordinates (fractions of the image size)
+    if not isinstance(area, dict) or not isinstance(area.get("url"), str):
+        return False
+    for key in ("x", "y", "width", "height"):
+        value = area.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            return False
+    return True
 
 
 
@@ -237,14 +257,21 @@ def picture_links(request, questionID):
         if not request.current_user.admin:
             return HttpResponse("Error: Not Admin")
         postData = get_json(request)
-        if postData is None:
+        if not isinstance(postData, dict):
             return HttpResponse("Error: Invalid request body", status=400)
 
         # Full replace: wipe the image's areas and recreate them
-        # from the submitted list
+        # from the submitted list — validated as a whole first, so a
+        # bad rectangle (a null or non-numeric coordinate would be
+        # stored as text and break every later GET) refuses the
+        # request and touches nothing
         if "areas" in postData:
+            areas = postData["areas"]
+            if not isinstance(areas, list) or not all(_is_area(area) for area in areas):
+                return HttpResponse("Error: Invalid request body", status=400)
+
             image.links.all().delete()
-            for areaData in postData["areas"]:
+            for areaData in areas:
                 QuestionLink.objects.create(
                     image=image,
                     title="",
@@ -256,3 +283,5 @@ def picture_links(request, questionID):
                 )
 
         return HttpResponse("OK")
+
+    return HttpResponse(status=405)

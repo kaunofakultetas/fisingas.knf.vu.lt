@@ -270,13 +270,41 @@ def questions_list(request):
 #     (no save button); the add/delete buttons call the rest
 ############################################################
 
+def _is_id(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _valid_action_body(action, postData):
+    if action == "deleteoption":
+        return _is_id(postData.get("optionid"))
+    if not _is_id(postData.get("questionid")):
+        return False
+    if action == "updatequestion":
+        if "isphishing" not in postData or "questiontext" not in postData:
+            return False
+        options = postData.get("questionoptions")
+        return isinstance(options, list) and all(
+            isinstance(option, dict) and _is_id(option.get("optionid"))
+            and "optiontext" in option and "rightoptionanswer" in option
+            for option in options
+        )
+    return True
+
+
 @login_required
 def questions_update(request, action):
     if not request.current_user.admin:
         return HttpResponse("Error: Not Admin", status=403)
 
+    if action not in ("createnewoption", "updatequestion", "deleteoption", "deletequestion"):
+        return HttpResponse(status=404)
+
+    # Every action names its row by an integer ID, and updatequestion
+    # carries the question's fields plus an option list — a body
+    # missing any of that is refused up front instead of crashing
+    # on the lookup
     postData = get_json(request)
-    if postData is None:
+    if not isinstance(postData, dict) or not _valid_action_body(action, postData):
         return HttpResponse("Error: Invalid request body", status=400)
 
 
@@ -375,7 +403,7 @@ def update_phishingtestsize(request):
     postData = get_json(request)
     try:
         testSize = int(postData["phishingtestsize"])
-    except (TypeError, KeyError, ValueError):
+    except (TypeError, KeyError, ValueError, OverflowError):   # OverflowError: a JSON 1e999 parses as inf
         return HttpResponse("Error: Invalid request body", status=400)
 
     # A test must deal at least one question — zero would deal

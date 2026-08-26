@@ -312,3 +312,74 @@ class PictureLinksTests(TestCase):
         [row] = self.client.get(self._links_url(question_id)).json()
         self.assertEqual(row["id"], link.id)
         self.assertEqual(row["url"], "https://islieka.example")
+
+
+
+
+
+
+
+############################################################
+# POST /api/phishingpictures/<id>/links — body validation
+############################################################
+
+class LinksPostValidationTests(TestCase):
+
+    def setUp(self):
+        create_admin()
+        login_admin(self.client)
+        self.question = create_question()
+        self.url = f"/api/phishingpictures/{self.question.id}/links"
+
+    def _good_area(self, **overrides):
+        return {"url": "https://x.example", "x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4, **overrides}
+
+    def _refused(self, body):
+        response = post_json(self.client, self.url, body)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.content.decode(), "Error: Invalid request body")
+
+    def test_non_object_body_is_a_400(self):
+        self._refused(5)
+
+    def test_non_list_areas_is_a_400(self):
+        self._refused({"areas": {"x": 1}})
+
+    def test_non_object_area_is_a_400(self):
+        self._refused({"areas": [5]})
+
+    def test_area_missing_keys_is_a_400(self):
+        self._refused({"areas": [{"url": "https://x.example"}]})
+
+    def test_null_coordinate_is_a_400(self):
+        self._refused({"areas": [self._good_area(x=None, width=None, height=None)]})
+
+    def test_string_coordinate_is_a_400(self):
+        self._refused({"areas": [self._good_area(x="abc")]})
+
+    def test_boolean_coordinate_is_a_400(self):
+        self._refused({"areas": [self._good_area(y=True)]})
+
+    def test_non_string_url_is_a_400(self):
+        self._refused({"areas": [self._good_area(url=5)]})
+
+    def test_a_refused_body_touches_nothing(self):
+        # The existing areas survive a bad replace — nothing is
+        # deleted before the whole body has passed
+        QuestionLink.objects.create(image_id=self.question.image_id, content="https://old.example", x="0.5", y="0.5")
+        self._refused({"areas": [self._good_area(), self._good_area(x="abc")]})
+        self.assertEqual(QuestionLink.objects.count(), 1)
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_links_get_survives_a_legacy_garbage_coordinate(self):
+        # Rows written before the POST validated coordinates may
+        # hold unparsable text — they render as null, the GET lives
+        QuestionLink.objects.create(image_id=self.question.image_id, content="https://old.example", x="None", y="0.5", w="abc", h="0.1")
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        [row] = response.json()
+        self.assertEqual((row["x"], row["y"], row["width"], row["height"]), (None, "50%", None, "10%"))
+
+    def test_other_verbs_are_a_405(self):
+        self.assertEqual(self.client.delete(self.url).status_code, 405)
+        self.assertEqual(self.client.put(self.url).status_code, 405)

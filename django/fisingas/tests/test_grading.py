@@ -398,3 +398,36 @@ class SchemaGuaranteeTests(TestCase):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 Answer.objects.create(student=student, question_id=1, question_text="", is_phishing=0, answer_status=None)
+
+
+
+
+
+
+
+############################################################
+# The points floor
+############################################################
+
+class PointsFloorTests(TestCase):
+
+    def test_points_never_go_below_zero(self):
+        # 12 options, none right: 1 - 1.2 would be -0.2 — clamped
+        result = QuestionResult(
+            question_id=1, question_text="", answer=1, is_phishing=1,
+            options=[OptionResult("", right_answer=1, selected=0) for _ in range(12)],
+        )
+        self.assertEqual(result.points, 0.0)
+
+    def test_the_floor_does_not_touch_ordinary_scores(self):
+        result = _question(answer=1, is_phishing=1, options=[OptionResult("", 1, 0), OptionResult("", 1, 1)])
+        self.assertAlmostEqual(result.points, 0.9)
+
+    def test_a_floored_question_cannot_drag_the_grade_negative(self):
+        floored = QuestionResult(
+            question_id=1, question_text="", answer=1, is_phishing=1,
+            options=[OptionResult("", right_answer=1, selected=0) for _ in range(15)],
+        )
+        summary = summarize([floored, _question(answer=None, is_phishing=1)])
+        self.assertEqual(summary.total_points, 0.0)
+        self.assertEqual(summary.test_grade, "0.00")

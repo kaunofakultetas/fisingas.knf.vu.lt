@@ -608,3 +608,57 @@ class FullFlowTest(TestCase):
         self.assertEqual(board_row["username"], registration["username"])
         self.assertEqual(board_row["testgrade"], "10.00")
         self.assertEqual(board_row["isfinished"], 1)
+
+
+
+
+
+
+
+############################################################
+# POST /api/student/questions — value validation
+############################################################
+
+class SaveValueValidationTests(TestCase):
+
+    def setUp(self):
+        self.student = create_student()
+        self.question = create_question(is_phishing=1)
+        self.option = add_option(self.question, answer_status=1)
+        login_student(self.client)
+        self.client.get(QUESTIONS_URL)   # deal
+
+    def _refused(self, payload):
+        response = post_json(self.client, QUESTIONS_URL, payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content.decode(), "Error: This is not questions state object")
+        # nothing written
+        self.assertIsNone(Answer.objects.get(student=self.student).answer_status)
+        self.assertIsNone(AnswerSelectedOption.objects.get(student=self.student).is_selected)
+
+    def test_garbage_verdict_value_is_refused(self):
+        self._refused([{"questionid": self.question.id, "selectedanswer": "phishing"}])
+
+    def test_out_of_range_verdict_is_refused(self):
+        self._refused([{"questionid": self.question.id, "selectedanswer": 2}])
+
+    def test_boolean_verdict_is_refused(self):
+        self._refused([{"questionid": self.question.id, "selectedanswer": True}])
+
+    def test_garbage_checkbox_value_is_refused(self):
+        self._refused([{
+            "questionid": self.question.id,
+            "questionoptions": [{"answeroptionid": self.option.id, "isselected": "x"}],
+        }])
+
+    def test_non_integer_ids_are_refused(self):
+        self._refused([{"questionid": "abc", "selectedanswer": 1}])
+        self._refused([{"questionid": self.question.id, "questionoptions": [{"answeroptionid": "abc", "isselected": 1}]}])
+
+    def test_null_values_are_still_accepted(self):
+        # null = "not answered" is a legitimate state to save back
+        response = post_json(self.client, QUESTIONS_URL, [{
+            "questionid": self.question.id, "selectedanswer": None,
+            "questionoptions": [{"answeroptionid": self.option.id, "isselected": None}],
+        }])
+        self.assertEqual(response.content.decode(), "OK")

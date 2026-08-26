@@ -374,3 +374,61 @@ class StudentDeleteTests(TestCase):
         self.assertFalse(TestResult.objects.exists())
         # The upload-only image table is never touched
         self.assertTrue(QuestionImage.objects.filter(id=image.id).exists())
+
+
+
+
+
+
+
+############################################################
+# Registration limits
+############################################################
+
+class RegisterLimitsTests(TestCase):
+
+    def test_overlong_username_is_refused(self):
+        # The column holds 255 characters — longer names get the
+        # display-ready message, not a database error
+        response = post_json(self.client, "/api/student/register", {"username": "A" * 300})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "error")
+        self.assertEqual(response.json()["error"], "Prisijungimo vardas per ilgas (daugiausia 255 simboliai)")
+        self.assertFalse(Student.objects.exists())
+
+    def test_255_characters_still_register(self):
+        response = post_json(self.client, "/api/student/register", {"username": "A" * 255})
+        self.assertEqual(response.json()["status"], "OK")
+
+
+
+
+
+
+
+
+############################################################
+# A finished student without a frozen row
+############################################################
+
+class FinishedWithoutFrozenRowTests(TestCase):
+
+    def setUp(self):
+        # is_finished=1 with answers but no TestResult — only a hand
+        # edit can produce this; the lists must still agree with the
+        # detail page instead of showing the never-took-the-test blanks
+        create_admin()
+        self.student = create_student(is_finished=1)
+        Answer.objects.create(student=self.student, question_id=1, question_text="", is_phishing=1, answer_status=1)
+        login_admin(self.client)
+
+    def test_list_and_detail_agree_on_the_grade(self):
+        [list_row] = self.client.get(LIST_URL).json()
+        detail_row = self.client.get(f"{LIST_URL}/{self.student.id}").json()
+        self.assertEqual(list_row["testgrade"], "10.00")
+        self.assertEqual(list_row["testgrade"], detail_row["testgrade"])
+        self.assertEqual(list_row["questioncount"], 1)
+
+    def test_leaderboard_agrees_too(self):
+        [row] = Client().get("/api/leaderboard").json()
+        self.assertEqual(row["testgrade"], "10.00")

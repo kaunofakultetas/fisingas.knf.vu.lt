@@ -53,19 +53,27 @@ DUMMY_BCRYPT_HASH = b"$2b$12$37rvWwtdP/sb.pZwBklPFeUxoH.KWOXIDjTxiiC9awCYpXIB8Eb
 def login_view(request):
     postData = get_json(request)
 
+    # The body must be an object holding two strings. Anything else —
+    # a JSON array, a number in a field — counts as the field being
+    # missing and gets the usual message instead of a crash
+    if not isinstance(postData, dict):
+        postData = {}
+    username = postData.get("username") if isinstance(postData.get("username"), str) else ""
+    password = postData.get("password") if isinstance(postData.get("password"), str) else ""
+
     # Preauth Checks
-    if not postData or (not postData.get("username") and not postData.get("password")):
+    if not username and not password:
         return HttpResponse("Įveskite Prisijungimo Vardą ir Slaptažodį.")
 
-    if not postData.get("username"):
+    if not username:
         return HttpResponse("Įveskite Prisijungimo Vardą.")
 
-    if not postData.get("password"):
+    if not password:
         return HttpResponse("Įveskite Slaptažodį.")
 
 
     # Authentication
-    thisUserObject = load_user(postData["username"])
+    thisUserObject = load_user(username)
     if thisUserObject is not None:
 
         # Admin Login Check (login name is an email → bcrypt hash).
@@ -73,7 +81,7 @@ def login_view(request):
         # password instead of crashing the endpoint
         if "@" in thisUserObject.id:
             try:
-                passwordOk = bcrypt.checkpw(postData["password"].encode(), thisUserObject.password.encode())
+                passwordOk = bcrypt.checkpw(password.encode(), thisUserObject.password.encode())
             except ValueError:
                 passwordOk = False
 
@@ -84,7 +92,7 @@ def login_view(request):
 
         # Student Login Check (plaintext passcode)
         else:
-            if postData["password"] == thisUserObject.password:
+            if password == thisUserObject.password:
                 login(request, thisUserObject)
                 return HttpResponse("OK")
             return HttpResponse("Vardas ir/arba Slaptažodis neteisingas.")
@@ -93,7 +101,7 @@ def login_view(request):
     else:
         # Dummy check to prevent time-based user enumeration
         bcrypt.checkpw(b"Prevents time based user enumeration attack.", DUMMY_BCRYPT_HASH)
-        if "@" in postData["username"]:
+        if "@" in username:
             return HttpResponse("El. Paštas ir/arba Slaptažodis neteisingas.")
         else:
             return HttpResponse("Vardas ir/arba Slaptažodis neteisingas.")
