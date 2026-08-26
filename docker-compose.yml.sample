@@ -67,6 +67,7 @@ services:
       - SLIDES_DIRECTORY=/slides
     tmpfs:
       - /tmp:uid=1000,gid=1000
+      - /.gunicorn:uid=1000,gid=1000
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ./_DATA/slides:/slides

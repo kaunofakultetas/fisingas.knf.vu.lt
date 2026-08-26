@@ -36,10 +36,20 @@ RUN pip install --no-cache-dir                  \
 COPY . /app
 
 # Run
+#
+# gunicorn prints every request to stdout (docker logs). The
+# first column is the client IP as forwarded by Caddy
+# (X-Forwarded-For) — gunicorn's own %(h)s would only ever
+# show the Caddy container's address. The control socket is
+# disabled: the root filesystem is read-only, so creating
+# ~/.gunicorn would fail with an ERROR on every boot.
 EXPOSE 8000
 CMD sh -c "\
     if [ \"$DJANGO_DEBUG\" = 'True' ]; then \
         python3 manage.py runserver 0.0.0.0:8000; \
     else \
-        gunicorn fisingas.wsgi:application --bind 0.0.0.0:8000 --workers 5; \
+        gunicorn fisingas.wsgi:application --bind 0.0.0.0:8000 --workers 5 \
+            --access-logfile - \
+            --access-logformat '%({x-forwarded-for}i)s %(t)s \"%(r)s\" %(s)s %(b)s %(M)sms' \
+            --no-control-socket; \
     fi"

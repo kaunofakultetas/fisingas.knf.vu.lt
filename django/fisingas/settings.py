@@ -53,15 +53,22 @@ USE_TZ = True
 # Hosting
 ############################################################
 #
-# The service only ever runs behind the Caddy endpoint,
-# which owns TLS and the Host header — so all hosts are
-# accepted here and the forwarded proto header is trusted
-# to mark requests as secure.
+# The service only ever runs behind the Caddy endpoint, whose
+# site block is a bare `:80` — it forwards whatever Host the
+# client sent. Every host is accepted here because nothing in
+# the service derives anything from it: no absolute URLs, no
+# redirects, no host-dependent cookies. Should that change,
+# pin ALLOWED_HOSTS to the real hostname (and constrain the
+# Caddy site block to match) instead of trusting it here.
+#
+# No forwarded-header trust (USE_X_FORWARDED_HOST /
+# SECURE_PROXY_SSL_HEADER): nothing reads request.get_host()
+# or request.is_secure(), and the Caddyfile neither sets nor
+# strips those headers — trusting them would only turn
+# client-supplied values into "facts".
 ############################################################
 
 ALLOWED_HOSTS = ["*"]
-USE_X_FORWARDED_HOST = True
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 
 
