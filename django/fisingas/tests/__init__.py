@@ -23,4 +23,9 @@
 #    test_admin_questions.py   — dashboard + question bank
 #    test_pictures.py          — image upload/serving + links
 #    test_leaderboard.py       — public projector endpoints
+#    test_routing.py           — routing + request plumbing
+#    test_performance.py       — query-count budgets
+#    test_retention.py         — the delete_old_students sweep
+#    test_known_bugs.py        — KNOWN BUGS pinned as expected
+#                                failures (see its header)
 ############################################################

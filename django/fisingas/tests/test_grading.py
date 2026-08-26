@@ -8,6 +8,7 @@
 ############################################################
 
 
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from fisingas.phishing_test.grading import (
@@ -103,6 +104,15 @@ class QuestionResultTests(TestCase):
         self.assertAlmostEqual(result.points, 1.0)
         self.assertEqual(result.is_fully_correct, 1)
 
+    def test_right_verdict_with_no_options_scores_the_full_point(self):
+        self.assertEqual(_question(answer=1, is_phishing=1).points, 1.0)
+
+    def test_right_options_cannot_rescue_a_wrong_verdict(self):
+        result = _question(answer=0, is_phishing=1, options=[OptionResult("", 1, 1), OptionResult("", 0, 0)])
+        self.assertEqual(result.points, 0.0)
+        self.assertEqual(result.is_fully_correct, 0)
+        self.assertEqual(result.correct_options, 2)   # counted, but worth nothing
+
     def test_each_missed_option_costs_a_tenth(self):
         options = [
             OptionResult("", right_answer=1, selected=1),      # right
@@ -134,6 +144,9 @@ class TestSummaryTests(TestCase):
 
     def test_grade_rounds_to_two_decimals(self):
         self.assertEqual(_summary(question_count=3, total_points=2.5).test_grade, "8.33")
+
+    def test_zero_points_grade_formats_as_0_00(self):
+        self.assertEqual(_summary(question_count=2, total_points=0.0).test_grade, "0.00")
 
     def test_percentage_is_truncated_not_rounded(self):
         summary = _summary(question_count=3, fully_correct_count=2)
@@ -219,6 +232,18 @@ class JudgeStudentTests(TestCase):
         [result] = judge_student(self.student.id)
         self.assertEqual([option.option_text for option in result.options], ["O11", "O12"])
 
+    def test_judging_groups_every_unfinished_student_separately(self):
+        second = create_student(username="SECOND")
+        _freeze(self.student, 1, is_phishing=1, answer_status=1)
+        _freeze(second, 1, is_phishing=1, answer_status=0)
+        _freeze(second, 2, is_phishing=0, answer_status=None)
+
+        results = judge_unfinished_students()
+        self.assertEqual(len(results[self.student.id]), 1)
+        self.assertEqual(len(results[second.id]), 2)
+        self.assertEqual(results[self.student.id][0].identified_correctly, 1)
+        self.assertEqual(results[second.id][0].identified_correctly, 0)
+
     def test_unfinished_judging_excludes_finished_students(self):
         finished = create_student(username="FINISHED", is_finished=1)
         _freeze(self.student, 1, is_phishing=1, answer_status=1)
@@ -293,9 +318,39 @@ class FreezeAndReadBackTests(TestCase):
         self.assertEqual(summary.question_count, 2)
         self.assertEqual(summary.total_points, 1.0)
 
+    def test_student_summary_is_none_without_dealt_questions(self):
+        untouched = create_student(username="UNTOUCHED")
+        self.assertIsNone(student_summary(untouched))
+
+    def test_stored_summaries_is_empty_when_nothing_is_frozen(self):
+        self.assertEqual(stored_summaries(), {})
+
     def test_student_summary_judges_live_while_unfinished(self):
         # A frozen row of a still-running test is ignored
         finalize_student(self.student.id, finished_at="2026-08-01 12:00:00")
         TestResult.objects.filter(student=self.student).update(total_points=9.0)
 
         self.assertEqual(student_summary(self.student).total_points, 1.0)
+
+
+
+
+
+
+
+
+############################################################
+# Schema guarantees the flows depend on
+############################################################
+
+class SchemaGuaranteeTests(TestCase):
+
+    def test_a_question_cannot_be_dealt_twice_to_one_student(self):
+        # The unique (student, question) constraint is what makes
+        # concurrent first-deal requests safe — the loser's
+        # IntegrityError is swallowed and the winner's snapshot read
+        student = create_student()
+        Answer.objects.create(student=student, question_id=1, question_text="", is_phishing=1, answer_status=None)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Answer.objects.create(student=student, question_id=1, question_text="", is_phishing=0, answer_status=None)

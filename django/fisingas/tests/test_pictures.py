@@ -78,8 +78,17 @@ class UploadPictureTests(TestCase):
         self.assertEqual(question.is_phishing, 0)
         self.assertEqual(question.question, "")
 
+    def test_multi_dot_filenames_use_the_last_extension(self):
+        self.assertEqual(_upload(self.client, "archive.tar.png").json()["type"], "ok")
+
     def test_uppercase_extension_is_allowed(self):
         self.assertEqual(_upload(self.client, "SHOT.PNG").json()["type"], "ok")
+
+    def test_every_allowed_extension_uploads(self):
+        for filename in ("a.jpg", "b.jpeg", "c.gif"):
+            response = _upload(self.client, filename)
+            self.assertEqual(response.json()["type"], "ok", filename)
+        self.assertEqual(Question.objects.count(), 3)
 
     def test_missing_file_field_is_a_400(self):
         response = self.client.post(UPLOAD_URL, {})
@@ -145,6 +154,13 @@ class GetPictureTests(TestCase):
             self.assertEqual(response["Content-Type"], expected_type)
             self.assertEqual(response.content, image_bytes)
 
+    def test_admins_can_fetch_pictures_too(self):
+        create_admin()
+        admin_client = Client()
+        login_admin(admin_client)
+        question = create_question()
+        self.assertEqual(admin_client.get(f"{UPLOAD_URL}/{question.id}").status_code, 200)
+
     def test_unknown_question_is_a_404(self):
         self.assertEqual(self.client.get(f"{UPLOAD_URL}/424242").status_code, 404)
 
@@ -161,6 +177,19 @@ class GetPictureTests(TestCase):
         response = self.client.get(f"{UPLOAD_URL}/{question_id}")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, JPEG_BYTES)
+
+    def test_live_question_wins_over_snapshots(self):
+        # When the question still exists, its own image is served —
+        # the snapshot fallback is only for deleted questions
+        question = create_question(image_bytes=PNG_BYTES)
+        other_image = QuestionImage.objects.create(image=JPEG_BYTES, created="")
+        student = create_student(username="SNAP")
+        Answer.objects.create(
+            student=student, question_id=question.id, question_text="",
+            image=other_image, is_phishing=1, answer_status=1,
+        )
+        response = self.client.get(f"{UPLOAD_URL}/{question.id}")
+        self.assertEqual(response.content, PNG_BYTES)
 
     def test_deleted_question_without_snapshot_is_a_404(self):
         question = create_question()
@@ -225,6 +254,33 @@ class PictureLinksTests(TestCase):
         self.assertEqual(link.content, "https://nauja.example")
         self.assertEqual(link.title, "")
         self.assertEqual((link.x, link.y, link.w, link.h), ("0.1", "0.2", "0.3", "0.4"))
+
+    def test_post_with_empty_areas_clears_all_links(self):
+        QuestionLink.objects.create(image_id=self.question.image_id, content="https://old.example", x="0.1", y="0.1")
+        response = post_json(self.client, self._links_url(), {"areas": []})
+        self.assertEqual(response.content, b"OK")
+        self.assertFalse(QuestionLink.objects.exists())
+
+    def test_replacing_links_touches_only_that_image(self):
+        other = create_question()
+        keep = QuestionLink.objects.create(image_id=other.image_id, content="https://keep.example", x="0.1", y="0.1")
+
+        post_json(self.client, self._links_url(), {"areas": [
+            {"url": "https://new.example", "x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4},
+        ]})
+
+        self.assertTrue(QuestionLink.objects.filter(id=keep.id).exists())
+        self.assertEqual(QuestionLink.objects.count(), 2)
+
+    def test_full_coordinate_renders_as_101_percent(self):
+        # The deliberate ×101 inflation at its edges: 1 → "101%",
+        # 0 → "0%"
+        QuestionLink.objects.create(
+            image_id=self.question.image_id, content="https://edge.example",
+            x="1", y="0", w="0.999", h="0.5",
+        )
+        [row] = self.client.get(self._links_url()).json()
+        self.assertEqual((row["x"], row["y"], row["width"], row["height"]), ("101%", "0%", "100%", "50%"))
 
     def test_post_without_areas_changes_nothing(self):
         QuestionLink.objects.create(image_id=self.question.image_id, content="https://lieka.example", x="0.1", y="0.1")

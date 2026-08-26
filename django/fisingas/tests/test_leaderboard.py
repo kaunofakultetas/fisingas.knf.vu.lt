@@ -87,6 +87,23 @@ class LeaderboardTests(TestCase):
         self.assertEqual(row["testgrade"], "10.00")
         self.assertEqual(row["isfinished"], 1)
 
+    def test_board_mixes_frozen_live_and_blank_rows(self):
+        frozen = create_student(username="FROZEN", is_finished=1)
+        TestResult.objects.create(
+            student=frozen, question_count=2, answered_question_count=2,
+            total_identified_correctly=2, fully_correct_count=2,
+            total_options_count=0, total_correct_options_count=0,
+            total_points=1.0, finished_at="2026-08-01 10:00:00",
+        )
+        live = create_student(username="LIVE")
+        Answer.objects.create(student=live, question_id=1, question_text="", is_phishing=1, answer_status=1)
+        create_student(username="BLANK")
+
+        rows = {row["username"]: row for row in self.client.get(BOARD_URL).json()}
+        self.assertEqual(rows["FROZEN"]["testgrade"], "5.00")
+        self.assertEqual(rows["LIVE"]["testgrade"], "10.00")
+        self.assertEqual(rows["BLANK"]["testgrade"], "")
+
     def test_deactivated_students_are_still_listed(self):
         # status=0 blocks the login, not the board
         create_student(status=0)
@@ -135,6 +152,26 @@ class NextSlideTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "image/png")
         self.assertEqual(content, slide_bytes)
+
+    def test_non_image_files_are_never_served(self):
+        slide_bytes = b"\x89PNG\r\n\x1a\nreal slide"
+        with tempfile.TemporaryDirectory() as slides_dir:
+            open(os.path.join(slides_dir, "real.png"), "wb").write(slide_bytes)
+            open(os.path.join(slides_dir, "doc.pdf"), "wb").write(b"pdf bytes")
+
+            with patch.dict(os.environ, {"SLIDES_DIRECTORY": slides_dir}):
+                response = self.client.get(SLIDE_URL)
+                content = b"".join(response.streaming_content)
+
+        self.assertEqual(content, slide_bytes)
+
+    def test_webp_slides_are_served(self):
+        with tempfile.TemporaryDirectory() as slides_dir:
+            open(os.path.join(slides_dir, "s.webp"), "wb").write(b"webp bytes")
+            with patch.dict(os.environ, {"SLIDES_DIRECTORY": slides_dir}):
+                response = self.client.get(SLIDE_URL)
+                b"".join(response.streaming_content)
+        self.assertEqual(response.status_code, 200)
 
     def test_uppercase_extensions_count_as_images(self):
         with tempfile.TemporaryDirectory() as slides_dir:

@@ -9,6 +9,9 @@
 ############################################################
 
 
+from unittest.mock import patch as mock_patch
+
+from django.db import IntegrityError
 from django.test import Client, TestCase
 
 from fisingas.phishing_test.models import Answer, AnswerSelectedOption, QuestionLink, TestResult
@@ -99,6 +102,56 @@ class DealTests(TestCase):
         data = self.client.get(QUESTIONS_URL).json()
         self.assertEqual([entry["questionid"] for entry in data], [enabled.id])
 
+    def test_deal_draws_only_from_the_enabled_bank(self):
+        Setting.objects.create(name="PhishingTestSize", value="2")
+        enabled_ids = {create_question().id for _ in range(5)}
+        disabled = create_question(is_enabled=0)
+
+        dealt = {entry["questionid"] for entry in self.client.get(QUESTIONS_URL).json()}
+        self.assertEqual(len(dealt), 2)
+        self.assertTrue(dealt <= enabled_ids)
+        self.assertNotIn(disabled.id, dealt)
+
+    def test_repeated_gets_return_the_same_question_set(self):
+        for _ in range(3):
+            create_question()
+        first = {entry["questionid"] for entry in self.client.get(QUESTIONS_URL).json()}
+        second = {entry["questionid"] for entry in self.client.get(QUESTIONS_URL).json()}
+        self.assertEqual(len(first), 3)
+        self.assertEqual(first, second)
+
+    def test_deal_collision_is_swallowed(self):
+        # Two concurrent first GETs: the loser's IntegrityError is
+        # swallowed and it just reads whatever snapshot exists
+        create_question()
+        with mock_patch(
+            "fisingas.phishing_test.api.student_views._deal_questions",
+            side_effect=IntegrityError,
+        ):
+            response = self.client.get(QUESTIONS_URL)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [])
+
+    def test_empty_bank_deals_nothing_until_questions_exist(self):
+        # A student who opens the test before any questions exist
+        # gets an empty test — and is dealt one on a later refresh
+        self.assertEqual(self.client.get(QUESTIONS_URL).json(), [])
+        self.assertFalse(Answer.objects.exists())
+
+        create_question()
+        self.assertEqual(len(self.client.get(QUESTIONS_URL).json()), 1)
+
+    def test_options_added_after_dealing_stay_invisible(self):
+        question = create_question()
+        add_option(question, option_text="pradinė", answer_status=1)
+        self.client.get(QUESTIONS_URL)   # deal with 1 option
+
+        add_option(question, option_text="vėlesnė", answer_status=1)
+
+        [entry] = self.client.get(QUESTIONS_URL).json()
+        self.assertEqual(len(entry["questionoptions"]), 1)
+        self.assertEqual(AnswerSelectedOption.objects.filter(student=self.student).count(), 1)
+
     def test_small_bank_deals_everything_it_has(self):
         # Default size is 30 — a 2-question bank deals 2
         create_question()
@@ -137,6 +190,19 @@ class DealTests(TestCase):
         admin_client = Client()
         login_admin(admin_client)
         self.assertEqual(admin_client.get(QUESTIONS_URL).json(), {})
+
+    def test_every_touch_of_the_test_bumps_lastseen(self):
+        # The dashboard's 30-minute progress list keys on this
+        create_question()
+        self.client.get(QUESTIONS_URL)
+        self.student.refresh_from_db()
+        self.assertRegex(self.student.last_login, TIMESTAMP_RE)
+
+        # ...and saving counts as activity too
+        Student.objects.filter(id=self.student.id).update(last_login="")
+        post_json(self.client, QUESTIONS_URL, [])
+        self.student.refresh_from_db()
+        self.assertRegex(self.student.last_login, TIMESTAMP_RE)
 
     def test_finished_students_are_locked_out(self):
         create_question()
@@ -249,6 +315,30 @@ class SaveTests(TestCase):
         self.assertIsNone(Answer.objects.get(student=self.student).answer_status)
         self.assertIsNone(AnswerSelectedOption.objects.get(student=self.student).is_selected)
 
+    def test_post_never_deals(self):
+        # Only the GET deals — saving into an undealt test is a no-op
+        create_student(username="FRESH_POST", passcode="87654321")
+        fresh_client = Client()
+        login_student(fresh_client, username="FRESH_POST", passcode="87654321")
+
+        response = post_json(fresh_client, QUESTIONS_URL, [])
+        self.assertEqual(response.content, b"OK")
+        self.assertFalse(Answer.objects.filter(student__username="FRESH_POST").exists())
+
+    def test_cross_question_option_ids_cannot_write(self):
+        # An option frozen under one question cannot be addressed
+        # through another question's entry
+        # Created after the deal — never part of this student's test
+        other_question = create_question(is_phishing=0)
+
+        response = post_json(self.client, QUESTIONS_URL, [{
+            "questionid": other_question.id,
+            "questionoptions": [{"answeroptionid": self.option.id, "isselected": 1}],
+        }])
+        self.assertEqual(response.content, b"OK")
+        selection = AnswerSelectedOption.objects.get(student=self.student)
+        self.assertIsNone(selection.is_selected)
+
     def test_students_can_only_write_their_own_snapshot(self):
         # A second student dealt the same bank question — writing
         # through the shared question id must not cross accounts
@@ -350,6 +440,12 @@ class FinishTests(TestCase):
         self.assertEqual(result.answered_question_count, 1)
         self.assertEqual(result.total_identified_correctly, 1)
         self.assertEqual(result.total_points, 1.0)   # only the answered genuine question scores
+
+    def test_checkauth_reflects_the_finished_flag(self):
+        self._take_the_test()
+        self.assertEqual(self.client.get("/api/checkauth").json()["phishingtestfinished"], 0)
+        self.client.get(FINISH_URL)
+        self.assertEqual(self.client.get("/api/checkauth").json()["phishingtestfinished"], 1)
 
     def test_finish_without_a_dealt_test_freezes_nothing(self):
         self.assertEqual(self.client.get(FINISH_URL).json(), {})

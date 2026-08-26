@@ -39,4 +39,7 @@ DATABASES = {
 # the test output readable (the "django" logger must be
 # lowered too: propagated records bypass the root level)
 LOGGING["root"]["level"] = "ERROR"  # noqa: F405
-LOGGING["loggers"] = {"django": {"level": "ERROR"}}  # noqa: F405
+LOGGING["loggers"] = {  # noqa: F405
+    "django": {"level": "ERROR"},
+    "django.security": {"level": "CRITICAL"},   # the oversized-body pin trips it on purpose
+}

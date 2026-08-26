@@ -78,6 +78,16 @@ class AdminHomeTests(TestCase):
         Setting.objects.create(name="PhishingTestSize", value="17")
         self.assertEqual(self.client.get(HOME_URL).json()["phishingtestsize"], 17)
 
+    def test_finished_students_still_show_in_progress(self):
+        # Recently active + dealt questions is all that counts —
+        # finished students stay visible with their flag up
+        finished = create_student(username="DONE", last_login=_now(), is_finished=1)
+        Answer.objects.create(student=finished, question_id=1, question_text="", is_phishing=1, answer_status=1)
+
+        [progress] = self.client.get(HOME_URL).json()["studentsprogress"]
+        self.assertEqual(progress["username"], "DONE")
+        self.assertEqual(progress["isfinished"], 1)
+
     def test_progress_lists_recent_students_with_dealt_questions(self):
         now = _now()
         active = create_student(username="ACTIVE", last_login=now)
@@ -153,6 +163,15 @@ class StudentAnswersTests(TestCase):
         response = self.client.get(f"/api/admin/students/{student.id}/answers")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()), 1)
+
+    def test_unknown_student_yields_an_empty_list(self):
+        # No 404 here — a student with nothing dealt and a student
+        # that does not exist both render as an empty test
+        create_admin()
+        login_admin(self.client)
+        response = self.client.get("/api/admin/students/424242/answers")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [])
 
     def test_student_cannot_read_someone_else(self):
         create_student()
@@ -340,6 +359,23 @@ class QuestionsUpdateTests(TestCase):
         self.assertEqual(foreign_option.option_text, "svetima")
         self.assertEqual(foreign_option.answer_status, 0)
 
+    def test_unknown_ids_are_silent_no_ops(self):
+        # updatequestion / deleteoption / deletequestion all use
+        # filter() mutations — a vanished id reports ok instead of
+        # erroring (only createnewoption differs, with its 404)
+        response = post_json(self.client, f"{QUESTIONS_URL}/updatequestion", {
+            "questionid": 424242, "isphishing": 1, "questiontext": "x", "questionoptions": [],
+        })
+        self.assertEqual(response.json(), {"status": "ok"})
+        self.assertEqual(
+            post_json(self.client, f"{QUESTIONS_URL}/deleteoption", {"optionid": 424242}).json(),
+            {"status": "ok"},
+        )
+        self.assertEqual(
+            post_json(self.client, f"{QUESTIONS_URL}/deletequestion", {"questionid": 424242}).json(),
+            {"status": "ok"},
+        )
+
     def test_deleteoption_removes_one_option(self):
         response = post_json(self.client, f"{QUESTIONS_URL}/deleteoption", {"optionid": self.option.id})
         self.assertEqual(response.json(), {"status": "ok"})
@@ -393,6 +429,11 @@ class PhishingTestSizeTests(TestCase):
         post_json(self.client, TESTSIZE_URL, {"phishingtestsize": 40})
         self.assertEqual(Setting.objects.get(name="PhishingTestSize").value, "40")
         self.assertEqual(Setting.objects.count(), 1)
+
+    def test_float_sizes_truncate_to_int(self):
+        # int(7.9) == 7 — a float from the JSON is stored truncated
+        post_json(self.client, TESTSIZE_URL, {"phishingtestsize": 7.9})
+        self.assertEqual(Setting.objects.get(name="PhishingTestSize").value, "7")
 
     def test_numeric_strings_are_accepted(self):
         post_json(self.client, TESTSIZE_URL, {"phishingtestsize": "15"})

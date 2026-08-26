@@ -10,7 +10,7 @@
 
 
 from django.contrib.sessions.models import Session
-from django.test import TestCase
+from django.test import Client, TestCase
 
 from fisingas.users.models import Student, SystemUser
 
@@ -57,6 +57,13 @@ class LoginValidationTests(TestCase):
         response = post_json(self.client, "/api/login", {"username": "user@example.com", "password": ""})
         self.assertEqual(response.content.decode(), "Įveskite Slaptažodį.")
 
+    def test_get_login_returns_the_validation_message(self):
+        # No 405 here — a bodyless GET walks the normal validation
+        # path and gets the first message
+        response = self.client.get("/api/login")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content.decode(), "Įveskite Prisijungimo Vardą ir Slaptažodį.")
+
     def test_trailing_slash_is_unknown(self):
         # APPEND_SLASH is off — the API has no slash-suffixed twins
         response = post_json(self.client, "/api/login/", {"username": "a", "password": "b"})
@@ -90,6 +97,8 @@ class AdminLoginTests(TestCase):
         cookie = login_admin(self.client).cookies["session"]
         self.assertTrue(cookie["httponly"])
         self.assertEqual(cookie["max-age"], "")
+        # Lax is what keeps cross-site POSTs from carrying the session
+        self.assertEqual(cookie["samesite"], "Lax")
 
     def test_wrong_password_refused(self):
         create_admin()
@@ -147,6 +156,15 @@ class StudentLoginTests(TestCase):
         response = login(self.client, STUDENT_USERNAME, STUDENT_PASSCODE)
         self.assertEqual(response.content.decode(), "Vardas ir/arba Slaptažodis neteisingas.")
 
+    def test_pre_normalization_name_does_not_log_in(self):
+        # Registration normalizes "mixed99" to "MIXED99" and shows
+        # that name back — login does NOT normalize, so only the
+        # normalized form works
+        create_student(username="MIXED99", passcode="12345678")
+        response = login(self.client, "mixed99", "12345678")
+        self.assertEqual(response.content.decode(), "Vardas ir/arba Slaptažodis neteisingas.")
+        self.assertEqual(login(self.client, "MIXED99", "12345678").content, b"OK")
+
     def test_name_existing_in_both_tables_refuses_login(self):
         # load_user refuses to guess when a name matches both an
         # admin and a student — login is simply rejected
@@ -172,6 +190,12 @@ class CheckauthTests(TestCase):
         response = self.client.get("/api/checkauth")
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.content, b"Unauthorized")
+
+    def test_garbage_session_cookie_is_anonymous(self):
+        # A cookie value that matches no session row is simply an
+        # empty session — 401, never an error
+        self.client.cookies["session"] = "not-a-real-session-key"
+        self.assertEqual(self.client.get("/api/checkauth").status_code, 401)
 
     def test_admin_info(self):
         admin = create_admin()
@@ -222,6 +246,22 @@ class CheckauthTests(TestCase):
 ############################################################
 
 class CheckauthAdminTests(TestCase):
+
+    def test_bumps_only_the_admins_lastseen(self):
+        admin = create_admin()
+        student = create_student()
+
+        login_admin(self.client)
+        self.client.get("/api/checkauth/admin")
+        admin.refresh_from_db()
+        self.assertRegex(admin.last_login, TIMESTAMP_RE)
+
+        # A rejected student leaves no lastseen trace here
+        student_client = Client()
+        login_student(student_client)
+        student_client.get("/api/checkauth/admin")
+        student.refresh_from_db()
+        self.assertEqual(student.last_login, "")
 
     def test_requires_login(self):
         response = self.client.get("/api/checkauth/admin")
@@ -300,6 +340,20 @@ class LogoutTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"OK")
 
+    def test_logout_only_ends_the_current_session(self):
+        # Sessions are per-browser: logging out on one device must
+        # not kill the same account's session on another
+        create_admin()
+        login_admin(self.client)
+        other_device = Client()
+        login_admin(other_device)
+        self.assertEqual(Session.objects.count(), 2)
+
+        self.client.post("/api/logout")
+
+        self.assertEqual(Session.objects.count(), 1)
+        self.assertEqual(other_device.get("/api/checkauth").status_code, 200)
+
     def test_logout_refuses_get(self):
         # Deliberately POST-only — a cross-site top-level GET
         # navigation must not be able to log people out
@@ -321,6 +375,20 @@ class LogoutTests(TestCase):
 ############################################################
 
 class SessionInvalidationTests(TestCase):
+
+    def test_relogin_replaces_the_session_user(self):
+        # One browser, two logins — the second one wins outright
+        create_admin()
+        create_student()
+        login_admin(self.client)
+        login_student(self.client)
+        self.assertEqual(self.client.get("/api/checkauth").json()["admin"], 0)
+
+    def test_renaming_admin_kills_the_live_session(self):
+        create_admin()
+        login_admin(self.client)
+        SystemUser.objects.update(email="renamed@example.com")
+        self.assertEqual(self.client.get("/api/checkauth").status_code, 401)
 
     def test_disabling_admin_kills_the_live_session(self):
         create_admin()

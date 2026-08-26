@@ -119,6 +119,14 @@ class AdministratorsMutationTests(TestCase):
         # The full hashing round-trip: the new account logs in
         login_admin(Client(), email="new@example.com", password="brand-new-password")
 
+    def test_exactly_8_character_password_is_accepted(self):
+        # The minimum is "at least 8" — the boundary itself passes
+        response = post_json(self.client, URL, {
+            "action": "insertupdate", "id": "",
+            "email": "eight@example.com", "password": "12345678", "enabled": 1,
+        })
+        self.assertEqual(response.json(), {"type": "ok"})
+
     def test_create_refuses_short_password(self):
         response = post_json(self.client, URL, {
             "action": "insertupdate", "id": "", "email": "new@example.com", "password": "short", "enabled": 1,
@@ -258,6 +266,16 @@ class AdministratorsMutationTests(TestCase):
         response = post_json(self.client, URL, {
             "action": "insertupdate", "id": self.admin.id,
             "email": self.admin.email, "password": "", "enabled": 1,
+        })
+        self.assertEqual(response.json(), {"type": "ok"})
+
+
+    def test_edit_of_an_unknown_id_still_reports_ok(self):
+        # Consistent with the silent no-op convention of the other
+        # mutation endpoints — filter().update() matches nothing
+        response = post_json(self.client, URL, {
+            "action": "insertupdate", "id": 424242,
+            "email": "ghost@example.com", "password": "", "enabled": 1,
         })
         self.assertEqual(response.json(), {"type": "ok"})
 

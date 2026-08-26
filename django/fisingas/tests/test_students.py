@@ -75,6 +75,20 @@ class StudentRegisterTests(TestCase):
         response = login(Client(), data["username"], data["accessCode"])
         self.assertEqual(response.content, b"OK")
 
+    def test_register_response_has_exactly_the_expected_keys(self):
+        data = post_json(self.client, REGISTER_URL, {"username": "KEYCHECK"}).json()
+        self.assertEqual(set(data.keys()), {"status", "username", "accessCode"})
+
+    def test_lithuanian_letters_are_stripped_not_mapped(self):
+        # Ą/Ž are outside A-Z and are dropped, not transliterated
+        data = post_json(self.client, REGISTER_URL, {"username": "ąžuolas99"}).json()
+        self.assertEqual(data["username"], "UOLAS99")
+
+    def test_deleted_username_can_register_again(self):
+        create_student(username="CYCLE").delete()
+        data = post_json(self.client, REGISTER_URL, {"username": "CYCLE"}).json()
+        self.assertEqual(data["status"], "OK")
+
     def test_duplicate_name_is_refused(self):
         create_student(username="TAKEN")
         response = post_json(self.client, REGISTER_URL, {"username": "taken"})
@@ -168,6 +182,24 @@ class StudentsListTests(TestCase):
         self.assertEqual(row["fullycorrectpercentage"], 50)
         self.assertEqual(row["testgrade"], "5.00")
 
+    def test_list_mixes_frozen_live_and_blank_rows(self):
+        # One response, all three grading modes side by side
+        frozen = create_student(username="FROZEN", is_finished=1)
+        TestResult.objects.create(
+            student=frozen, question_count=2, answered_question_count=2,
+            total_identified_correctly=2, fully_correct_count=2,
+            total_options_count=0, total_correct_options_count=0,
+            total_points=1.0, finished_at="2026-08-01 10:00:00",
+        )
+        live = create_student(username="LIVE")
+        Answer.objects.create(student=live, question_id=1, question_text="", is_phishing=1, answer_status=1)
+        create_student(username="BLANK")
+
+        rows = {row["username"]: row for row in self.client.get(LIST_URL).json()}
+        self.assertEqual(rows["FROZEN"]["testgrade"], "5.00")
+        self.assertEqual(rows["LIVE"]["testgrade"], "10.00")
+        self.assertEqual(rows["BLANK"]["testgrade"], "")
+
     def test_finished_students_come_from_the_frozen_row(self):
         # The tampered TestResult (not the answers) must win —
         # that proves the list reads the frozen totals
@@ -220,6 +252,24 @@ class StudentDetailTests(TestCase):
         response = self.client.get(f"{LIST_URL}/{student.id}")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["passcode"], student.passcode)
+
+    def test_detail_prefers_the_frozen_row_for_finished_students(self):
+        # The tampered frozen totals must win over the answers on
+        # the detail endpoint too
+        create_admin()
+        student = create_student(is_finished=1)
+        Answer.objects.create(student=student, question_id=1, question_text="", is_phishing=1, answer_status=1)
+        TestResult.objects.create(
+            student=student, question_count=4, answered_question_count=4,
+            total_identified_correctly=4, fully_correct_count=4,
+            total_options_count=0, total_correct_options_count=0,
+            total_points=2.0, finished_at="2026-08-01 10:00:00",
+        )
+        login_admin(self.client)
+
+        row = self.client.get(f"{LIST_URL}/{student.id}").json()
+        self.assertEqual(row["questioncount"], 4)
+        self.assertEqual(row["testgrade"], "5.00")
 
     def test_student_cannot_read_someone_else(self):
         create_student()
