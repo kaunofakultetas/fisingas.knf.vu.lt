@@ -71,7 +71,7 @@
   vertinimo platforma Django, React ir Docker pagrindu}
 \author{Tomas Vanagas\\[2pt]
   \normalsize\texttt{tomas.vanagas@knf.vu.lt}}
-\date{2026 m. liepa}
+\date{2026 m. rugpjūtis}
 
 \begin{document}
 
@@ -200,8 +200,10 @@ be Django REST Framework, be \code{django.contrib.admin} ir be
 karkasas ir trys projekto aplikacijos (\code{users},
 \code{phishing\_test}, \code{leaderboard}). Visas turinio tvarkymas
 vyksta per React administratoriaus sąsają; visa prieiga prie duomenų
-bazės eina per ORM (kodo bazėje nėra nė vienos „žalios`` SQL
-užklausos). Kiekviena užklausa vykdoma transakcijoje
+bazės eina per ORM — vienintelė „žalia`` SQL užklausa kodo bazėje
+yra migracija, pavertusi laiko žymų stulpelius gimtaisiais datos
+tipais (\ref{sec:datamodel}~skyrius). Kiekviena užklausa vykdoma
+transakcijoje
 (\code{ATOMIC\_REQUESTS = True}), tad pusiau įrašyta testo būsena
 negali išlikti.
 
@@ -372,16 +374,24 @@ klausimo trynimas negali kaskadu paliesti išdalyto testo. Vertinimas
 eilutes.
 
 Du unikalumo apribojimai — \code{(student, question\_id)} atsakymams
-ir \code{(student, question\_id, option\_id)} variantams — kartu yra
-ir lygiagretumo saugiklis: jei dvi vienalaikės pirmos užklausos abi
-bando išdalyti, nusileisti gali tik vienas masinis įrašymas;
-pralaimėjusiosios \code{IntegrityError} nuryjama ir ji tiesiog
-perskaito laimėtojos kopiją. Kartu su transakcijomis kiekvienai
-užklausai iš dalies išdalytas testas negali egzistuoti.
+ir \code{(student, question\_id, option\_id)} variantams —
+garantuoja, kad studentas niekada neturės dviejų to paties klausimo
+kopijų. Pats lygiagretumas tvarkomas lygiu aukščiau: kiekviena testo
+galinių taškų užklausa pirmiausia atnaujina studento „paskutinį kartą
+matytas`` žymą, o tai PostgreSQL užrakina to studento eilutę, tad dvi
+vienalaikės pirmos užklausos nuosekliojamos — antroji palaukia, tada
+pamato pirmosios eilutes ir išdalijimą praleidžia. Jei apribojimas vis
+dėlto suveiktų, užklausa tai užregistruoja žurnale ir aptarnauja
+nusileidusią kopiją; bet kokia kita vientisumo klaida registruojama ir
+metama toliau, o ne atsakoma tuščiu testu. Kartu su transakcijomis
+kiekvienai užklausai iš dalies išdalytas testas negali egzistuoti.
 
 Studentui baigus įvyksta trečias užšaldymas: suskaičiuotos sumos
-vieną kartą įrašomos į \code{TestResult}. Nuo tada kiekvienas sąrašo
-vaizdas (administratoriaus lentelė, vieša lyderių lentelė) šį studentą
+vieną kartą įrašomos į \code{TestResult} laikant tą patį eilutės
+užraktą, tad dar patvirtinamas automatinis išsaugojimas įtraukiamas į
+užšaldytas sumas — sąrašuose rodomas įvertinimas ir klausimų peržiūra
+niekada negali nesutapti. Nuo tada kiekvienas sąrašo vaizdas
+(administratoriaus lentelė, vieša lyderių lentelė) šį studentą
 aptarnauja iš vienos saugomos eilutės, o ne pervertindamas atsakymus,
 tad karštieji puslapiai baigusiam studentui dirba pastovų darbą, o
 gyvas vertinimas lieka tik dar sprendžiantiems.
@@ -424,8 +434,11 @@ nes studentų vardai registruojantis normalizuojami iki abėcėlės
 \code{A--Z 0--9 \_} (didžiosiomis, visi kiti simboliai išmetami), tad
 dvi vardų erdvės negali susikirsti.
 
-Administratorių slaptažodžiai maišomi bcrypt (12 raundų), kuriant ar
-keičiant paskyrą reikalaujama bent 8 simbolių. Studentų prisijungimo
+Administratorių slaptažodžiai maišomi bcrypt (12 raundų); kuriant ar
+keičiant paskyrą reikalaujama bent 8 simbolių ir ne daugiau kaip 72
+baitų — bcrypt įvesties riba; ilgesnis slaptažodis tyliai
+autentikuotųsi pagal nukirstą pradžią — o el.~pašto adresas privalo
+būti unikalus ir redaguojant, ne tik kuriant. Studentų prisijungimo
 duomenys — sistemos sugeneruoti 8 skaitmenų prieigos kodai
 (\code{10000000}--\code{99999999}), saugomi ir lyginami
 \emph{atviru tekstu} — dokumentuotas projektinis sprendimas: kodas
@@ -439,11 +452,14 @@ neišduoda, ar paskyra egzistuoja.
 
 Django duomenų baze paremtas sesijų karkasas — vienintelė naudojama
 \code{django.contrib} dalis. Prisijungimas naujoje sesijos eilutėje
-išsaugo vieną reikšmę — prisijungimo vardą — ir nustato slapuką vardu
-\code{session}, galiojantį iki naršyklės uždarymo. Slapukas sąmoningai
-\emph{ne} \code{HttpOnly}: serveryje nėra atsijungimo galinio taško,
-o prisijungimo puslapis naudotoją atjungia ištrindamas slapuką iš
-JavaScript. Kiekvienoje užklausoje sesijos vardas iš naujo
+išsaugo vieną reikšmę — prisijungimo vardą — ir nustato \code{HttpOnly}
+slapuką vardu \code{session}, galiojantį iki naršyklės uždarymo.
+Atsijungimas vyksta serverio pusėje: \code{POST /api/logout} ištrina
+sesijos eilutę ir išvalo slapuką, tad anksčiau nukopijuota slapuko
+reikšmė (bendri ar kiosko kompiuteriai) nuo tos akimirkos nebegalioja;
+prisijungimo puslapis šį kvietimą atlieka kaskart atidarytas — taip
+veikia nuoroda „Atsijungti``. Kiekvienoje užklausoje sesijos vardas iš
+naujo
 išsprendžiamas paskyrų lentelėse, o išjungtos paskyros laikomos
 neegzistuojančiomis — deaktyvuotas administratorius ar studentas
 gyvą sesiją praranda su kita savo užklausa.
@@ -454,7 +470,8 @@ Nedidelis nuosavas dekoratorius pakeičia \code{django.contrib.auth}:
 \code{@login\_required} anonimines užklausas atmeta su 401 ir prie
 užklausos prisega išspręstą paskyrą; rolės tikrinamos jau kiekviename
 vaizde. Susidaro trys prieigos pakopos: vieši galiniai taškai
-(prisijungimas, registracija, lyderių lentelė, skaidrės),
+(prisijungimas, atsijungimas, registracija, lyderių lentelė,
+skaidrės),
 autentikuoti (klausimų paveikslėliai ir jų nuorodų sritys) ir
 administratoriaus — iš kurių du (studento kortelė ir studento
 atsakymai) papildomai leidžia studentui skaityti \emph{savo paties}
@@ -502,23 +519,37 @@ Studentas pereina šias stadijas (\ref{fig:lifecycle}~pav.):
         ištraukiama tolygiai atsitiktinė tokio dydžio imtis
         (apribota banko dydžiu) ir masiškai įrašoma
         \ref{sec:snapshot}~poskyryje aprašyta užšaldyta kopija.
-        Vėlesni kvietimai grąžina jau išdalytą rinkinį. Serveris
-        klausimų tvarką permaišo kiekviename GET; sąsaja sesijos metu
-        laikosi savo pastovios tvarkos.
+        Vėlesni kvietimai grąžina jau išdalytą rinkinį ta pačia
+        tvarka: tvarka kiekvienam studentui atsitiktinė ir fiksuojama
+        išdalijant, tad navigacijos skydelio numeracija išgyvena
+        puslapio perkrovimą. Klausimų aibė skaitoma vieną kartą ir
+        imtis dydinama pagal tą patį skaitymą, o sugadinta nustatymo
+        reikšmė atsitraukia į numatytąją kaip ir trūkstama, tad pirma
+        užklausa negali sugriūti dėl tuo pat metu redaguojamo banko ar
+        ranka pakeisto nustatymo.
   \item \textbf{Atsakinėjimas.} Sąsaja po kiekvieno paspaudimo
         siunčia \emph{visą} atsakymų būseną į
         \code{POST /api/student/questions} — verdiktus (\code{0} =
         tikras, \code{1} = fišingas) į atsakymų eilutes, žymių
         būsenas į variantų eilutes. Kiekvienas atnaujinimas
         apribotas sesijos studento identifikatoriumi, tad suklastotas
-        krovinys negali rašyti į kito studento eilutes. Saugojimas
-        idempotentinis ir kartotinas; studentas gali užverti naršyklę
-        ir tęsti prisijungęs su vardu ir kodu.
-  \item \textbf{Baigimas.} \code{GET /api/student/finish} įvertina
-        užšaldytas eilutes, įrašo \code{TestResult} sumas
-        (\code{update\_or\_create}, tad dvigubas paspaudimas
-        nekenksmingas) ir nustato baigimo žymę. Žingsnis
-        negrįžtamas: nuo šiol klausimų galinis taškas šiam studentui
+        krovinys negali rašyti į kito studento eilutes. Visas krovinys
+        patikrinamas prieš ką nors įrašant, tad netaisyklingas
+        išsaugojimas atmetamas kaip visuma ir niekada nepalieka pusiau
+        įrašytos būsenos; sąsaja išsaugojimus siunčia po vieną,
+        paspaudimus, padarytus dar vykstant išsaugojimui, sujungdama į
+        vieną paskesnį, tad senesnė būsena niekada negali perrašyti
+        naujesnės. Saugojimas idempotentinis ir kartotinas; studentas
+        gali užverti naršyklę ir tęsti prisijungęs su vardu ir kodu.
+  \item \textbf{Baigimas.} \code{GET /api/student/finish} užrakina
+        studento eilutę, įvertina užšaldytas eilutes, įrašo
+        \code{TestResult} sumas ir nustato baigimo žymę; jau baigęs
+        studentas paliekamas nepaliestas, tad dvigubas paspaudimas
+        nekenksmingas. Sąsaja prieš pereidama prie šio kvietimo
+        palaukia, kol bus patvirtintas dar vykstantis automatinis
+        išsaugojimas, tad paskutinis paspaudimas visada yra užšaldyto
+        įvertinimo dalis. Žingsnis negrįžtamas: nuo šiol klausimų
+        galinis taškas šiam studentui
         grąžina tuščią objektą, o maršruto sargas nukreipia jį į
         rezultatų puslapį.
   \item \textbf{Rezultatai.} Studentas savo santrauką ir klausimų
@@ -558,7 +589,7 @@ Studentas pereina šias stadijas (\ref{fig:lifecycle}~pav.):
   % Išdalijimas
   \draw[msg] (0,-4.3)   -- node[mlbl]{GET /api/student/questions (pirmas kvietimas)} (6.6,-4.3);
   \draw[msg] (6.6,-4.9) -- node[mlbl]{įjungtų klausimų imtis, masinis užšaldytos kopijos INSERT} (13.2,-4.9);
-  \draw[msg] (6.6,-5.5) -- node[mlbl]{išdalyti klausimai (permaišyti)} (0,-5.5);
+  \draw[msg] (6.6,-5.5) -- node[mlbl]{išdalyti klausimai (išdalijimo tvarka)} (0,-5.5);
 
   % Atsakinėjimo ciklas
   \draw[rounded corners=2pt, gray] (-0.9,-6.05) rectangle (14.1,-7.7);
@@ -568,7 +599,7 @@ Studentas pereina šias stadijas (\ref{fig:lifecycle}~pav.):
 
   % Baigimas
   \draw[msg] (0,-8.5)   -- node[mlbl]{GET /api/student/finish} (6.6,-8.5);
-  \draw[msg] (6.6,-9.1) -- node[mlbl]{įvertinti kopijas, INSERT TestResult, pažymėti baigtą} (13.2,-9.1);
+  \draw[msg] (6.6,-9.1) -- node[mlbl]{užrakinti studento eilutę, įvertinti kopijas, INSERT TestResult, pažymėti baigtą} (13.2,-9.1);
   \draw[msg] (0,-9.9)   -- node[mlbl]{GET /api/admin/students/\{savo id\} $\rightarrow$ užšaldyta santrauka} (6.6,-9.9);
 
 \end{tikzpicture}}
@@ -612,9 +643,15 @@ pateikiamas fiksuota dviejų skaitmenų po kablelio eilute (pvz.\
 \code{"8.50"}). Santrauka papildomai nurodo, kiek klausimų
 identifikuota teisingai (vien verdiktas), kiek \emph{visiškai}
 teisingi (verdiktas ir visi variantai), variantų sumas ir visiškai
-teisingų dalį nukirsto sveiko skaičiaus procentais. $N$ skaičiuoja
-\emph{išdalytus} klausimus, tad neatsakyti klausimai į įvertinimą
-įeina lygiai kaip klaidingi verdiktai.
+teisingų dalį nukirsto sveiko skaičiaus procentais. Variantų sumos
+skaičiuojamos tik teisingai identifikuotuose klausimuose — lygiai tie
+variantai, kuriuos vertina formulė — tad nieko neatsakęs studentas mato
+$0/0$, o ne kreditą už nepaliestas žymes, kurios šiaip laukė
+„nepažymėta``. $N$ skaičiuoja \emph{išdalytus} klausimus, tad
+neatsakyti klausimai į įvertinimą įeina lygiai kaip klaidingi
+verdiktai. Naujai pridėtas variantas laukia „nepažymėta``, kol
+administratorius nenurodo kitaip; niekada nenustatyta laukiama reikšmė
+(galima tik už šią taisyklę senesnėse eilutėse) negali būti atitikta.
 
 Dar sprendžiantiems studentams šie rodikliai skaičiuojami gyvai iš
 kopijos eilučių dviem aibinėmis užklausomis; baigus jie užšaldomi į
@@ -673,13 +710,17 @@ rasti galima tik iš tiesų tyrinėjant laišką.
 
 Po paveikslėliu — verdikto mygtukai \emph{Tikras} ir \emph{Fišingas}
 bei klausimo papildomos žymės. Kiekvienas paspaudimas automatiškai
-išsaugo visą atsakymų būseną serveryje, o nesėkmę praneša
+išsaugo visą atsakymų būseną serveryje (vienu metu vyksta vienas
+išsaugojimas, vėlesni paspaudimai sujungiami), o nesėkmę praneša
 iššokantis pranešimas, tad nutrūkęs ryšys ar užvertas nešiojamasis
 nieko nekainuoja: prisijungus iš naujo tęsiama lygiai ten, kur
 sustota. Progreso skydelis rodo atsakytų skaitiklį, progreso juostą
 ir šuolių tinklelį su mygtuku kiekvienam klausimui (užpildytas —
 atsakytas, apvestas — dabartinis). Baigimo mygtukas — 1,5 sekundės
-palaikymas; rezultatų puslapis tada rodo įvertinimo antraštę, tris
+palaikymas, kuris prieš paliekant puslapį palaukia paskutinio
+automatinio išsaugojimo patvirtinimo — jei jo pristatyti nepavyksta,
+studentui apie tai pranešama ir jis lieka teste, užuot baigęs be tų
+atsakymų. Rezultatų puslapis tada rodo įvertinimo antraštę, tris
 santykių korteles (visiškai teisingi, teisingai identifikuoti,
 teisingi variantai), studento vardą su prieigos kodu ir tą patį
 klausimų peržiūros komponentą, kurį mato administratorius — atsakymų
@@ -726,7 +767,8 @@ pasiekiamas tiesiogiai adresu \code{/admin/questions/\{id\}}.
 \textbf{Studentai.} Duomenų lentelė (5 sekundžių klausinėjimas,
 greitas filtras, numatytasis „per paskutinį mėnesį`` jungiklis)
 išvardija kiekvieną studentą su progresu, įvertinimu ir laiko
-žymomis. Kortelės puslapis rodo prisijungimo duomenų kortelę —
+žymomis, rikiuojamomis kaip skaičiai ir datos, o ne tekstas. Kortelės
+puslapis rodo prisijungimo duomenų kortelę —
 įskaitant prieigos kodą, kad dėstytojas galėtų išgelbėti jį pametusį
 studentą — santraukos korteles ir dvi kirptis: klausimų peržiūrą ir
 sutrauktą lentelę su ekrano kopijų miniatiūromis. Studentus galima
@@ -736,7 +778,10 @@ ir įvertinimus, bet paveikslėlių niekada neliečia.
 \textbf{Administratoriai.} Lentelė ir vienas modalinis langas
 kūrimui/redagavimui/trynimui per vieną galinį tašką; tuščias
 \code{id} reiškia įterpimą, tuščias slaptažodis redaguojant —
-„palikti dabartinį``, minimalus ilgis — 8 simboliai.
+„palikti dabartinį``. Slaptažodis turi būti nuo 8 simbolių iki 72
+baitų, el.~pašto adresai — unikalūs, o administratorius negali nei
+išjungti, nei ištrinti savo paties paskyros — tad bent viena veikianti
+administratoriaus paskyra išlieka visada.
 
 \subsection{Viešieji rodiniai}
 
@@ -801,12 +846,17 @@ aplikacija, \code{/swagger} — API dokumentacija, \code{/dbgate} —
 duomenų bazės sąsaja (visi trys įrankių keliai saugomi
 administratoriaus sesija).
 
+Kiekvieną užklausą Gunicorn registruoja konteinerio standartinėje
+išvestyje (\code{docker logs fisingas-django}): Caddy persiųstą
+kliento adresą, užklausos eilutę, būsenos kodą, atsako dydį ir trukmę.
+
 \subsection{Duomenų saugojimo terminai}
 
 Cron konteineris — BusyBox \code{crond} su Docker CLI, be tinklo ir
-su į atvaizdą įkepta crontab — vykdo vieną darbą: kas naktį 03:00
-Django konteineryje paleidžia valdymo komandą
-\code{delete\_old\_students}. Komanda ištrina studentų paskyras,
+su į atvaizdą įkepta crontab — vykdo vieną darbą: kas naktį 05:00
+(valanda, kuri egzistuoja kiekvieną metų dieną; 03:00 yra būtent ta,
+kurią vasaros laikas pavasarį praleidžia, o rudenį pakartoja) Django
+konteineryje paleidžia valdymo komandą \code{delete\_old\_students}. Komanda ištrina studentų paskyras,
 kurių paskutinis prisijungimas \emph{ir} registracija abu senesni nei
 180 dienų; kaskadas pašalina jų išdalytus testus ir įvertinimus, o
 klausimų paveikslėliai niekada neliečiami. Šviežios, nė karto
@@ -855,6 +905,21 @@ priklausomybes prisega tiesiai Dockerfile — \code{requirements.txt}
 nėra — o lydintys \code{pushDockerhub.sh} skriptai kiekvieną atvaizdą
 surenka ir publikuoja su \code{latest} ir datos žymomis.
 
+\subsection{Regresiniai testai}
+
+\code{django/runTests.sh} surenka serverinės dalies atvaizdą ir
+laikiname konteineryje paleidžia regresinių testų rinkinį — daugiau
+nei tris šimtus testų — su atmintyje laikoma SQLite duomenų baze, tad
+veikiančio steko nereikia. Rinkinys dengia kiekvieną galinį tašką,
+vertinimo aritmetiką, momentinių kopijų ir užšaldymo discipliną,
+saugojimo terminų valymą ir laiko žymų politiką; kontraktų sluoksnis
+gyvus atsakus tikrina pagal \code{swagger/swagger.yaml}, tad API
+dokumentacija negali nepastebimai nutolti nuo kodo. Žinomi, dar
+nepataisyti defektai prisegti kaip \emph{laukiamos nesėkmės}:
+kiekvienas turi testą, tvirtinantį teisingą elgseną, tad rinkinys
+lieka žalias, o defektas — dokumentuotas ir vykdomas, o pataisymas
+testą apverčia, užuot tyliai praėjęs.
+
 % ============================================================
 \section{Apribojimai ir ateities darbai}
 \label{sec:limitations}
@@ -896,14 +961,16 @@ sprendimai prasmingi tik tokioje aplinkoje:
         kas pasiekia serverį, atskleidžia vardus, įvertinimus ir
         paskutinio matymo laikus. Studentai renkasi slapyvardžius
         patys — tai sušvelnina, bet nepanaikina atskleidimo.
-  \item \textbf{Nėra serverio pusės atsijungimo.} Sesijos baigiasi
-        užvėrus naršyklę arba ištrynus slapuką kliento pusėje;
-        pavogtas slapukas iki tol lieka galiojantis.
-  \item \textbf{Eksploataciniai saugikliai ploni.} Administratorius
-        gali ištrinti savo ar paskutinę administratoriaus paskyrą;
-        testo dydis API lygmenyje priima bet kokį sveikąjį skaičių;
-        paveikslėliai gyvena duomenų bazės blokais — paprasta ir
-        nuoseklu, bet duomenų bazė tampa dydžio butelio kakleliu.
+  \item \textbf{Nėra audito sekos.} Administratoriaus veiksmai ir
+        prisijungimai niekur neregistruojami, išskyrus Gunicorn
+        užklausų žurnalą, o ištrinto studento ar klausimo atkurti
+        neįmanoma. Paveikslėliai gyvena duomenų bazės blokais —
+        paprasta ir nuoseklu, bet duomenų bazė tampa dydžio butelio
+        kakleliu.
+  \item \textbf{Nėra laiko limito ir pradžios žymos.} Niekas
+        neužfiksuoja, kada testas buvo išdalytas, tad sprendimo
+        trukmės negalima nei riboti, nei vėliau atkurti; saugomas tik
+        baigimo laikas.
   \item \textbf{Viena kalba.} Visas sąsajos tekstas — kode įrašyta
         lietuvių kalba; internacionalizacijai sąsajoje reikėtų i18n
         sluoksnio.

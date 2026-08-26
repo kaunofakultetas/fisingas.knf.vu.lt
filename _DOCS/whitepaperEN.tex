@@ -66,7 +66,7 @@
   Assessment Platform Built on Django, React and Docker}
 \author{Tomas Vanagas\\[2pt]
   \normalsize\texttt{tomas.vanagas@knf.vu.lt}}
-\date{July 2026}
+\date{August 2026}
 
 \begin{document}
 
@@ -193,8 +193,9 @@ Django REST Framework, no \code{django.contrib.admin} and no
 the session framework and the three project apps (\code{users},
 \code{phishing\_test}, \code{leaderboard}). All content management
 happens through the React admin interface; all database access goes
-through the ORM (there is no raw SQL anywhere in the codebase). Every
-request runs in a transaction (\code{ATOMIC\_REQUESTS = True}), so a
+through the ORM --- the only raw SQL in the codebase is the migration
+that converted the timestamp columns to native datetimes
+(Section~\ref{sec:datamodel}). Every request runs in a transaction (\code{ATOMIC\_REQUESTS = True}), so a
 half-written test state cannot persist.
 
 \begin{figure}[h]
@@ -363,19 +364,27 @@ question later cannot cascade into a dealt test. Grading
 
 Two uniqueness constraints ---
 \code{(student, question\_id)} on answers and
-\code{(student, question\_id, option\_id)} on options --- double as
-the concurrency guard: if two simultaneous first requests both try to
-deal, only one bulk insert can land; the loser's
-\code{IntegrityError} is swallowed and it simply reads the winner's
-snapshot. Combined with per-request transactions, a partially dealt
+\code{(student, question\_id, option\_id)} on options --- guarantee
+that a student can never hold two snapshots of one question.
+Concurrency itself is handled one level up: every request on the test
+endpoints first updates the student's ``last seen'' timestamp, which
+takes that student's row lock in PostgreSQL, so two simultaneous first
+requests are serialised --- the second waits, then sees the first one's
+rows and skips dealing. Should the constraint fire regardless, the
+request logs it and serves the snapshot that landed; any other
+integrity failure is logged and re-raised rather than answered with an
+empty test. Combined with per-request transactions, a partially dealt
 test cannot exist.
 
 When the student finishes, a third freeze happens: the computed totals
-are written once into \code{TestResult}. From then on every list view
-(admin table, public leaderboard) serves that student from a single
-stored row instead of re-judging their answers, so the hot pages do
-constant work per finished student and live judging is reserved for
-students still answering.
+are written once into \code{TestResult}, under the same row lock, so
+an autosave that is still committing is included in the frozen totals
+--- the grade the lists show and the per-question review can never
+disagree. From then on every list view (admin table, public
+leaderboard) serves that student from a single stored row instead of
+re-judging their answers, so the hot pages do constant work per
+finished student and live judging is reserved for students still
+answering.
 
 \subsection{The image store}
 
@@ -416,7 +425,10 @@ alphabet \code{A--Z 0--9 \_} (uppercased, all other characters
 stripped), so the two namespaces cannot collide.
 
 Administrator passwords are hashed with bcrypt (12 rounds), with an
-8-character minimum enforced when accounts are created or updated.
+8-character minimum and a 72-byte maximum --- bcrypt's input limit; a
+longer password would silently authenticate on its truncated prefix ---
+enforced when accounts are created or updated, and an email address
+must be unique on edit as well as on create.
 Student credentials are system-generated 8-digit access codes
 (\code{10000000}--\code{99999999}) stored and compared \emph{in
 plaintext} --- a documented design decision: the code is a
@@ -429,21 +441,23 @@ hash, so response timing does not reveal whether an account exists.
 
 Django's database-backed session framework is the only piece of
 \code{django.contrib} in use. Logging in stores a single value --- the
-login name --- in a new session row and sets a cookie named
-\code{session}, configured to expire when the browser closes. The
-cookie is deliberately \emph{not} \code{HttpOnly}: there is no logout
-endpoint on the server, and the login page logs the user out by
-deleting the cookie from JavaScript. On every request the session name
-is re-resolved against the account tables, and disabled accounts are
-treated as non-existent --- a deactivated administrator or student
-loses any live session on their next request.
+login name --- in a new session row and sets an \code{HttpOnly} cookie
+named \code{session}, configured to expire when the browser closes.
+Logging out is server-side: \code{POST /api/logout} deletes the session
+row and clears the cookie, so a cookie value captured earlier (shared
+or kiosk machines) is dead from that moment; the login page issues that
+call whenever it is opened, which is how the ``Atsijungti'' link works.
+On every request the session name is re-resolved against the account
+tables, and disabled accounts are treated as non-existent --- a
+deactivated administrator or student loses any live session on their
+next request.
 
 \subsection{Per-view authorization}
 
 A small custom decorator replaces \code{django.contrib.auth}:
 \code{@login\_required} rejects anonymous requests with 401 and
 attaches the resolved account to the request; role checks are then
-per-view. Three access tiers result: public endpoints (login,
+per-view. Three access tiers result: public endpoints (login, logout,
 registration, leaderboard, slides), authenticated endpoints (question
 images and their link areas), and admin endpoints --- two of which
 (\code{student detail} and \code{student answers}) also accept the
@@ -493,21 +507,34 @@ A student passes through the following stages
         \emph{enabled} questions is drawn (clamped to the bank size),
         and the frozen snapshot described in
         Section~\ref{sec:snapshot} is bulk-inserted. Subsequent calls
-        return the already-dealt set. The server shuffles the
-        question order anew on every GET; the frontend keeps its own
-        stable order for the session.
+        return the already-dealt set in the same order: the order is
+        random per student and fixed at deal time, so the numbering
+        in the navigation panel survives a reload. The pool is read
+        once and the sample sized from that read, and a corrupt
+        setting value falls back to the default like a missing one,
+        so a first request cannot fail on a concurrent bank edit or a
+        hand-edited setting.
   \item \textbf{Answering.} The frontend posts the \emph{entire}
         answer state to \code{POST /api/student/questions} after every
         click --- verdicts (\code{0} = real, \code{1} = phishing) into
         the answer rows, checkbox states into the option rows. Every
         update is scoped to the session's student ID, so a forged
-        payload cannot write into another student's rows. Saving is
-        idempotent and repeatable; a student can close the browser and
-        resume with their name and code.
-  \item \textbf{Finish.} \code{GET /api/student/finish} grades the
-        frozen rows, writes the \code{TestResult} totals
-        (an \code{update\_or\_create}, so a double click is harmless),
-        and sets the finished flag. The step is irreversible: from now
+        payload cannot write into another student's rows. The whole
+        payload is validated before anything is written, so a
+        malformed save is refused as a unit and never leaves a
+        half-saved state; the frontend sends saves one at a time,
+        coalescing clicks made while a save is in flight into a single
+        follow-up, so an older state can never overwrite a newer one.
+        Saving is idempotent and repeatable; a student can close the
+        browser and resume with their name and code.
+  \item \textbf{Finish.} \code{GET /api/student/finish} takes the
+        student's row lock, grades the frozen rows, writes the
+        \code{TestResult} totals and sets the finished flag; a
+        student who is already finished is left untouched, so a
+        double click is harmless. The frontend waits for any pending
+        autosave to be acknowledged before it navigates to this call,
+        so the last click is always part of the frozen grade. The
+        step is irreversible: from now
         on the questions endpoint returns an empty object for this
         student, and the route guard sends them to the results page.
   \item \textbf{Results.} The student reads their own summary and
@@ -547,7 +574,7 @@ A student passes through the following stages
   % Deal
   \draw[msg] (0,-4.3)   -- node[mlbl]{GET /api/student/questions (first call)} (6.6,-4.3);
   \draw[msg] (6.6,-4.9) -- node[mlbl]{sample enabled questions, bulk-INSERT frozen snapshot} (13.2,-4.9);
-  \draw[msg] (6.6,-5.5) -- node[mlbl]{dealt questions (shuffled)} (0,-5.5);
+  \draw[msg] (6.6,-5.5) -- node[mlbl]{dealt questions (deal order)} (0,-5.5);
 
   % Answer loop
   \draw[rounded corners=2pt, gray] (-0.9,-6.05) rectangle (14.1,-7.7);
@@ -557,7 +584,7 @@ A student passes through the following stages
 
   % Finish
   \draw[msg] (0,-8.5)   -- node[mlbl]{GET /api/student/finish} (6.6,-8.5);
-  \draw[msg] (6.6,-9.1) -- node[mlbl]{grade snapshots, INSERT TestResult, set finished} (13.2,-9.1);
+  \draw[msg] (6.6,-9.1) -- node[mlbl]{lock student row, grade snapshots, INSERT TestResult, set finished} (13.2,-9.1);
   \draw[msg] (0,-9.9)   -- node[mlbl]{GET /api/admin/students/\{own id\} $\rightarrow$ frozen summary} (6.6,-9.9);
 
 \end{tikzpicture}}
@@ -599,9 +626,15 @@ reported as a fixed two-decimal string (e.g.\ \code{"8.50"}). The
 summary additionally reports how many questions were identified
 correctly (verdict only), how many were \emph{fully} correct (verdict
 and all options), the option totals, and the fully-correct share as a
-truncated integer percentage. $N$ counts \emph{dealt} questions, so
-unanswered questions count against the grade exactly like wrong
-verdicts.
+truncated integer percentage. The option totals are counted over the
+correctly identified questions only --- exactly the options the formula
+scores --- so a student who answered nothing shows $0/0$ rather than
+credit for untouched checkboxes that happened to expect ``unchecked''.
+$N$ counts \emph{dealt} questions, so unanswered questions count
+against the grade exactly like wrong verdicts. A newly added option
+expects ``not checked'' until the administrator says otherwise; an
+expected value that was never set at all (possible only on rows older
+than that rule) can never be matched.
 
 For students still answering, these figures are computed live from the
 snapshot rows in two set-based queries; at finish they are frozen into
@@ -659,12 +692,16 @@ requires actually inspecting the email.
 Below the image sit the verdict buttons --- \emph{Tikras} (real)
 and \emph{Fišingas} (phishing) --- and the question's follow-up
 checkboxes. Every click autosaves the entire answer state to the
-server and a toast reports any failure, so losing a connection or
-closing the laptop costs nothing: logging in again resumes exactly
-where the student left off. A progress panel shows an answered
-counter, a progress bar, and a jump grid with one button per question
-(filled when answered, ringed when current). The finish button is a
-1.5-second hold; the results page then shows the grade headline,
+server (one save in flight at a time, later clicks coalesced) and a
+toast reports any failure, so losing a connection or closing the laptop
+costs nothing: logging in again resumes exactly where the student left
+off. A progress panel shows an answered counter, a progress bar, and a
+jump grid with one button per question (filled when answered, ringed
+when current). The finish button is a 1.5-second hold that waits for
+the last autosave to be confirmed before leaving the page --- if it
+cannot be delivered, the student is told and stays on the test rather
+than finishing without those answers. The results page then shows the
+grade headline,
 three ratio tiles (fully correct, correctly identified, correct
 options), the student's name and access code, and the same
 per-question review component the administrator sees --- the answer
@@ -710,7 +747,7 @@ coordinates. The same editor is reachable directly at
 
 \textbf{Students.} A data grid (5-second polling, quick filter,
 default ``last month'' switch) lists every student with progress,
-grade and timestamps. The detail page shows the credential card ---
+grade and timestamps, sorted as numbers and dates rather than text. The detail page shows the credential card ---
 including the access code, so a lecturer can rescue a student who lost
 theirs --- the summary tiles, and two tabs: the per-question review
 and a condensed table with screenshot thumbnails. Students can be
@@ -719,8 +756,10 @@ grades but never touches images.
 
 \textbf{Administrators.} A grid plus a single modal for
 create/edit/delete against one endpoint; an empty \code{id} signals
-insert, an empty password on edit means ``keep the current one'', and
-the minimum length is 8 characters.
+insert and an empty password on edit means ``keep the current one''.
+Passwords must be 8 characters to 72 bytes, email addresses unique,
+and an administrator can neither disable nor delete their own account
+--- so at least one working administrator always survives.
 
 \subsection{Public displays}
 
@@ -785,12 +824,18 @@ The service is then reachable on port 80 of the host: \code{/} is the
 application, \code{/swagger} the API documentation, \code{/dbgate}
 the database UI (all three tool paths admin-gated).
 
+Every request is logged by Gunicorn to the container's standard output
+(\code{docker logs fisingas-django}): the client address as forwarded
+by Caddy, the request line, status, response size and duration.
+
 \subsection{Data retention}
 
 The cron container --- a BusyBox \code{crond} with the Docker CLI, no
 network, and the crontab baked into the image --- runs one job: every
-night at 03:00 it executes the \code{delete\_old\_students} management
-command inside the Django container. The command deletes student
+night at 05:00 (an hour that exists on every day of the year; 03:00 is
+the one daylight-saving time skips in spring and repeats in autumn) it
+executes the \code{delete\_old\_students} management command inside
+the Django container. The command deletes student
 accounts whose last login \emph{and} registration are both older than
 180 days; the cascade removes their dealt tests and grades, while
 question images are never touched. Fresh accounts that never logged in
@@ -838,6 +883,20 @@ directly in the Dockerfile --- there is no \code{requirements.txt} ---
 and companion \code{pushDockerhub.sh} scripts build and push each
 image with \code{latest} and date tags.
 
+\subsection{Regression tests}
+
+\code{django/runTests.sh} builds the backend image and runs the
+regression suite --- over three hundred tests --- in a throwaway
+container against an in-memory SQLite database, so no running stack is
+needed. The suite covers every endpoint, the grading arithmetic, the
+snapshot and freeze discipline, the retention sweep and the timestamp
+policy; a contract layer validates live responses against
+\code{swagger/swagger.yaml}, so the API documentation cannot drift from
+the code unnoticed. Known, not-yet-fixed defects are pinned as
+\emph{expected failures}: each has a test asserting the correct
+behaviour, so the suite stays green while the defect stays documented
+and executable, and a fix flips the test instead of passing silently.
+
 % ============================================================
 \section{Limitations and Future Work}
 \label{sec:limitations}
@@ -878,14 +937,15 @@ several choices only make sense in that setting:
         usernames, grades and last-seen times to anyone who can reach
         the host. Students choose their own nicknames, which
         mitigates but does not remove the disclosure.
-  \item \textbf{No server-side logout.} Sessions end when the browser
-        closes or the cookie is deleted client-side; a stolen cookie
-        stays valid until then.
-  \item \textbf{Operational guard rails are thin.} An administrator
-        can delete their own or the last admin account; the test size
-        accepts any integer at the API level; images live as database
-        blobs, which is simple and consistent but makes the database
-        the size bottleneck.
+  \item \textbf{No audit trail.} Administrator actions and logins are
+        not recorded beyond Gunicorn's request log, and there is no
+        undo for a deleted student or question. Images live as
+        database blobs, which is simple and consistent but makes the
+        database the size bottleneck.
+  \item \textbf{No time limit and no start timestamp.} Nothing records
+        when a test was dealt, so the duration of a sitting can
+        neither be enforced nor reconstructed afterwards; only the
+        finish time is stored.
   \item \textbf{Single language.} All interface text is hardcoded
         Lithuanian; internationalisation would require an i18n layer
         in the frontend.
