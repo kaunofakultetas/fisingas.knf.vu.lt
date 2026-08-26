@@ -50,6 +50,7 @@ import InteractiveImage from "@/components/Other/InteractiveImage/InteractiveIma
 import InteractiveImageEditor from '@/components/Other/InteractiveImage/InteractiveImageEditor';
 import IOSSwitch from "@/components/Other/IOSSwitch/IOSSwitch";
 import { LongPressDeleteButton } from "@/components/Other/LongPressButton";
+import { formatDateTime } from "@/utils/timestamps";
 
 
 
@@ -184,7 +185,7 @@ function QuestionCardHeader({ question, saveStatus, onEnabledChange, onDelete })
           Klausimas #{question.questionid}
         </span>
         <span className="text-sm text-gray-500">
-          Sukurtas: {question.created}
+          Sukurtas: {formatDateTime(question.created) || "—"}
         </span>
 
         {!isEnabled && (

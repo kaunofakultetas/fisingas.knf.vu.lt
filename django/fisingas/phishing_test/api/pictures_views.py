@@ -14,10 +14,10 @@
 ############################################################
 
 
-from datetime import datetime
 
 from django.http import Http404, HttpResponse, JsonResponse
 
+from fisingas.common.timestamps import now
 from fisingas.common.auth import get_json, login_required
 from ..models import Answer, Question, QuestionImage, QuestionLink
 
@@ -68,7 +68,7 @@ def upload_picture(request):
 
     file_binary = file.read()
 
-    timeNow = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timeNow = now()
 
     # The image row is upload-only — it will outlive the question
     image = QuestionImage.objects.create(

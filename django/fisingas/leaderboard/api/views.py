@@ -16,6 +16,7 @@ import random
 
 from django.http import FileResponse, JsonResponse
 
+from fisingas.common.timestamps import to_api
 from fisingas.phishing_test.grading import judge_unfinished_students, stored_summaries, summarize
 from fisingas.users.models import Student
 
@@ -73,7 +74,7 @@ def leaderboard(request):
             "testgrade": summary.test_grade if summary else "",
 
             "isfinished": student.is_finished,
-            "lastseen": student.last_login,
+            "lastseen": to_api(student.last_login),
         })
 
     return JsonResponse(rows, safe=False)

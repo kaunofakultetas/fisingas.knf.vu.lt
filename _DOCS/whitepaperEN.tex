@@ -312,12 +312,15 @@ Hardening measures applied uniformly across the stack:
 \subsection{Entities}
 
 All state lives in PostgreSQL in eleven tables
-(Table~\ref{tab:tables}). A deliberate oddity: there are no native
-date/time columns --- every timestamp is a text column holding
-\code{YYYY-MM-DD HH:MM:SS} in local time (\code{Europe/Vilnius}).
-Because the format is lexicographically sortable, the code compares
-timestamps as strings (the dashboard's ``active in the last 30
-minutes'' window and the retention sweep both rely on this).
+(Table~\ref{tab:tables}). Every timestamp is a native
+\code{timestamptz} column holding UTC; the API publishes it as
+ISO-8601 in local time with the explicit offset
+(\code{2026-08-26T19:09:07+03:00}, \code{+02:00} in winter) and
+\code{null} for ``never''. All comparisons --- the dashboard's
+``active in the last 30 minutes'' window, the retention sweep, the
+frontend's date filters --- are made on real datetimes, so the
+daylight-saving transitions are harmless and the display is correct in
+any browser timezone.
 
 \begin{table}[h]
 \centering

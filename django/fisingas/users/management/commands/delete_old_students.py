@@ -29,10 +29,12 @@
 
 
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from django.core.management.base import BaseCommand
+from django.db.models import Q
 
+from fisingas.common.timestamps import now
 from fisingas.users.models import Student
 
 
@@ -47,11 +49,15 @@ class Command(BaseCommand):
     help = "Delete student accounts inactive longer than the retention period"
 
     def handle(self, *args, **options):
-        cutoff = (datetime.now() - timedelta(days=RETENTION_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+        cutoff = now() - timedelta(days=RETENTION_DAYS)
 
+        # Both moments must be older than the cutoff. A NULL (an
+        # account from before the column existed, never seen since)
+        # counts as older than anything — the same rule the old ""
+        # strings followed, so pre-import accounts still age out
         _, deleted_per_table = Student.objects.filter(
-            last_login__lt=cutoff,
-            registration_time__lt=cutoff,
+            Q(last_login__lt=cutoff) | Q(last_login__isnull=True),
+            Q(registration_time__lt=cutoff) | Q(registration_time__isnull=True),
         ).delete()
 
         deleted_students = deleted_per_table.get("users.Student", 0)

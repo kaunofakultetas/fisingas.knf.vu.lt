@@ -17,12 +17,12 @@
 
 import logging
 import random
-from datetime import datetime
 
 from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 
 from fisingas.common.auth import get_json, login_required
+from fisingas.common.timestamps import now
 from fisingas.users.models import Setting, Student
 from ..grading import finalize_student
 from ..models import Answer, AnswerSelectedOption, Question, QuestionOption
@@ -194,7 +194,7 @@ def _questions_response(studentID):
 
 @login_required
 def student_questions(request):
-    timeNow = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timeNow = now()
 
     if not request.current_user.admin:
         studentID = request.current_user.userid
@@ -303,7 +303,7 @@ def student_questions(request):
 
 @login_required
 def student_finish(request):
-    timeNow = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timeNow = now()
 
     if not request.current_user.admin:
         studentID = request.current_user.userid

@@ -29,6 +29,7 @@ import AddEditAdministrator from "./AddEditAdministrator/AddEditAdministrator";
 import ColumnsButton from '@/components/DatagridCustomComponents/ColumnsButton';
 import ToolbarButton from '@/components/DatagridCustomComponents/ToolbarButton';
 import ButtonsPagination from '@/components/Other/ButtonsPagination/ButtonsPagination';
+import { dateTimeColumn } from '@/utils/timestamps';
 
 
 
@@ -73,6 +74,7 @@ const ADMINISTRATOR_COLUMNS = [
     field: "lastseen",
     headerName: "Paskutinįkart Pastebėtas",
     width: 220,
+    ...dateTimeColumn,
   },
 ];
 

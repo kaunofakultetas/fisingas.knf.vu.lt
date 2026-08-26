@@ -25,6 +25,7 @@ import useFetchData from "@/hooks/useFetchData";
 import ColumnsButton from '@/components/DatagridCustomComponents/ColumnsButton';
 import ButtonsPagination from '@/components/Other/ButtonsPagination/ButtonsPagination';
 import IOSSwitch from '@/components/Other/IOSSwitch/IOSSwitch';
+import { dateTimeColumn, parseTimestamp } from '@/utils/timestamps';
 
 
 const STUDENT_COLUMNS = [
@@ -75,11 +76,13 @@ const STUDENT_COLUMNS = [
     field: "registrationtime",
     headerName: "Registracijos Laikas",
     width: 180,
+    ...dateTimeColumn,
   },
   {
     field: "lastseen",
-    headerName: "Paskutinįkart Prisijungęs",
+    headerName: "Paskutinįkart Pastebėtas",
     width: 180,
+    ...dateTimeColumn,
   },
 ];
 
@@ -175,14 +178,18 @@ export default function StudentsListTable() {
 
   // Cutoff computed once on a fresh Date — setMonth mutates
   // the object it is called on, so it must not touch a date
-  // that is still used afterwards
+  // that is still used afterwards. Compared as Dates: the API
+  // timestamps carry their offset, so this is exact in any
+  // browser timezone (a never-seen student has no lastseen
+  // and is hidden by the filter)
   const oneMonthAgo = new Date();
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-  const oneMonthAgoFormatted = oneMonthAgo.toISOString().replace(/T/, ' ').replace(/\..+/, '');
 
   const rows = (data || []).filter((row) => {
-    if (row['lastseen'] < oneMonthAgoFormatted && lastMonthOnly === 1)
-      return false;
+    if (lastMonthOnly === 1) {
+      const lastSeen = parseTimestamp(row.lastseen);
+      if (!lastSeen || lastSeen < oneMonthAgo) return false;
+    }
 
     return true;
   });

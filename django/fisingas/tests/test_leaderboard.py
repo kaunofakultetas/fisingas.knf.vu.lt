@@ -18,7 +18,7 @@ from django.test import TestCase
 
 from fisingas.phishing_test.models import Answer, TestResult
 
-from .utils import create_student
+from .utils import create_student, local
 
 
 BOARD_URL = "/api/leaderboard"
@@ -43,7 +43,7 @@ class LeaderboardTests(TestCase):
         self.assertEqual(response.json(), [])
 
     def test_blank_field_contract_and_no_passcode_leak(self):
-        student = create_student(last_login="2026-08-01 10:00:00")
+        student = create_student(last_login=local("2026-08-01 10:00:00"))
         self.assertEqual(self.client.get(BOARD_URL).json(), [{
             "id": student.id,
             "username": student.username,
@@ -51,7 +51,7 @@ class LeaderboardTests(TestCase):
             "answeredquestioncount": None,
             "testgrade": "",
             "isfinished": 0,
-            "lastseen": "2026-08-01 10:00:00",
+            "lastseen": "2026-08-01T10:00:00+03:00",
         }])
 
     def test_rows_are_newest_first(self):
@@ -79,7 +79,7 @@ class LeaderboardTests(TestCase):
             student=student, question_count=2, answered_question_count=2,
             total_identified_correctly=2, fully_correct_count=2,
             total_options_count=0, total_correct_options_count=0,
-            total_points=2.0, finished_at="2026-08-01 10:00:00",
+            total_points=2.0, finished_at=local("2026-08-01 10:00:00"),
         )
 
         [row] = self.client.get(BOARD_URL).json()
@@ -93,7 +93,7 @@ class LeaderboardTests(TestCase):
             student=frozen, question_count=2, answered_question_count=2,
             total_identified_correctly=2, fully_correct_count=2,
             total_options_count=0, total_correct_options_count=0,
-            total_points=1.0, finished_at="2026-08-01 10:00:00",
+            total_points=1.0, finished_at=local("2026-08-01 10:00:00"),
         )
         live = create_student(username="LIVE")
         Answer.objects.create(student=live, question_id=1, question_text="", is_phishing=1, answer_status=1)

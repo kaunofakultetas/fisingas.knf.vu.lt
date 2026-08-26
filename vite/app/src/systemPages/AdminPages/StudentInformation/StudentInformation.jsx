@@ -38,6 +38,7 @@ import AdminPageLayout from "@/systemPages/AdminPages/AdminPageLayout";
 import StudentTestSummaryTable from "./StudentTestSummaryTable/StudentTestSummaryTable";
 import StudentAnswers from "./StudentAnswers/StudentAnswers";
 import { LongPressDeleteButton } from "@/components/Other/LongPressButton";
+import { formatDateTime } from "@/utils/timestamps";
 
 import SchoolIcon from '@mui/icons-material/School';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
@@ -147,12 +148,12 @@ function StudentDetailsCard({ studentID, data }) {
           <div className="flex items-center gap-2">
             <EventIcon sx={{ fontSize: 18 }} className="text-[rgb(123,0,63)]" />
             <span className="font-semibold text-gray-500 w-[185px]">Registracijos laikas:</span>
-            <span>{data.registrationtime || "—"}</span>
+            <span>{formatDateTime(data.registrationtime) || "—"}</span>
           </div>
           <div className="flex items-center gap-2">
             <ScheduleIcon sx={{ fontSize: 18 }} className="text-[rgb(123,0,63)]" />
-            <span className="font-semibold text-gray-500 w-[185px]">Paskutinis prisijungimas:</span>
-            <span>{data.lastseen || "—"}</span>
+            <span className="font-semibold text-gray-500 w-[185px]">Paskutinįkart pastebėtas:</span>
+            <span>{formatDateTime(data.lastseen) || "—"}</span>
           </div>
         </div>
       </div>

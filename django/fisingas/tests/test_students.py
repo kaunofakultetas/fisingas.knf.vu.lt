@@ -15,6 +15,8 @@ from fisingas.users.models import Student
 
 from .utils import (
     TIMESTAMP_RE,
+    is_recent,
+    local,
     create_admin,
     create_student,
     login,
@@ -54,7 +56,7 @@ class StudentRegisterTests(TestCase):
         self.assertEqual(student.passcode, data["accessCode"])
         self.assertEqual(student.is_finished, 0)
         self.assertEqual(student.status, 1)
-        self.assertRegex(student.registration_time, TIMESTAMP_RE)
+        self.assertTrue(is_recent(student.registration_time))
 
     def test_registration_stamps_lastseen_with_the_registration_time(self):
         # EDGE-03 fix: a brand-new account counts as "seen" at its
@@ -63,7 +65,7 @@ class StudentRegisterTests(TestCase):
         # (admin list month filter, dashboard) can see it right away
         post_json(self.client, REGISTER_URL, {"username": "BRANDNEW"})
         student = Student.objects.get(username="BRANDNEW")
-        self.assertRegex(student.last_login, TIMESTAMP_RE)
+        self.assertTrue(is_recent(student.last_login))
         self.assertEqual(student.last_login, student.registration_time)
 
     def test_underscore_survives_normalization(self):
@@ -144,7 +146,7 @@ class StudentsListTests(TestCase):
         # Never-dealt students: "" for the grade columns, but
         # null for answeredquestioncount — the frontend relies
         # on exactly this mix
-        student = create_student(registration_time="2026-08-01 09:00:00")
+        student = create_student(registration_time=local("2026-08-01 09:00:00"))
         self.assertEqual(self.client.get(LIST_URL).json(), [{
             "id": student.id,
             "username": student.username,
@@ -158,10 +160,22 @@ class StudentsListTests(TestCase):
             "totalcorrectoptionscount": "",
             "testgrade": "",
             "isfinished": 0,
-            "lastseen": "",
-            "registrationtime": "2026-08-01 09:00:00",
+            "lastseen": None,
+            "registrationtime": "2026-08-01T09:00:00+03:00",
             "status": 1,
         }])
+
+    def test_timestamps_are_iso_8601_in_vilnius_time(self):
+        # The wire format: ISO-8601 with the explicit local offset —
+        # DST-proof, and parsed identically by every browser's Date
+        # whatever the viewer's own timezone. Winter is EET (+02:00),
+        # summer EEST (+03:00); a never-set value is null
+        create_student(registration_time=local("2026-01-15 10:00:00"), last_login=local("2026-08-15 10:00:00"))
+
+        [row] = self.client.get(LIST_URL).json()
+        self.assertEqual(row["registrationtime"], "2026-01-15T10:00:00+02:00")
+        self.assertEqual(row["lastseen"], "2026-08-15T10:00:00+03:00")
+        self.assertRegex(row["lastseen"], TIMESTAMP_RE)
 
     def test_rows_are_newest_first(self):
         create_student(username="OLDER")
@@ -189,7 +203,7 @@ class StudentsListTests(TestCase):
             student=frozen, question_count=2, answered_question_count=2,
             total_identified_correctly=2, fully_correct_count=2,
             total_options_count=0, total_correct_options_count=0,
-            total_points=1.0, finished_at="2026-08-01 10:00:00",
+            total_points=1.0, finished_at=local("2026-08-01 10:00:00"),
         )
         live = create_student(username="LIVE")
         Answer.objects.create(student=live, question_id=1, question_text="", is_phishing=1, answer_status=1)
@@ -210,7 +224,7 @@ class StudentsListTests(TestCase):
             student=student, question_count=4, answered_question_count=3,
             total_identified_correctly=2, fully_correct_count=1,
             total_options_count=5, total_correct_options_count=3,
-            total_points=2.0, finished_at="2026-08-01 10:00:00",
+            total_points=2.0, finished_at=local("2026-08-01 10:00:00"),
         )
 
         [row] = self.client.get(LIST_URL).json()
@@ -227,7 +241,7 @@ class StudentsListTests(TestCase):
             student=student, question_count=4, answered_question_count=3,
             total_identified_correctly=2, fully_correct_count=1,
             total_options_count=5, total_correct_options_count=3,
-            total_points=2.0, finished_at="2026-08-01 10:00:00",
+            total_points=2.0, finished_at=local("2026-08-01 10:00:00"),
         )
 
         [row] = self.client.get(LIST_URL).json()
@@ -281,7 +295,7 @@ class StudentDetailTests(TestCase):
             student=student, question_count=4, answered_question_count=4,
             total_identified_correctly=4, fully_correct_count=4,
             total_options_count=0, total_correct_options_count=0,
-            total_points=2.0, finished_at="2026-08-01 10:00:00",
+            total_points=2.0, finished_at=local("2026-08-01 10:00:00"),
         )
         login_admin(self.client)
 
@@ -344,13 +358,13 @@ class StudentDeleteTests(TestCase):
 
     def test_delete_cascades_the_test_but_keeps_the_images(self):
         student = create_student()
-        image = QuestionImage.objects.create(image=b"bytes", created="")
+        image = QuestionImage.objects.create(image=b"bytes", created=None)
         Answer.objects.create(student=student, question_id=1, question_text="q1", image=image, is_phishing=1, answer_status=1)
         TestResult.objects.create(
             student=student, question_count=1, answered_question_count=1,
             total_identified_correctly=1, fully_correct_count=1,
             total_options_count=0, total_correct_options_count=0,
-            total_points=1.0, finished_at="",
+            total_points=1.0, finished_at=None,
         )
 
         response = self.client.post(f"{LIST_URL}/{student.id}/delete")

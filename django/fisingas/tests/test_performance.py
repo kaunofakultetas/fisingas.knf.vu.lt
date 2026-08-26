@@ -19,27 +19,27 @@ from django.test import TestCase
 
 from fisingas.phishing_test.models import Answer, AnswerSelectedOption, TestResult
 
-from .utils import create_admin, create_student, login_admin
+from .utils import create_admin, create_student, login_admin, local
 
 
 def _mixed_population():
     # Three grading modes at once, so every batched query has
     # actual rows to fetch
-    frozen = create_student(username="FROZEN", is_finished=1, last_login="2026-08-26 10:00:00")
+    frozen = create_student(username="FROZEN", is_finished=1, last_login=local("2026-08-26 10:00:00"))
     TestResult.objects.create(
         student=frozen, question_count=2, answered_question_count=2,
         total_identified_correctly=2, fully_correct_count=2,
         total_options_count=0, total_correct_options_count=0,
-        total_points=1.0, finished_at="2026-08-01 10:00:00",
+        total_points=1.0, finished_at=local("2026-08-01 10:00:00"),
     )
-    live = create_student(username="LIVE", last_login="2026-08-26 10:00:00")
+    live = create_student(username="LIVE", last_login=local("2026-08-26 10:00:00"))
     for question_id in (1, 2):
         Answer.objects.create(student=live, question_id=question_id, question_text="", is_phishing=1, answer_status=1)
         AnswerSelectedOption.objects.create(
             student=live, question_id=question_id, option_id=question_id * 10,
             option_text="", right_answer=1, is_selected=1,
         )
-    create_student(username="BLANK", last_login="2026-08-26 10:00:00")
+    create_student(username="BLANK", last_login=local("2026-08-26 10:00:00"))
 
 
 class QueryBudgetTests(TestCase):

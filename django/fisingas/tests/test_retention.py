@@ -8,20 +8,21 @@
 ############################################################
 
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from io import StringIO
 
 from django.core.management import call_command
 from django.test import TestCase
 
+from fisingas.common.timestamps import now
 from fisingas.phishing_test.models import Answer, QuestionImage, TestResult
 from fisingas.users.models import Student
 
-from .utils import create_admin, create_student
+from .utils import create_admin, create_student, local
 
 
 def _days_ago(days):
-    return (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    return now() - timedelta(days=days)
 
 
 def _run():
@@ -32,7 +33,7 @@ class DeleteOldStudentsTests(TestCase):
 
     def test_deletes_students_inactive_beyond_retention_with_their_test(self):
         student = create_student(last_login=_days_ago(200), registration_time=_days_ago(220))
-        image = QuestionImage.objects.create(image=b"bytes", created="")
+        image = QuestionImage.objects.create(image=b"bytes", created=None)
         Answer.objects.create(student=student, question_id=1, question_text="", image=image, is_phishing=1, answer_status=1)
         TestResult.objects.create(
             student=student, question_count=1, answered_question_count=1,
@@ -56,15 +57,15 @@ class DeleteOldStudentsTests(TestCase):
         self.assertEqual(Student.objects.count(), 1)
 
     def test_keeps_fresh_registrations_that_never_logged_in(self):
-        # Legacy accounts with an empty lastseen ("" sorts before
-        # any date) survive on their recent registration alone
-        create_student(last_login="", registration_time=_days_ago(5))
+        # Legacy accounts with no lastseen (NULL counts as older
+        # than anything) survive on their recent registration alone
+        create_student(last_login=None, registration_time=_days_ago(5))
         _run()
         self.assertEqual(Student.objects.count(), 1)
 
     def test_removes_pre_import_accounts_with_blank_fields(self):
-        # "" in BOTH fields counts as old — documented on purpose
-        create_student(last_login="", registration_time="")
+        # NULL in BOTH fields counts as old — documented on purpose
+        create_student(last_login=None, registration_time=None)
         _run()
         self.assertFalse(Student.objects.exists())
 
@@ -80,7 +81,7 @@ class DeleteOldStudentsTests(TestCase):
         )
 
     def test_admin_accounts_are_never_touched(self):
-        create_admin(last_login="2020-01-01 00:00:00")
+        create_admin(last_login=local("2020-01-01 00:00:00"))
         _run()
         from fisingas.users.models import SystemUser
         self.assertEqual(SystemUser.objects.count(), 1)

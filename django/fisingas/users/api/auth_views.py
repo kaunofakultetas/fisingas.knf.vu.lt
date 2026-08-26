@@ -14,10 +14,10 @@
 
 
 import bcrypt
-from datetime import datetime
 
 from django.http import HttpResponse, JsonResponse
 
+from fisingas.common.timestamps import now
 from fisingas.common.auth import get_json, load_user, login, login_required
 from fisingas.users.models import Student, SystemUser
 
@@ -161,7 +161,7 @@ def logout_view(request):
 
 @login_required
 def checkauth(request):
-    timeNow = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timeNow = now()
     user = request.current_user
 
     # All Users
@@ -211,7 +211,7 @@ def checkauth(request):
 
 @login_required
 def checkauth_admin(request):
-    timeNow = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timeNow = now()
     user = request.current_user
 
     if user.admin:

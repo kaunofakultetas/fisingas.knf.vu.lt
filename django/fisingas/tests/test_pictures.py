@@ -17,10 +17,10 @@ from django.test import Client, TestCase
 from fisingas.phishing_test.models import Answer, Question, QuestionImage, QuestionLink
 
 from .utils import (
+    is_recent,
     GIF_BYTES,
     JPEG_BYTES,
     PNG_BYTES,
-    TIMESTAMP_RE,
     create_admin,
     create_question,
     create_student,
@@ -70,7 +70,7 @@ class UploadPictureTests(TestCase):
 
         image = QuestionImage.objects.get()
         self.assertEqual(bytes(image.image), PNG_BYTES)
-        self.assertRegex(image.created, TIMESTAMP_RE)
+        self.assertTrue(is_recent(image.created))
 
         question = Question.objects.get()
         self.assertEqual(question.image_id, image.id)
@@ -182,7 +182,7 @@ class GetPictureTests(TestCase):
         # When the question still exists, its own image is served —
         # the snapshot fallback is only for deleted questions
         question = create_question(image_bytes=PNG_BYTES)
-        other_image = QuestionImage.objects.create(image=JPEG_BYTES, created="")
+        other_image = QuestionImage.objects.create(image=JPEG_BYTES, created=None)
         student = create_student(username="SNAP")
         Answer.objects.create(
             student=student, question_id=question.id, question_text="",

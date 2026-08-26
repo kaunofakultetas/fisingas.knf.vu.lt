@@ -4,12 +4,17 @@
 #  Small factories for the two account kinds and the
 #  question bank, plus the login helpers every endpoint
 #  test starts with. Everything follows the same
-#  conventions the code uses: integer 0/1 flags,
-#  "YYYY-MM-DD HH:MM:SS" time strings, bcrypt hashes for
-#  admins, plaintext passcodes for students.
+#  conventions the code uses: integer 0/1 flags, aware
+#  datetimes for timestamps (local("2026-08-01 10:00:00")
+#  builds a Vilnius-time fixture), bcrypt hashes for admins,
+#  plaintext passcodes for students.
 ############################################################
 
 
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+from django.utils import timezone
 import json
 
 import bcrypt
@@ -26,7 +31,25 @@ JPEG_BYTES = b"\xff\xd8\xff" + b"fake jpeg body"
 GIF_BYTES = b"GIF89a" + b"fake gif body"
 
 # The timestamp format used all over the API
-TIMESTAMP_RE = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
+# The API's timestamp format: ISO-8601 in Europe/Vilnius with the
+# explicit offset, e.g. "2026-08-26T19:09:07+03:00"
+TIMESTAMP_RE = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$"
+
+LOCAL_TZ = ZoneInfo("Europe/Vilnius")
+
+
+def local(text):
+    """'2026-08-01 10:00:00' as an aware Europe/Vilnius datetime — fixture timestamps."""
+    return datetime.strptime(text, "%Y-%m-%d %H:%M:%S").replace(tzinfo=LOCAL_TZ)
+
+
+def is_recent(value, seconds=60):
+    """True when value is an aware datetime stamped within the last `seconds`."""
+    return (
+        isinstance(value, datetime)
+        and value.tzinfo is not None
+        and timedelta(0) <= timezone.now() - value <= timedelta(seconds=seconds)
+    )
 
 
 # One shared bcrypt hash for every test admin — 4 rounds keeps
@@ -50,7 +73,7 @@ STUDENT_PASSCODE = "12345678"
 # Factories
 ############################################################
 
-def create_admin(email=ADMIN_EMAIL, enabled=1, password_hash=None, last_login=""):
+def create_admin(email=ADMIN_EMAIL, enabled=1, password_hash=None, last_login=None):
     return SystemUser.objects.create(
         email=email,
         password=ADMIN_PASSWORD_HASH if password_hash is None else password_hash,
@@ -64,7 +87,7 @@ def create_student(username=STUDENT_USERNAME, passcode=STUDENT_PASSCODE, **field
     return Student.objects.create(username=username, passcode=passcode, **fields)
 
 
-def create_question(is_phishing=0, is_enabled=1, question="Ar tai fišingas?", image_bytes=PNG_BYTES, created=""):
+def create_question(is_phishing=0, is_enabled=1, question="Ar tai fišingas?", image_bytes=PNG_BYTES, created=None):
     image = QuestionImage.objects.create(image=image_bytes, created=created)
     return Question.objects.create(
         is_enabled=is_enabled,

@@ -321,13 +321,14 @@ Vienodai visame steke taikomos apsaugos priemonės:
 \subsection{Esybės}
 
 Visa būsena gyvena PostgreSQL vienuolikoje lentelių
-(\ref{tab:tables}~lentelė). Sąmoninga keistenybė: nėra nė vieno
-gimtojo datos/laiko stulpelio — kiekvienas laiko žymuo yra tekstinis
-stulpelis su \code{YYYY-MM-DD HH:MM:SS} vietos laiku
-(\code{Europe/Vilnius}). Kadangi formatas rikiuojasi leksikografiškai,
-kodas laiko žymenis lygina kaip eilutes (tuo remiasi ir skydelio
-„aktyvūs per paskutines 30 minučių`` langas, ir saugojimo terminų
-valymas).
+(\ref{tab:tables}~lentelė). Kiekvienas laiko žymuo yra gimtasis
+\code{timestamptz} stulpelis, saugantis UTC; API jį pateikia ISO-8601
+formatu vietos laiku su aiškiu poslinkiu
+(\code{2026-08-26T19:09:07+03:00}, žiemą \code{+02:00}), o „niekada``
+reiškia \code{null}. Visi palyginimai — skydelio „aktyvūs per
+paskutines 30 minučių`` langas, saugojimo terminų valymas, sąsajos datų
+filtrai — atliekami su tikromis datomis, todėl vasaros laiko perėjimai
+nekenkia, o rodymas teisingas bet kurioje naršyklės laiko juostoje.
 
 \begin{table}[h]
 \centering

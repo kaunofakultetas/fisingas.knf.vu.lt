@@ -12,7 +12,7 @@ from django.test import Client, TestCase
 
 from fisingas.users.models import SystemUser
 
-from .utils import ADMIN_PASSWORD_HASH, create_admin, create_student, login_admin, login_student, post_json
+from .utils import ADMIN_PASSWORD_HASH, create_admin, create_student, login_admin, login_student, post_json, local
 
 
 URL = "/api/admin/administrators"
@@ -60,13 +60,13 @@ class AdministratorsAccessTests(TestCase):
 class AdministratorsListTests(TestCase):
 
     def test_lists_every_account_ordered_by_id(self):
-        first = create_admin(last_login="2026-01-01 10:00:00")
+        first = create_admin(last_login=local("2026-01-01 10:00:00"))
         second = create_admin(email="second@example.com", enabled=0)
         login_admin(self.client)
 
         self.assertEqual(self.client.get(URL).json(), [
-            {"id": first.id, "email": first.email, "enabled": 1, "lastseen": "2026-01-01 10:00:00"},
-            {"id": second.id, "email": "second@example.com", "enabled": 0, "lastseen": ""},
+            {"id": first.id, "email": first.email, "enabled": 1, "lastseen": "2026-01-01T10:00:00+02:00"},
+            {"id": second.id, "email": "second@example.com", "enabled": 0, "lastseen": None},
         ])
 
 

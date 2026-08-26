@@ -9,14 +9,15 @@
 ############################################################
 
 
-from datetime import datetime
 
 from django.test import Client, TestCase
 
 from fisingas.phishing_test.models import Answer, AnswerSelectedOption, Question, QuestionImage, QuestionOption
+from fisingas.common.timestamps import now, to_api
 from fisingas.users.models import Setting
 
 from .utils import (
+    local,
     add_option,
     create_admin,
     create_question,
@@ -33,7 +34,7 @@ TESTSIZE_URL = "/api/admin/update/phishingtestsize"
 
 
 def _now():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return now()
 
 
 
@@ -91,7 +92,7 @@ class AdminHomeTests(TestCase):
     def test_progress_lists_recent_students_with_dealt_questions(self):
         now = _now()
         active = create_student(username="ACTIVE", last_login=now)
-        stale = create_student(username="STALE", last_login="2020-01-01 00:00:00")
+        stale = create_student(username="STALE", last_login=local("2020-01-01 00:00:00"))
         create_student(username="FRESH", last_login=now)      # recent, but nothing dealt
 
         Answer.objects.create(student=active, question_id=1, question_text="", is_phishing=1, answer_status=1)
@@ -104,7 +105,7 @@ class AdminHomeTests(TestCase):
             "questioncount": 2,
             "answeredquestioncount": 1,
             "isfinished": 0,
-            "lastlogin": now,
+            "lastseen": to_api(now),
         }])
 
 
@@ -220,7 +221,7 @@ class QuestionsListTests(TestCase):
 
     def test_bank_counters_and_shape(self):
         Setting.objects.create(name="PhishingTestSize", value="5")
-        phishing = create_question(is_phishing=1, is_enabled=1, question="Pirmas", created="2026-08-01 10:00:00")
+        phishing = create_question(is_phishing=1, is_enabled=1, question="Pirmas", created=local("2026-08-01 10:00:00"))
         first_option = add_option(phishing, option_text="a", answer_status=1)
         second_option = add_option(phishing, option_text="b", answer_status=None)
         genuine = create_question(is_phishing=0, is_enabled=0, question="Antras")
@@ -246,7 +247,7 @@ class QuestionsListTests(TestCase):
                 {"optionid": first_option.id, "optiontext": "a", "rightoptionanswer": 1},
                 {"optionid": second_option.id, "optiontext": "b", "rightoptionanswer": None},
             ],
-            "created": "2026-08-01 10:00:00",
+            "created": "2026-08-01T10:00:00+03:00",
         })
 
 

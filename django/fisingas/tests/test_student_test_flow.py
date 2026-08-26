@@ -19,7 +19,7 @@ from fisingas.phishing_test.models import Answer, AnswerSelectedOption, TestResu
 from fisingas.users.models import Setting, Student
 
 from .utils import (
-    TIMESTAMP_RE,
+    is_recent,
     add_option,
     create_admin,
     create_question,
@@ -269,13 +269,13 @@ class DealTests(TestCase):
         create_question()
         self.client.get(QUESTIONS_URL)
         self.student.refresh_from_db()
-        self.assertRegex(self.student.last_login, TIMESTAMP_RE)
+        self.assertTrue(is_recent(self.student.last_login))
 
         # ...and saving counts as activity too
-        Student.objects.filter(id=self.student.id).update(last_login="")
+        Student.objects.filter(id=self.student.id).update(last_login=None)
         post_json(self.client, QUESTIONS_URL, [])
         self.student.refresh_from_db()
-        self.assertRegex(self.student.last_login, TIMESTAMP_RE)
+        self.assertTrue(is_recent(self.student.last_login))
 
     def test_finished_students_are_locked_out(self):
         create_question()
@@ -482,7 +482,7 @@ class FinishTests(TestCase):
         self.assertEqual(result.total_options_count, 2)
         self.assertEqual(result.total_correct_options_count, 2)
         self.assertEqual(result.total_points, 1.0)
-        self.assertRegex(result.finished_at, TIMESTAMP_RE)
+        self.assertTrue(is_recent(result.finished_at))
 
         # The locked test refuses further reads and writes
         self.assertEqual(self.client.get(QUESTIONS_URL).json(), {})

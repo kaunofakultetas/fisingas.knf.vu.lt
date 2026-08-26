@@ -12,11 +12,11 @@
 
 import random
 import re
-from datetime import datetime
 
 from django.http import HttpResponse, JsonResponse
 
 from fisingas.common.auth import get_json, login_required
+from fisingas.common.timestamps import now, to_api
 from fisingas.phishing_test.grading import judge_unfinished_students, stored_summaries, student_summary, summarize
 from fisingas.users.models import Student
 
@@ -62,8 +62,8 @@ def _student_row(student, summary):
         "testgrade": summary.test_grade if summary else "",
 
         "isfinished": student.is_finished,
-        "lastseen": student.last_login,
-        "registrationtime": student.registration_time,
+        "lastseen": to_api(student.last_login),
+        "registrationtime": to_api(student.registration_time),
         "status": student.status,
     }
 
@@ -214,10 +214,10 @@ def student_register(request):
         accessCode = str(random.randint(10**7, 10**8 - 1))
 
         # lastseen starts as the exact registration moment (the same
-        # timestamp string as registration_time) — a brand-new account
-        # counts as "seen" the moment it exists, instead of staying
-        # invisible to last-seen based views until the first login
-        timeNow = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # value as registration_time) — a brand-new account counts as
+        # "seen" the moment it exists, instead of staying invisible
+        # to last-seen based views until the first login
+        timeNow = now()
 
         Student.objects.create(
             username=username,

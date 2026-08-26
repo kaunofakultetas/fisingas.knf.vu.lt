@@ -46,6 +46,13 @@ info:
        except `POST /api/admin/administrators` and
        `POST /api/phishingpictures/{id}/links`, which use the same 200-with-body
        rejection as the GETs.
+    4. **Timestamps** -- every timestamp field is an ISO-8601 string in the local
+       Europe/Vilnius zone with the explicit UTC offset, e.g. `2026-08-26T19:09:07+03:00`
+       (`+02:00` in winter). `null` means "never" -- timestamps are the one place where
+       the blank value is `null`, not `""`. Stored as `timestamptz` (UTC) server-side;
+       every comparison (dashboard activity window, retention sweep) is done on real
+       datetimes. Parse with `new Date(value)` -- the offset makes it unambiguous in
+       any browser timezone.
 
     Malformed JSON bodies return `400` on the object-protocol endpoints (and on
     `/api/student/register` and the links POST); `POST /api/login` and
@@ -54,7 +61,7 @@ info:
     endpoints (no field-level validation by design); the answers save validates its whole
     payload shape up front and refuses bad shapes with the 200 error string, but
     non-numeric **values** in it still fail with a `500`.
-  version: 2.2.0
+  version: 3.0.0
 
 servers:
   - url: /
@@ -1480,8 +1487,10 @@ components:
                 description: "`1` = should be checked, `0` = should not, `null` = never set (only possible on legacy rows -- new options start at `0`; never counts as correct)"
         created:
           type: string
-          description: Creation timestamp (`YYYY-MM-DD HH:MM:SS`, local time)
-          example: "2025-01-15 14:30:00"
+          format: date-time
+          nullable: true
+          description: Creation timestamp -- ISO-8601 in Europe/Vilnius with the explicit UTC offset (see *Timestamps* above); `null` for rows older than the column
+          example: "2025-01-15T14:30:00+02:00"
 
     QuestionLink:
       type: object
@@ -1569,14 +1578,20 @@ components:
           description: "`0` = in progress, `1` = finished"
         lastseen:
           type: string
+          format: date-time
+          nullable: true
           description: |
-            Last activity timestamp (`YYYY-MM-DD HH:MM:SS`). Written at registration
-            and refreshed by `GET /api/checkauth` and the test endpoints -- not by
-            every authenticated request. `""` for accounts registered before
+            Last activity timestamp -- ISO-8601 in Europe/Vilnius with the explicit UTC offset (see *Timestamps* above). Written at
+            registration and refreshed by `GET /api/checkauth` and the test endpoints --
+            not by every authenticated request. `null` for accounts registered before
             lastseen stamping existed that never logged in.
+          example: "2026-08-26T19:09:07+03:00"
         registrationtime:
           type: string
-          description: Registration timestamp (`""` for accounts created before the column existed)
+          format: date-time
+          nullable: true
+          description: Registration timestamp -- ISO-8601 in Europe/Vilnius with the explicit UTC offset (see *Timestamps* above); `null` for accounts created before the column existed
+          example: "2026-08-26T18:55:00+03:00"
         status:
           type: integer
           description: "`1` = active; other values block login"
@@ -1633,7 +1648,10 @@ components:
           description: "`1` = enabled, `0` = disabled"
         lastseen:
           type: string
-          description: Last activity timestamp
+          format: date-time
+          nullable: true
+          description: Last activity timestamp -- ISO-8601 in Europe/Vilnius with the explicit UTC offset (see *Timestamps* above); `null` = never
+          example: "2026-08-26T19:09:07+03:00"
 
     DashboardData:
       type: object
@@ -1667,8 +1685,11 @@ components:
                 type: integer
               isfinished:
                 type: integer
-              lastlogin:
+              lastseen:
                 type: string
+                format: date-time
+                nullable: true
+                description: The same `Student.last_login` column every other endpoint publishes as `lastseen` -- ISO-8601 in Europe/Vilnius with the explicit UTC offset (see *Timestamps* above)
 
     LeaderboardEntry:
       type: object
@@ -1696,4 +1717,7 @@ components:
           description: "`0` = in progress, `1` = finished"
         lastseen:
           type: string
-          description: Last activity timestamp
+          format: date-time
+          nullable: true
+          description: Last activity timestamp -- ISO-8601 in Europe/Vilnius with the explicit UTC offset (see *Timestamps* above); `null` = never
+          example: "2026-08-26T19:09:07+03:00"

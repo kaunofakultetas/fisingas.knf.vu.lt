@@ -59,7 +59,7 @@ from fisingas.users.models import Student
 class QuestionImage(models.Model):
     # Columns
     image = models.BinaryField()
-    created = models.CharField(max_length=32, blank=True, default="")
+    created = models.DateTimeField(null=True, blank=True)
 
     # String representation
     def __str__(self):
@@ -91,7 +91,7 @@ class Question(models.Model):
     is_phishing = models.IntegerField(default=0)
     question = models.TextField(blank=True, default="")
     image = models.ForeignKey(QuestionImage, on_delete=models.PROTECT, related_name="questions")
-    created = models.CharField(max_length=32, blank=True, default="")
+    created = models.DateTimeField(null=True, blank=True)
 
     # String representation
     def __str__(self):
@@ -285,7 +285,7 @@ class TestResult(models.Model):
     total_options_count = models.IntegerField()
     total_correct_options_count = models.IntegerField()
     total_points = models.FloatField()
-    finished_at = models.CharField(max_length=32, blank=True, default="")
+    finished_at = models.DateTimeField(null=True, blank=True)
 
     # String representation
     def __str__(self):

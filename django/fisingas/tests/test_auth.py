@@ -15,10 +15,10 @@ from django.test import Client, TestCase
 from fisingas.users.models import Student, SystemUser
 
 from .utils import (
+    is_recent,
     ADMIN_EMAIL,
     STUDENT_PASSCODE,
     STUDENT_USERNAME,
-    TIMESTAMP_RE,
     create_admin,
     create_student,
     login,
@@ -208,7 +208,7 @@ class CheckauthTests(TestCase):
         login_admin(self.client)
         self.client.get("/api/checkauth")
         admin.refresh_from_db()
-        self.assertRegex(admin.last_login, TIMESTAMP_RE)
+        self.assertTrue(is_recent(admin.last_login))
 
     def test_student_info_includes_passcode_and_finish_flag(self):
         student = create_student()
@@ -227,7 +227,7 @@ class CheckauthTests(TestCase):
         login_student(self.client)
         self.client.get("/api/checkauth")
         student.refresh_from_db()
-        self.assertRegex(student.last_login, TIMESTAMP_RE)
+        self.assertTrue(is_recent(student.last_login))
 
     def test_finished_student_reports_finished(self):
         create_student(is_finished=1)
@@ -254,14 +254,14 @@ class CheckauthAdminTests(TestCase):
         login_admin(self.client)
         self.client.get("/api/checkauth/admin")
         admin.refresh_from_db()
-        self.assertRegex(admin.last_login, TIMESTAMP_RE)
+        self.assertTrue(is_recent(admin.last_login))
 
         # A rejected student leaves no lastseen trace here
         student_client = Client()
         login_student(student_client)
         student_client.get("/api/checkauth/admin")
         student.refresh_from_db()
-        self.assertEqual(student.last_login, "")
+        self.assertIsNone(student.last_login)
 
     def test_requires_login(self):
         response = self.client.get("/api/checkauth/admin")

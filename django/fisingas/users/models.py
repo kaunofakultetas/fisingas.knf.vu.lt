@@ -10,9 +10,9 @@
 #  Conventions the API responses are built on:
 #    - flag columns are integers (0/1), exposed as 0/1 in the
 #      JSON — the frontend compares against those values
-#    - timestamps are "YYYY-MM-DD HH:MM:SS" strings, returned
-#      verbatim (lastseen, lastlogin); string comparison
-#      still sorts them chronologically
+#    - timestamps are aware DateTimeFields (UTC in the
+#      database), published as ISO-8601 with the Vilnius
+#      offset and null for "never" — see common/timestamps.py
 ############################################################
 
 
@@ -43,7 +43,7 @@ class SystemUser(models.Model):
     password = models.CharField(max_length=255)
     admin = models.IntegerField(default=1)
     enabled = models.IntegerField(default=0)
-    last_login = models.CharField(max_length=32, blank=True, default="")
+    last_login = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return self.email
@@ -67,18 +67,20 @@ class SystemUser(models.Model):
 #
 #   is_finished:       1 locks the test forever
 #   status:            1 = active account
-#   registration_time: "YYYY-MM-DD HH:MM:SS" set once at
-#                      registration ("" for accounts created
-#                      before the column existed)
+#   last_login:        last activity (aware UTC — see
+#                      common/timestamps.py); NULL = never
+#   registration_time: set once at registration (NULL for
+#                      accounts created before the column
+#                      existed)
 ############################################################
 
 class Student(models.Model):
     username = models.CharField(max_length=255, unique=True)
     passcode = models.CharField(max_length=64)
     is_finished = models.IntegerField(default=0)
-    last_login = models.CharField(max_length=32, blank=True, default="")
+    last_login = models.DateTimeField(null=True, blank=True)
     status = models.IntegerField(default=1)
-    registration_time = models.CharField(max_length=32, blank=True, default="")
+    registration_time = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return self.username

@@ -10,6 +10,7 @@ import bcrypt
 
 from django.http import HttpResponse, JsonResponse
 
+from fisingas.common.timestamps import to_api
 from fisingas.common.auth import get_json, login_required
 from fisingas.users.models import SystemUser
 
@@ -61,7 +62,7 @@ def administrators(request):
                 "id": admin.id,
                 "email": admin.email,
                 "enabled": admin.enabled,
-                "lastseen": admin.last_login,
+                "lastseen": to_api(admin.last_login),
             }
             for admin in SystemUser.objects.order_by("id")
         ], safe=False)

@@ -30,9 +30,10 @@ env = environ.Env()
 ############################################################
 #
 # Debug mode and the secret key come from the environment
-# (never hardcoded). Times are stored and shown in the
-# local Vilnius timezone — the API returns timestamps as
-# plain local-time strings.
+# (never hardcoded). Timestamps are stored as aware UTC
+# (USE_TZ) and published by the API as ISO-8601 in the
+# local Europe/Vilnius zone with the explicit offset — see
+# common/timestamps.py, the one place that knows the policy.
 ############################################################
 
 DEBUG = env.bool("DJANGO_DEBUG", False)

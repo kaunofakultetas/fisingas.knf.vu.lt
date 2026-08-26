@@ -30,6 +30,7 @@ except ImportError:
 from fisingas.phishing_test.models import Answer, AnswerSelectedOption, QuestionLink, TestResult
 
 from .utils import (
+    local,
     PNG_BYTES,
     add_option,
     create_admin,
@@ -228,9 +229,9 @@ class ContractAdminTests(ContractTestCase):
             student=frozen, question_count=2, answered_question_count=2,
             total_identified_correctly=2, fully_correct_count=2,
             total_options_count=0, total_correct_options_count=0,
-            total_points=1.0, finished_at="2026-08-01 10:00:00",
+            total_points=1.0, finished_at=local("2026-08-01 10:00:00"),
         )
-        live = create_student(username="LIVE", last_login="2026-08-26 10:00:00")
+        live = create_student(username="LIVE", last_login=local("2026-08-26 10:00:00"))
         Answer.objects.create(student=live, question_id=1, question_text="q", is_phishing=1, answer_status=1)
         AnswerSelectedOption.objects.create(
             student=live, question_id=1, option_id=11,
@@ -344,7 +345,7 @@ class ContractPublicTests(ContractTestCase):
             student=frozen, question_count=2, answered_question_count=2,
             total_identified_correctly=2, fully_correct_count=2,
             total_options_count=0, total_correct_options_count=0,
-            total_points=1.0, finished_at="2026-08-01 10:00:00",
+            total_points=1.0, finished_at=local("2026-08-01 10:00:00"),
         )
         create_student(username="BLANK")
         self.assertMatchesSpec(self.client.get("/api/leaderboard"), "/api/leaderboard")

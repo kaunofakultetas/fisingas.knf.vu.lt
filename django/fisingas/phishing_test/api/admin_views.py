@@ -13,11 +13,12 @@
 ############################################################
 
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 
+from fisingas.common.timestamps import now, to_api
 from fisingas.common.auth import get_json, login_required
 from fisingas.users.models import Setting, Student
 from ..grading import judge_student
@@ -48,13 +49,12 @@ def admin_home(request):
     if not request.current_user.admin:
         return HttpResponse("Error: Not Admin")
 
-    timeNow_minus30min = (datetime.now() - timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
+    timeNow_minus30min = now() - timedelta(minutes=30)
 
 
-    # Progress of students seen in the last 30 minutes (string
-    # comparison works because LastLogin is "YYYY-MM-DD HH:MM:SS").
-    # Students who were dealt no questions yet are left out — there
-    # is no progress to show for them
+    # Progress of students seen in the last 30 minutes. Students
+    # who were dealt no questions yet are left out — there is no
+    # progress to show for them
     recentStudents = list(Student.objects.filter(last_login__gt=timeNow_minus30min).order_by("id"))
 
     # All their answers in one query, instead of one query per
@@ -79,7 +79,7 @@ def admin_home(request):
             "answeredquestioncount": sum(1 for answer in answers if answer.answer_status is not None),
 
             "isfinished": student.is_finished,
-            "lastlogin": student.last_login,
+            "lastseen": to_api(student.last_login),
         })
 
 
@@ -230,7 +230,7 @@ def questions_list(request):
                     }
                     for option in optionsByQuestion.get(question.id, [])
                 ],
-                "created": question.created,
+                "created": to_api(question.created),
             }
             for question in questions
         ],

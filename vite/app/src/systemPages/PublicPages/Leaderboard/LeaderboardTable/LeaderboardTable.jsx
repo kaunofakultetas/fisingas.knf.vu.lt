@@ -26,6 +26,7 @@
 
 import { useState, useEffect } from "react";
 import useFetchData from "@/hooks/useFetchData";
+import { formatDateTime, parseTimestamp } from "@/utils/timestamps";
 
 
 const REFRESH_TIME = 5; // seconds
@@ -162,7 +163,8 @@ export default function LeaderboardTable() {
 
   const filteredRows = data.filter((row) => {
     if (!showRecentOnly) return true;
-    return new Date(row.lastseen) >= oneDayAgo;
+    const lastSeen = parseTimestamp(row.lastseen);
+    return lastSeen !== null && lastSeen >= oneDayAgo;
   });
 
   filteredRows.sort((a, b) => b.testgrade - a.testgrade);
@@ -224,7 +226,7 @@ export default function LeaderboardTable() {
                   <ProgressBar row={row} />
                 </td>
                 <td className="px-3 py-2.5 border-b border-gray-100 text-center text-sm text-gray-500">
-                  {row.lastseen}
+                  {formatDateTime(row.lastseen)}
                 </td>
               </tr>
             ))}

@@ -24,7 +24,7 @@ from fisingas.phishing_test.grading import (
 )
 from fisingas.phishing_test.models import Answer, AnswerSelectedOption, TestResult
 
-from .utils import create_student
+from .utils import create_student, local
 
 
 def _question(answer, is_phishing, options=()):
@@ -302,7 +302,7 @@ class FreezeAndReadBackTests(TestCase):
         _freeze(self.student, 2, is_phishing=0, answer_status=None)
 
     def test_finalize_writes_the_raw_totals(self):
-        finalize_student(self.student.id, finished_at="2026-08-01 12:00:00")
+        finalize_student(self.student.id, finished_at=local("2026-08-01 12:00:00"))
 
         row = TestResult.objects.get(student=self.student)
         self.assertEqual(row.question_count, 2)
@@ -312,22 +312,22 @@ class FreezeAndReadBackTests(TestCase):
         self.assertEqual(row.total_options_count, 2)
         self.assertEqual(row.total_correct_options_count, 2)
         self.assertEqual(row.total_points, 1.0)
-        self.assertEqual(row.finished_at, "2026-08-01 12:00:00")
+        self.assertEqual(row.finished_at, local("2026-08-01 12:00:00"))
 
     def test_finalize_without_answers_writes_nothing(self):
         empty = create_student(username="EMPTY")
-        finalize_student(empty.id, finished_at="2026-08-01 12:00:00")
+        finalize_student(empty.id, finished_at=local("2026-08-01 12:00:00"))
         self.assertFalse(TestResult.objects.filter(student=empty).exists())
 
     def test_finalize_twice_keeps_one_row(self):
-        finalize_student(self.student.id, finished_at="2026-08-01 12:00:00")
-        finalize_student(self.student.id, finished_at="2026-08-02 09:00:00")
+        finalize_student(self.student.id, finished_at=local("2026-08-01 12:00:00"))
+        finalize_student(self.student.id, finished_at=local("2026-08-02 09:00:00"))
 
         [row] = TestResult.objects.filter(student=self.student)
-        self.assertEqual(row.finished_at, "2026-08-02 09:00:00")
+        self.assertEqual(row.finished_at, local("2026-08-02 09:00:00"))
 
     def test_stored_summary_renders_exactly_like_a_live_one(self):
-        finalize_student(self.student.id, finished_at="2026-08-01 12:00:00")
+        finalize_student(self.student.id, finished_at=local("2026-08-01 12:00:00"))
         self.student.is_finished = 1
         self.student.save()
         live = summarize(judge_student(self.student.id))
@@ -335,7 +335,7 @@ class FreezeAndReadBackTests(TestCase):
         self.assertEqual(stored, live)
 
     def test_student_summary_prefers_the_frozen_row_when_finished(self):
-        finalize_student(self.student.id, finished_at="2026-08-01 12:00:00")
+        finalize_student(self.student.id, finished_at=local("2026-08-01 12:00:00"))
         self.student.is_finished = 1
         self.student.save()
         TestResult.objects.filter(student=self.student).update(total_points=9.0)
@@ -362,7 +362,7 @@ class FreezeAndReadBackTests(TestCase):
         # while the student is finished. Otherwise a student
         # reopened for a retake keeps their OLD grade on the lists
         # while the detail page shows the live one
-        finalize_student(self.student.id, finished_at="2026-08-01 12:00:00")
+        finalize_student(self.student.id, finished_at=local("2026-08-01 12:00:00"))
         self.assertEqual(stored_summaries(), {})
 
         self.student.is_finished = 1
@@ -371,7 +371,7 @@ class FreezeAndReadBackTests(TestCase):
 
     def test_student_summary_judges_live_while_unfinished(self):
         # A frozen row of a still-running test is ignored
-        finalize_student(self.student.id, finished_at="2026-08-01 12:00:00")
+        finalize_student(self.student.id, finished_at=local("2026-08-01 12:00:00"))
         TestResult.objects.filter(student=self.student).update(total_points=9.0)
 
         self.assertEqual(student_summary(self.student).total_points, 1.0)
