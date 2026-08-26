@@ -25,6 +25,7 @@
 #    test_leaderboard.py       — public projector endpoints
 #    test_routing.py           — routing + request plumbing
 #    test_performance.py       — query-count budgets
+#    test_contract.py          — responses validated against swagger.yaml
 #    test_retention.py         — the delete_old_students sweep
 #    test_known_bugs.py        — KNOWN BUGS pinned as expected
 #                                failures (see its header)

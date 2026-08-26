@@ -7,9 +7,9 @@ info:
     ## Authentication
 
     Authentication is session-based using cookies. Log in via `POST /api/login` to receive
-    a session cookie (named `session`), which is then sent automatically with subsequent
-    requests. Sessions expire when the browser closes. There is **no logout endpoint** --
-    the frontend logs out by deleting the cookie client-side.
+    a session cookie (named `session`, `HttpOnly`), which is then sent automatically with
+    subsequent requests. The cookie expires when the browser closes; `POST /api/logout`
+    ends the session **server-side** (deletes the session row and clears the cookie).
 
     The system has two user roles, distinguished by the login name:
     - **Admin** -- identified by an email address (contains `@`); password checked against a bcrypt hash
@@ -29,19 +29,32 @@ info:
 
     The API predates a uniform error contract; clients must handle three conventions:
 
-    1. **Plain-text protocol** -- `POST /api/login`, `POST /api/student/questions` and
-       `POST /api/phishingpictures/{id}/links` respond with the literal string `OK` on
-       success and a message string on failure, always with HTTP 200.
+    1. **Plain-text protocol** -- `POST /api/login`, `POST /api/logout`,
+       `POST /api/student/questions` and `POST /api/phishingpictures/{id}/links` respond
+       with the literal string `OK` on success and a message string on failure. Login and
+       the answers save always use HTTP 200 (including their validation messages); the
+       links endpoint can additionally return `400`/`404`, and the answers save responds
+       with the JSON object `{}` (not text) for admin sessions and finished tests.
+       **All of these "plain-text" bodies are served with Django's default
+       `Content-Type: text/html`** -- the body is a bare string either way.
     2. **Object protocol** -- upload and administrator endpoints respond with
        `{"type": "ok" | "error", "reason": ...}`; question/student mutations respond with
        `{"status": "ok"}`.
-    3. **Role-gate quirk** -- several admin GET endpoints reject non-admins with the
+    3. **Role-gate quirk** -- several admin endpoints reject non-admins with the
        plain-text body `Error: Not Admin` and **HTTP 200**. Do not rely on the status code
-       alone; check the body. Mutating admin endpoints return a proper `403`.
+       alone; check the body. Most mutating admin endpoints return a proper `403` --
+       except `POST /api/admin/administrators` and
+       `POST /api/phishingpictures/{id}/links`, which use the same 200-with-body
+       rejection as the GETs.
 
-    Requests with malformed JSON bodies return `400`; requests with a syntactically valid
-    body but missing keys fail loudly with a `500` (no field-level validation by design).
-  version: 2.0.0
+    Malformed JSON bodies return `400` on the object-protocol endpoints (and on
+    `/api/student/register` and the links POST); `POST /api/login` and
+    `POST /api/student/questions` answer them with an HTTP 200 message instead. A
+    syntactically valid body with missing keys fails loudly with a `500` on the admin
+    endpoints (no field-level validation by design); the answers save validates its whole
+    payload shape up front and refuses bad shapes with the 200 error string, but
+    non-numeric **values** in it still fail with a `500`.
+  version: 2.1.0
 
 servers:
   - url: /
@@ -113,7 +126,7 @@ paths:
             - `El. Paštas ir/arba Slaptažodis neteisingas.` (admin login failed)
             - `Vardas ir/arba Slaptažodis neteisingas.` (student login failed)
           content:
-            text/plain:
+            text/html:
               schema:
                 type: string
                 example: OK
@@ -138,7 +151,7 @@ paths:
         "200":
           description: Logged out (plain-text body `OK`); also returned when no session existed
           content:
-            text/plain:
+            text/html:
               schema:
                 type: string
                 example: OK
@@ -214,7 +227,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/AdminAuth"
         "401":
-          description: Not an admin or not authenticated
+          description: |
+            Two different bodies share this status: an **anonymous** request gets the
+            plain-text body `Unauthorized` (served as `text/html`), while an
+            authenticated **non-admin** session gets the JSON object
+            `{"message": "Unauthorized"}`.
           content:
             application/json:
               schema:
@@ -223,6 +240,10 @@ paths:
                   message:
                     type: string
                     example: Unauthorized
+            text/html:
+              schema:
+                type: string
+                example: Unauthorized
 
   # ──────────────────────────────────────────────
   # Student Registration
@@ -334,9 +355,13 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/StudentQuestion"
+                oneOf:
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/StudentQuestion"
+                  - type: object
+                    maxProperties: 0
+                    description: Empty object -- finished test or admin session
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -351,6 +376,14 @@ paths:
         rows belonging to the calling session's student, so a forged `questionid`
         cannot write into another student's test. Unknown IDs are silently ignored
         (the filtered update matches nothing).
+
+        The whole payload shape is validated **before anything is written**: the body
+        must be a list of objects each carrying `questionid`, and `questionoptions`
+        must be a list of objects each carrying `answeroptionid` -- anything else is
+        refused with the 200 error string and no partial state is saved. Values are
+        not validated (a non-numeric `selectedanswer` fails with a `500`).
+
+        Every call (GET or POST) also refreshes the student's `lastseen` timestamp.
 
         Note: answers of a finished test can no longer be read back (the GET returns
         `{}`), and grading uses the state as it was; the UI never calls this after
@@ -388,10 +421,13 @@ paths:
       responses:
         "200":
           description: |
-            `OK` on success (plain text). A body that is not a JSON list returns the
-            plain-text error `Error: This is not questions state object` (still 200).
+            `OK` on success (plain text, served as `text/html`). Any shape violation --
+            a non-list body, a non-object entry, a missing `questionid`/`answeroptionid`,
+            a non-list `questionoptions` -- returns the plain-text error
+            `Error: This is not questions state object` (still 200, nothing written).
+            Admin sessions and finished tests get the JSON object `{}` instead.
           content:
-            text/plain:
+            text/html:
               schema:
                 type: string
                 example: OK
@@ -477,6 +513,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/AdminQuestion"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/admin/questions/createnewoption:
     post:
@@ -520,9 +558,11 @@ paths:
         "404":
           description: "The question no longer exists (plain-text body `Error: Question no longer exists`)"
           content:
-            text/plain:
+            text/html:
               schema:
                 type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/admin/questions/updatequestion:
     post:
@@ -572,7 +612,8 @@ paths:
                         type: string
                       rightoptionanswer:
                         type: integer
-                        description: "`1` = should be checked, `0` = should not"
+                        nullable: true
+                        description: "`1` = should be checked, `0` = should not, `null` = not set (never counts as correct)"
       responses:
         "200":
           description: Question updated
@@ -584,6 +625,8 @@ paths:
           $ref: "#/components/responses/InvalidBodyText"
         "403":
           $ref: "#/components/responses/NotAdminText"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/admin/questions/deleteoption:
     post:
@@ -618,6 +661,8 @@ paths:
           $ref: "#/components/responses/InvalidBodyText"
         "403":
           $ref: "#/components/responses/NotAdminText"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/admin/questions/deletequestion:
     post:
@@ -655,6 +700,8 @@ paths:
           $ref: "#/components/responses/InvalidBodyText"
         "403":
           $ref: "#/components/responses/NotAdminText"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   # ──────────────────────────────────────────────
   # Question Images
@@ -723,6 +770,8 @@ paths:
               example:
                 type: error
                 reason: Not Admin
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/phishingpictures/{questionID}:
     get:
@@ -806,7 +855,9 @@ paths:
 
         Replaces **all** clickable areas of the question's image: existing areas are
         deleted first, then one area is created per submitted rectangle. Coordinates
-        are fractions of the image dimensions (`0.0`--`1.0`). A body without an
+        are fractions of the image dimensions (`0.0`--`1.0`) and **must be numeric** --
+        they are stored as text without validation, and non-numeric values (e.g.
+        `null`) permanently break the GET for this image. A body without an
         `areas` key deletes nothing and returns `OK`.
       security:
         - cookieAuth: []
@@ -860,7 +911,7 @@ paths:
             `OK` on success (plain text). Non-admins get `Error: Not Admin`
             (also HTTP 200).
           content:
-            text/plain:
+            text/html:
               schema:
                 type: string
                 example: OK
@@ -868,6 +919,8 @@ paths:
           $ref: "#/components/responses/InvalidBodyText"
         "404":
           description: No live question and no answer snapshot references this ID
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   # ──────────────────────────────────────────────
   # Students (Admin)
@@ -898,6 +951,8 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/StudentDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/admin/students/{studentID}:
     get:
@@ -928,6 +983,8 @@ paths:
                 $ref: "#/components/schemas/StudentDetail"
         "404":
           description: "Student not found (plain-text body `Error: Student not found`)"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/admin/students/{studentID}/delete:
     post:
@@ -960,6 +1017,8 @@ paths:
           description: "Student not found (plain-text body `Error: Student not found`)"
         "405":
           description: Method not allowed (only POST)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/admin/students/{studentID}/answers:
     get:
@@ -993,6 +1052,8 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/StudentAnswer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   # ──────────────────────────────────────────────
   # Administrators
@@ -1018,6 +1079,8 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Administrator"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
     post:
       tags: [Administrators]
@@ -1028,12 +1091,14 @@ paths:
         One endpoint, dispatched on `action`:
 
         - **Create**: `action: insertupdate` with `id: ""`. Requires a password of at
-          least 8 characters and a free email.
-        - **Update**: `action: insertupdate` with an existing `id`. Updates email and
-          enabled flag; the password is re-hashed only when a non-empty one is
-          submitted (empty string keeps the current password).
-        - **Delete**: `action: delete` with the `id`. There is **no guard** against
-          deleting your own or the last administrator account.
+          least 8 characters (and at most 72 bytes -- the bcrypt input limit) and a
+          free email.
+        - **Update**: `action: insertupdate` with an existing `id`. Updates email
+          (must stay unique) and enabled flag; the password is re-hashed only when a
+          non-empty one is submitted (empty string keeps the current password).
+          Disabling your **own** account is refused.
+        - **Delete**: `action: delete` with the `id`. Deleting your **own** account is
+          refused, so at least one working administrator always remains.
 
         Passwords are hashed with bcrypt (12 rounds). Validation failures come back
         as `{"type": "error", "reason": ...}` with HTTP 200; only a malformed body
@@ -1062,8 +1127,9 @@ paths:
                     password:
                       type: string
                       description: >
-                        Min 8 characters. Required for create. When updating,
-                        empty string keeps the existing password.
+                        Min 8 characters, max 72 bytes (UTF-8; the bcrypt input
+                        limit). Required for create. When updating, empty string
+                        keeps the existing password.
                     enabled:
                       type: integer
                       description: "`1` = enabled, `0` = disabled (disabled accounts cannot log in and lose live sessions)"
@@ -1127,6 +1193,8 @@ paths:
               example:
                 type: error
                 reason: Invalid request body
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   # ──────────────────────────────────────────────
   # Dashboard
@@ -1140,8 +1208,10 @@ paths:
         **Auth: Admin** (non-admins get the plain-text body `Error: Not Admin` with HTTP 200).
 
         Returns the dashboard counters plus `studentsprogress`: students whose last
-        activity (any authenticated request refreshes it) is within the last 30
-        minutes **and** who have a dealt test. The admin UI polls this endpoint every
+        activity is within the last 30 minutes **and** who have a dealt test. A
+        student's `lastseen` is written at registration and refreshed only by
+        `GET /api/checkauth` and the test endpoints (`/api/student/questions`,
+        `/api/student/finish`) -- not by every authenticated request. The admin UI polls this endpoint every
         2 seconds. `phishingtestsize` is `null` until the setting is saved for the
         first time.
       security:
@@ -1153,6 +1223,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DashboardData"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/admin/update/phishingtestsize:
     post:
@@ -1189,6 +1261,8 @@ paths:
           $ref: "#/components/responses/InvalidBodyText"
         "403":
           $ref: "#/components/responses/NotAdminText"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   # ──────────────────────────────────────────────
   # Public (Leaderboard & Slides)
@@ -1276,21 +1350,21 @@ components:
     Unauthorized:
       description: "Not authenticated (plain-text body `Unauthorized`)"
       content:
-        text/plain:
+        text/html:
           schema:
             type: string
             example: Unauthorized
     NotAdminText:
       description: "Not an admin (plain-text body `Error: Not Admin`)"
       content:
-        text/plain:
+        text/html:
           schema:
             type: string
             example: "Error: Not Admin"
     InvalidBodyText:
       description: "Malformed JSON body (plain-text body `Error: Invalid request body`)"
       content:
-        text/plain:
+        text/html:
           schema:
             type: string
             example: "Error: Invalid request body"
@@ -1470,25 +1544,45 @@ components:
           type: string
           description: The student's access code (plaintext by design)
         questioncount:
-          type: integer
-          description: "Dealt questions (`\"\"` when no test dealt yet)"
+          oneOf:
+            - type: integer
+            - type: string
+              enum: [""]
+          description: "Dealt questions; the empty string `\"\"` when no test dealt yet"
         answeredquestioncount:
           type: integer
           nullable: true
           description: "Questions with a verdict so far (`null` when no test dealt yet)"
         totalidentifiedcorrectly:
-          type: integer
-          description: Questions where the Real/Phishing verdict was correct
+          oneOf:
+            - type: integer
+            - type: string
+              enum: [""]
+          description: Questions where the Real/Phishing verdict was correct (`""` when no test dealt yet)
         fullycorrectcount:
-          type: integer
-          description: Questions where the verdict and every option were correct
+          oneOf:
+            - type: integer
+            - type: string
+              enum: [""]
+          description: Questions where the verdict and every option were correct (`""` when no test dealt yet)
         fullycorrectpercentage:
-          type: integer
-          description: Fully-correct share as a truncated integer percentage
+          oneOf:
+            - type: integer
+            - type: string
+              enum: [""]
+          description: Fully-correct share as a truncated integer percentage (`""` when no test dealt yet)
         totaloptionscount:
-          type: integer
+          oneOf:
+            - type: integer
+            - type: string
+              enum: [""]
+          description: Options across the dealt questions (`""` when no test dealt yet)
         totalcorrectoptionscount:
-          type: integer
+          oneOf:
+            - type: integer
+            - type: string
+              enum: [""]
+          description: Correctly answered options (`""` when no test dealt yet)
         testgrade:
           type: string
           description: Grade on the 10-point scale as a fixed 2-decimal string (e.g. `"7.50"`)
@@ -1497,7 +1591,11 @@ components:
           description: "`0` = in progress, `1` = finished"
         lastseen:
           type: string
-          description: Last activity timestamp (refreshed by any authenticated request)
+          description: |
+            Last activity timestamp (`YYYY-MM-DD HH:MM:SS`). Written at registration
+            and refreshed by `GET /api/checkauth` and the test endpoints -- not by
+            every authenticated request. `""` for accounts registered before
+            lastseen stamping existed that never logged in.
         registrationtime:
           type: string
           description: Registration timestamp (`""` for accounts created before the column existed)
@@ -1603,8 +1701,11 @@ components:
         username:
           type: string
         questioncount:
-          type: integer
-          description: "Dealt questions (`\"\"` when no test dealt yet)"
+          oneOf:
+            - type: integer
+            - type: string
+              enum: [""]
+          description: "Dealt questions; the empty string `\"\"` when no test dealt yet"
         answeredquestioncount:
           type: integer
           nullable: true
