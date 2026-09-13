@@ -37,8 +37,7 @@ const STUDENT_COLUMNS = [
   {
     field: "username",
     headerName: "Prisijungimo Vardas",
-    flex: 1,
-    minWidth: 180,
+    width: 350,
   },
   {
     field: "questioncount",

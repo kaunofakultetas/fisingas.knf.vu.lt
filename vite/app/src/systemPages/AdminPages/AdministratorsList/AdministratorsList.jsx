@@ -54,8 +54,7 @@ const ADMINISTRATOR_COLUMNS = [
   {
     field: "email",
     headerName: "El. Paštas",
-    flex: 1,
-    minWidth: 200,
+    width: 300,
   },
   {
     field: "enabled",
