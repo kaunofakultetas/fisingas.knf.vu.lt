@@ -38,13 +38,15 @@ services:
     # image: fisingas-vite
     # build:
     #   context: ./vite
-    #   dockerfile: Dockerfile                                                # Prod
-    #   # dockerfile: Dockerfile.dev                                            # Dev
+    #   dockerfile: Dockerfile                                                         # Prod
+    #   # dockerfile: Dockerfile.dev                                                     # Dev
 
     user: 1000:1000
-    read_only: true                                                         # Prod
-    # volumes:                                                                # Dev
-    #   - ./vite/app:/app                                                     # Dev
+    read_only: true
+    # tmpfs:                                                                           # Dev
+    #   - /home/node/.npm:uid=1000,gid=1000                                            # Dev
+    # volumes:                                                                         # Dev
+    #   - ./vite/app:/app                                                              # Dev
     restart: unless-stopped
 
 
@@ -61,7 +63,7 @@ services:
     user: 1000:1000
     read_only: true
     environment:
-      # - DJANGO_DEBUG=True                                                   # Dev
+      # - DJANGO_DEBUG=True                                                            # Dev
       - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
       - DATABASE_URL=postgres://fisingas:fisingas@fisingas-postgres:5432/fisingas
       - SLIDES_DIRECTORY=/slides
@@ -71,7 +73,7 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ./_DATA/slides:/slides
-      # - ./django:/app                                                       # Dev
+      # - ./django:/app                                                                # Dev
     restart: unless-stopped
 
 
@@ -134,7 +136,7 @@ services:
   # ------------------------------------------------------------
   fisingas-filebrowser-dropbox:
     container_name: fisingas-filebrowser-dropbox
-    image: vuknf/filebrowser-noauth:latest
+    image: vuknf/filebrowser-noauth:v2.63.23
     user: 1000:1000
     read_only: false
     volumes:
@@ -148,7 +150,7 @@ services:
 
   fisingas-filebrowser-slides:
     container_name: fisingas-filebrowser-slides
-    image: vuknf/filebrowser-noauth:latest
+    image: vuknf/filebrowser-noauth:v2.63.23
     user: 1000:1000
     read_only: false
     volumes:
