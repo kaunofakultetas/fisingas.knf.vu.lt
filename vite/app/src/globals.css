@@ -1,19 +1,79 @@
 /* -----------------------------------------------------------
- *  [*] Global styles
- *
- *  Contents:
- *    - Tailwind v4 import (layer order puts MUI above
- *      Tailwind's preflight so MUI component styles win)
- *    - Inter font (self-hosted in /public/fonts, replaces
- *      the next/font Inter of the old Next.js frontend)
- *    - bounce-dot animation — used by the login page's
- *      BouncingDotsLoader via `animate-bounce-dot`
- * ----------------------------------------------------------- */
+   [*] Global styles — Tailwind setup, theme bridge, fonts
+
+   Everything app-wide that belongs to no single component.
+
+   Sections (in file order):
+     - Tailwind setup — layer order + v4 import (no
+       tailwind.config file; the mui layer sits above
+       Tailwind's preflight so MUI component styles win)
+     - Theme bridge   — the MUI palette (src/theme.js,
+       cssVariables: true) exposed as semantic Tailwind
+       utilities
+     - Inter font     — self-hosted in /public/fonts,
+       applied app-wide by the body reset
+     - bounce-dot     — the login loader's keyframe
+       animation
+----------------------------------------------------------- */
 
 @layer theme, base, mui, components, utilities;
 @import "tailwindcss";
 
-/* Inter — the app-wide font */
+
+
+
+
+
+
+/* -----------------------------------------------------------
+   Theme bridge
+   -----------------------------------------------------------
+
+   MUI owns the palette and emits every value as a --mui-*
+   CSS variable; @theme inline exposes those as semantic
+   Tailwind utilities, so both styling systems share one
+   source of truth:
+
+     text-primary / bg-primary / border-primary   VU burgundy
+     bg-primary-dark                              hover shade
+     border-edge                                  dividers and borders
+
+   Prefer these tokens over raw arbitrary values
+   (bg-[#7B003F], bg-(--mui-palette-primary-main), ...).
+
+   Used by:
+     - Admin Sidebar — the pin bar (bg-primary,
+       bg-primary-dark), the panel edge (border-edge) and
+       the active row label (text-primary)
+----------------------------------------------------------- */
+
+@theme inline {
+  --color-primary: var(--mui-palette-primary-main);
+  --color-primary-dark: var(--mui-palette-primary-dark);
+  --color-edge: var(--mui-palette-divider);
+}
+
+
+
+
+
+
+
+/* -----------------------------------------------------------
+   Inter — the app-wide font
+   -----------------------------------------------------------
+
+   Two variable-weight faces split by unicode-range: the
+   latin one covers most text, the latin-ext one carries the
+   Lithuanian diacritics (ĄČĘĖĮŠŲŪŽ live in U+0100-017F).
+   font-display: swap shows fallback text until the woff2
+   arrives — anything measuring rendered text (the Admin
+   Sidebar's ghost measurer) must re-measure after the swap.
+
+   The body reset below applies the font app-wide and drops
+   the browser's default margin.
+----------------------------------------------------------- */
+
 @font-face {
   font-family: 'Inter';
   font-style: normal;
@@ -37,7 +97,25 @@ body {
   font-family: 'Inter', sans-serif;
 }
 
-/* Animation of the login page's BouncingDotsLoader */
+
+
+
+
+
+
+/* -----------------------------------------------------------
+   bounce-dot
+   -----------------------------------------------------------
+
+   The three-dot "loading" hop, registered as a Tailwind
+   animation token so it is used as `animate-bounce-dot`
+   (each dot staggers itself with its own
+   [animation-delay:...] class).
+
+   Used by:
+     - BouncingDotsLoader — the login page's submit spinner
+----------------------------------------------------------- */
+
 @theme {
   --animate-bounce-dot: bounce-dot 0.6s infinite alternate;
 }

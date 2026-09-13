@@ -353,9 +353,10 @@ class SaveTests(TestCase):
         self.assertFalse(Answer.objects.filter(question_id=424242).exists())
 
     def test_scalar_entries_are_refused_not_a_crash(self):
-        # EDGE-02 fix: these used to raise TypeError → 500 (`in` on
-        # a non-dict), and "questionid" passed the substring test
-        # only to crash on subscripting
+        # Each of these must come back as the friendly error, never
+        # a TypeError → 500 (`in` on a non-dict; the string
+        # "questionid" would even pass a substring check and then
+        # crash on subscripting)
         for body in ([0], [None], [1.5], [True], ["questionid"]):
             response = post_json(self.client, QUESTIONS_URL, body)
             self.assertEqual(response.status_code, 200)

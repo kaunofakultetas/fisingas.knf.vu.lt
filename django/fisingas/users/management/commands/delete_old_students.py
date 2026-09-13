@@ -9,13 +9,9 @@
 #  Remove student accounts untouched for RETENTION_DAYS —
 #  both their last activity (last_login) and their
 #  registration are older than the cutoff, so a fresh account
-#  that never logged in survives. The timestamps are "YYYY-MM-DD
-#  HH:MM:SS" strings whose string order IS chronological
-#  order (the convention all account timestamps follow), so
-#  plain < comparison is safe.
-#
-#  Pre-import accounts with "" in both fields count as old
-#  and are removed too ("" sorts before any date).
+#  that never logged in survives. Both columns are nullable
+#  aware datetimes; a NULL counts as older than anything, so
+#  accounts with no recorded activity age out too.
 #
 #  Deleting a Student CASCADEs to their frozen answers,
 #  checkbox selections and TestResult row — same cleanup the
@@ -52,9 +48,9 @@ class Command(BaseCommand):
         cutoff = now() - timedelta(days=RETENTION_DAYS)
 
         # Both moments must be older than the cutoff. A NULL (an
-        # account from before the column existed, never seen since)
-        # counts as older than anything — the same rule the old ""
-        # strings followed, so pre-import accounts still age out
+        # account with no recorded login or registration moment)
+        # counts as older than anything, so accounts with blank
+        # activity fields age out too
         _, deleted_per_table = Student.objects.filter(
             Q(last_login__lt=cutoff) | Q(last_login__isnull=True),
             Q(registration_time__lt=cutoff) | Q(registration_time__isnull=True),

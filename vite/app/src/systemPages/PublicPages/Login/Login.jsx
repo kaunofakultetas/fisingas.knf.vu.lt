@@ -12,8 +12,7 @@
 //      paskyrą")
 //
 //  Opening /login also acts as logout: the session cookie is
-//  dropped on mount (the old Next.js frontend did the same
-//  server-side). After a successful login the page hard-
+//  dropped on mount. After a successful login the page hard-
 //  navigates to "/" and the router sends the user to their
 //  home by role.
 //

@@ -626,7 +626,7 @@ paths:
                       rightoptionanswer:
                         type: integer
                         nullable: true
-                        description: "`1` = should be checked, `0` = should not, `null` = never set (only possible on legacy rows -- new options start at `0`; never counts as correct)"
+                        description: "`1` = should be checked, `0` = should not, `null` = never set (new options start at `0`; `null` never counts as correct)"
       responses:
         "200":
           description: Question updated
@@ -1507,7 +1507,7 @@ components:
               rightoptionanswer:
                 type: integer
                 nullable: true
-                description: "`1` = should be checked, `0` = should not, `null` = never set (only possible on legacy rows -- new options start at `0`; never counts as correct)"
+                description: "`1` = should be checked, `0` = should not, `null` = never set (new options start at `0`; `null` never counts as correct)"
         created:
           type: string
           format: date-time
@@ -1526,12 +1526,12 @@ components:
         x:
           type: string
           nullable: true
-          description: X position as a whole-number percentage string, rounded from the stored fraction (`null` only for legacy rows whose stored value cannot be parsed)
+          description: X position as a whole-number percentage string, rounded from the stored fraction (`null` for rows whose stored value cannot be parsed)
           example: "15%"
         y:
           type: string
           nullable: true
-          description: Y position as a whole-number percentage string, rounded from the stored fraction (`null` only for legacy rows whose stored value cannot be parsed)
+          description: Y position as a whole-number percentage string, rounded from the stored fraction (`null` for rows whose stored value cannot be parsed)
           example: "42%"
         width:
           type: string

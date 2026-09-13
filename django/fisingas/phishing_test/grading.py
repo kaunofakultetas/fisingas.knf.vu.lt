@@ -343,8 +343,8 @@ def overlay_summary(student, frozen, live):
 # Used by:
 #   - phishing_test.student_views.student_finish — in the
 #     same transaction that sets is_finished=1
-#   - migration 0006 backfills the same shape for students
-#     who finished before this table existed
+#   - migration 0006 — backfills the same shape for
+#     students already finished when the table is created
 ############################################################
 
 def finalize_student(student_id, finished_at):
@@ -426,8 +426,8 @@ def stored_summaries():
 # the student never dealt a test.
 #
 # Falls back to live judging if a finished student somehow
-# has no frozen row (finished before the backfill ran) — the
-# grade is always derivable from the answer snapshots.
+# has no frozen row — the grade is always derivable from the
+# answer snapshots.
 #
 # Used by:
 #   - users.students_views.student_detail — one student's row
@@ -466,7 +466,7 @@ def student_summary(student):
 #
 # Both queries fetch plain tuples (values_list) instead of
 # model instances — instantiating tens of thousands of model
-# objects used to dominate the list endpoints' response time.
+# objects would dominate the list endpoints' response time.
 #
 # Used by:
 #   - judge_student (above)             — filtered to one student

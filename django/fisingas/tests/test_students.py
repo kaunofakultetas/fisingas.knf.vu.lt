@@ -59,7 +59,7 @@ class StudentRegisterTests(TestCase):
         self.assertTrue(is_recent(student.registration_time))
 
     def test_registration_stamps_lastseen_with_the_registration_time(self):
-        # EDGE-03 fix: a brand-new account counts as "seen" at its
+        # A brand-new account counts as "seen" at its
         # exact registration moment — the two columns carry the
         # identical timestamp string, so last-seen based views
         # (admin list month filter, dashboard) can see it right away
@@ -311,8 +311,8 @@ class StudentDetailTests(TestCase):
         self.assertEqual(response.content, b"Error: Not Admin")
 
     def test_finished_student_without_frozen_row_is_judged_live(self):
-        # Legacy safety net: finished before the TestResult
-        # backfill → the grade still comes from the snapshots
+        # A finished student can lack a frozen TestResult row —
+        # the grade must then come from the answer snapshots
         create_admin()
         student = create_student(is_finished=1)
         Answer.objects.create(student=student, question_id=1, question_text="q1", is_phishing=1, answer_status=1)

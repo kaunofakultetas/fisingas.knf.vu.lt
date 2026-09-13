@@ -149,8 +149,8 @@ class AdministratorsMutationTests(TestCase):
 
 
     def test_create_refuses_password_over_the_bcrypt_72_byte_limit(self):
-        # EDGE-04 fix: bcrypt silently ignores everything past byte
-        # 72 — such a password would authenticate on its prefix
+        # bcrypt silently ignores everything past byte 72 — such a
+        # password would authenticate on its prefix
         response = post_json(self.client, URL, {
             "action": "insertupdate", "id": "",
             "email": "new@example.com", "password": "a" * 73, "enabled": 1,
@@ -231,8 +231,9 @@ class AdministratorsMutationTests(TestCase):
 
 
     def test_edit_refuses_an_email_taken_by_another_account(self):
-        # Used to die on the DB unique constraint as a raw 500 —
-        # now the same friendly error the create path always had
+        # A taken email must come back as the same friendly error
+        # the create path gives — never a raw 500 from the DB
+        # unique constraint
         other = create_admin(email="other@example.com")
         response = post_json(self.client, URL, {
             "action": "insertupdate", "id": other.id,

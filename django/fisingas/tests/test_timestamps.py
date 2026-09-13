@@ -50,8 +50,7 @@ class ToApiTests(TestCase):
     def test_dst_fall_back_hour_is_unambiguous(self):
         # 2026-10-25 03:30 local happens twice (EEST → EET). Stored
         # as UTC the two moments stay distinct and each renders with
-        # its own offset — the old wall-clock strings could not tell
-        # them apart
+        # its own offset
         first = datetime(2026, 10, 25, 0, 30, tzinfo=dt_timezone.utc)    # still EEST
         second = datetime(2026, 10, 25, 1, 30, tzinfo=dt_timezone.utc)   # already EET
         self.assertEqual(to_api(first), "2026-10-25T03:30:00+03:00")

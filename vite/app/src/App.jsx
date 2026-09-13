@@ -109,7 +109,7 @@ function AppRoutes() {
   };
 
   // The test itself — students who already finished only get
-  // their results page (matches the old Next.js behavior)
+  // their results page
   const securedTest = () => {
     if (!loading && authData?.phishingtestfinished === 1) {
       return <Navigate to="/student/finish" replace />;

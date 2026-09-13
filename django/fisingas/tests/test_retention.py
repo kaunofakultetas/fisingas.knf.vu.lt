@@ -4,7 +4,7 @@
 #  users/management/commands/delete_old_students.py — the
 #  daily cron job that deletes student accounts untouched
 #  for RETENTION_DAYS (180). The one piece of code that
-#  destroys data on a schedule, previously untested.
+#  destroys data on a schedule.
 ############################################################
 
 
@@ -57,7 +57,7 @@ class DeleteOldStudentsTests(TestCase):
         self.assertEqual(Student.objects.count(), 1)
 
     def test_keeps_fresh_registrations_that_never_logged_in(self):
-        # Legacy accounts with no lastseen (NULL counts as older
+        # Accounts that never logged in (NULL counts as older
         # than anything) survive on their recent registration alone
         create_student(last_login=None, registration_time=_days_ago(5))
         _run()

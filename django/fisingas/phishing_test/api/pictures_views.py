@@ -220,8 +220,8 @@ def get_picture(request, questionID):
 # '0.42' → '42%'. Coordinates are stored as fractions of the
 # image size; the percent is ROUNDED, never truncated — 0.29*100
 # is 28.999… in floating point, and the editor round-trips the
-# value on every save, so a truncating conversion (or the old
-# ×101 workaround for it) would creep by a percent per save.
+# value on every save, so a truncating conversion would creep
+# by a percent per save.
 # NULL stays NULL.
 #
 # Used by:
@@ -229,9 +229,8 @@ def get_picture(request, questionID):
 ############################################################
 
 def _percent(value):
-    # A value that cannot be parsed (only possible on rows written
-    # before the POST validated coordinates) renders as null instead
-    # of taking the whole GET down
+    # A stored value that cannot be parsed renders as null
+    # instead of taking the whole GET down
     if value is None:
         return None
     try:

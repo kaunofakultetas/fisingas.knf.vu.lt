@@ -300,9 +300,9 @@ class QuestionsUpdateTests(TestCase):
         self.assertEqual(option.answer_status, 0)
 
     def test_createnewoption_for_a_vanished_question_is_a_404(self):
-        # EDGE-01 fix: the two-admins race — the question was
-        # deleted while the other admin's page was still open. Used
-        # to surface as a raw foreign-key IntegrityError (HTTP 500)
+        # The two-admins race — the question was deleted while the
+        # other admin's page was still open. Must be a clean 404,
+        # never a raw foreign-key IntegrityError (HTTP 500)
         doomed = create_question()
         post_json(self.client, f"{QUESTIONS_URL}/deletequestion", {"questionid": doomed.id})
 
