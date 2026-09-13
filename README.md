@@ -25,7 +25,7 @@ cd fisingas.knf.vu.lt
 ```
 ### 2. Create the compose file from the sample
 ```bash
-cp docker-compose.yml.sample docker-compose.yml
+cp docker-compose.sample.yml docker-compose.yml
 ```
 ### 3. Deploy
 ```bash

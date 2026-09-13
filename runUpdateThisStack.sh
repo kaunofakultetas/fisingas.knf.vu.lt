@@ -60,7 +60,7 @@ if [ ! -f docker-compose.yml ]; then
     echo ""
     echo "Create it from the sample and review it (this is the only manual step):"
     echo ""
-    echo "    cp docker-compose.yml.sample docker-compose.yml"
+    echo "    cp docker-compose.sample.yml docker-compose.yml"
     echo ""
     echo "Then run this script again."
     exit 1
