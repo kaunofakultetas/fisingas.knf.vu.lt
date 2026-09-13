@@ -166,7 +166,8 @@ function BrandButton({ loading, onClick, children }) {
 // The default form — student self-registration in two steps:
 //   1. Pick a username → "REGISTRUOTIS" asks the backend for
 //      a random access code (the username is uppercased and
-//      stripped to A–Z, 0–9 and _ server-side)
+//      stripped to A–Z, Lithuanian letters, 0–9 and _
+//      server-side)
 //   2. The name + code are shown as credential chips with a
 //      write-these-down warning → "PRADĖTI TESTĄ" logs in
 //      with them

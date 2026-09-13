@@ -14,9 +14,9 @@
 #
 #  A "user" is either an administrator (SystemUser, login
 #  name is the email — always contains '@') or a student
-#  (login name is the username — uppercase A-Z/0-9/_ only,
-#  never '@'). The two can never collide, so one session
-#  scheme serves both.
+#  (login name is the username — uppercase A-Z and
+#  Lithuanian letters, 0-9 and _ only, never '@'). The two
+#  can never collide, so one session scheme serves both.
 ############################################################
 
 

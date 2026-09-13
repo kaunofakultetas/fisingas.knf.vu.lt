@@ -13,7 +13,7 @@ info:
 
     The system has two user roles, distinguished by the login name:
     - **Admin** -- identified by an email address (contains `@`); password checked against a bcrypt hash
-    - **Student** -- identified by a generated username (`A-Z`, `0-9`, `_` only, so it can never contain `@`);
+    - **Student** -- identified by a generated username (`A-Z`, `ĄČĘĖĮŠŲŪŽ`, `0-9`, `_` only, so it can never contain `@`);
       password is the system-generated 8-digit access code
 
     ## Authorization levels
@@ -270,8 +270,8 @@ paths:
         200, `status: error`, like the other name validations).
 
         Register a new student account. The submitted username is uppercased and every
-        character outside `A-Z`, `0-9`, `_` is stripped; the normalized name is what
-        gets registered. On success the response carries the system-generated 8-digit
+        character outside `A-Z`, `ĄČĘĖĮŠŲŪŽ`, `0-9`, `_` is stripped; the normalized
+        name is what gets registered. On success the response carries the system-generated 8-digit
         access code -- it is returned **only here** and shown to the student once
         (administrators can look it up later on the student detail endpoint).
       requestBody:

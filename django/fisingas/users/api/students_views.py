@@ -187,10 +187,11 @@ def student_delete(request, studentID):
 #
 # POST /api/student/register — public self-registration,
 # body {username}. The username is uppercased and stripped
-# to A-Z, 0-9 and underscore; the response carries the
-# generated 8-digit access code the student will log in
-# with. Duplicate names are refused with a Lithuanian
-# error message the login page shows verbatim.
+# to A-Z, the Lithuanian letters ĄČĘĖĮŠŲŪŽ, 0-9 and
+# underscore; the response carries the generated 8-digit
+# access code the student will log in with. Duplicate names
+# are refused with a Lithuanian error message the login
+# page shows verbatim.
 #
 # This is the only unauthenticated POST endpoint, so the
 # body is validated instead of trusted: a malformed body or
@@ -205,7 +206,9 @@ def student_register(request):
     if postData is None or not isinstance(postData.get("username"), str):
         return JsonResponse({"status": "error", "error": "Neteisinga užklausa"}, status=400)
 
-    username = re.sub(r"[^A-Z0-9_]", "", postData["username"].upper())
+    # .upper() maps the lowercase Lithuanian letters onto the
+    # allowed capitals (ė → Ė) before the strip
+    username = re.sub(r"[^A-Z0-9_ĄČĘĖĮŠŲŪŽ]", "", postData["username"].upper())
     if not username:
         return JsonResponse({"status": "error", "error": "Įveskite prisijungimo vardą"})
 

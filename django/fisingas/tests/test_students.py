@@ -43,7 +43,8 @@ LIST_URL = "/api/admin/students"
 class StudentRegisterTests(TestCase):
 
     def test_registers_with_normalized_username(self):
-        # Lowercase → uppercase; everything outside A-Z/0-9/_ is stripped
+        # Lowercase → uppercase; everything outside A-Z, the
+        # Lithuanian letters, 0-9 and _ is stripped
         response = post_json(self.client, REGISTER_URL, {"username": "jonas petras-99!"})
         data = response.json()
 
@@ -81,10 +82,21 @@ class StudentRegisterTests(TestCase):
         data = post_json(self.client, REGISTER_URL, {"username": "KEYCHECK"}).json()
         self.assertEqual(set(data.keys()), {"status", "username", "accessCode"})
 
-    def test_lithuanian_letters_are_stripped_not_mapped(self):
-        # Ą/Ž are outside A-Z and are dropped, not transliterated
+    def test_lithuanian_letters_survive_normalization(self):
+        # The Lithuanian capitals are part of the allowed set, and
+        # .upper() maps the lowercase forms onto them (ė → Ė) —
+        # a name like VARDENĖ_PAVARDENĖ keeps all its letters
+        data = post_json(self.client, REGISTER_URL, {"username": "vardenė_pavardenė"}).json()
+        self.assertEqual(data["username"], "VARDENĖ_PAVARDENĖ")
+
+    def test_lithuanian_username_logs_in(self):
+        # The stored name is matched exactly at login — the
+        # non-ASCII letters must round-trip through register,
+        # session and lookup
         data = post_json(self.client, REGISTER_URL, {"username": "ąžuolas99"}).json()
-        self.assertEqual(data["username"], "UOLAS99")
+        self.assertEqual(data["username"], "ĄŽUOLAS99")
+        response = login(Client(), data["username"], data["accessCode"])
+        self.assertEqual(response.content, b"OK")
 
     def test_deleted_username_can_register_again(self):
         create_student(username="CYCLE").delete()
@@ -101,7 +113,7 @@ class StudentRegisterTests(TestCase):
         self.assertEqual(Student.objects.count(), 1)
 
     def test_name_with_no_valid_characters_is_refused(self):
-        response = post_json(self.client, REGISTER_URL, {"username": "ąčęė!!!"})
+        response = post_json(self.client, REGISTER_URL, {"username": "!!! --- ..."})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "error", "error": "Įveskite prisijungimo vardą"})
         self.assertEqual(Student.objects.count(), 0)
