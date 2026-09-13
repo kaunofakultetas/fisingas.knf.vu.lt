@@ -112,6 +112,16 @@ body {
    (each dot staggers itself with its own
    [animation-delay:...] class).
 
+   The keyframes only name the top of the swing; the bottom
+   is the dot's own static [transform:translateY(5px)] — the
+   implicit `from` of a CSS animation is the element's
+   computed value, so each dot swings the full ±5px AND
+   rests at the bottom until its animation-delay elapses.
+   The static offset must be on `transform` itself: a
+   translate-y-* utility sets the separate `translate`
+   property, which a `transform` keyframe never overrides,
+   and the dots would bob too low at half the travel.
+
    Used by:
      - BouncingDotsLoader — the login page's submit spinner
 ----------------------------------------------------------- */

@@ -132,7 +132,7 @@ function BrandButton({ loading, onClick, children }) {
       <button
         type="button"
         disabled
-        className="w-full py-3 rounded-xl bg-gray-400 text-white font-bold tracking-wide pointer-events-none"
+        className="w-full py-3 rounded-xl bg-gray-400 text-white font-bold tracking-wide pointer-events-none flex items-center justify-center gap-2"
       >
         PALAUKITE <BouncingDotsLoader/>
       </button>
@@ -142,9 +142,11 @@ function BrandButton({ loading, onClick, children }) {
   return (
     <button
       type="button"
+      tabIndex={0}
       onClick={onClick}
       className="w-full py-3 rounded-xl bg-[rgb(123,0,63)] text-white font-bold tracking-wide cursor-pointer
-        hover:bg-[rgb(230,65,100)] transition-colors shadow-[0_4px_14px_rgba(123,0,63,0.35)]"
+        hover:bg-[rgb(230,65,100)] transition-colors shadow-[0_4px_14px_rgba(123,0,63,0.35)]
+        border-none outline-none focus-visible:ring-2 focus-visible:ring-[rgb(230,65,100)] focus-visible:ring-offset-2"
     >
       {children}
     </button>
