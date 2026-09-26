@@ -13,13 +13,15 @@
 //                        the up/down difference badge)
 //    - StudentProgress — the dashboard's live progress bars
 //                        (answered / total, finished = full
-//                        green bar "(TESTAS BAIGTAS)")
+//                        green bar "(TESTAS BAIGTAS)"), one
+//                        row per student that stays theirs
+//                        as others come and go
 // -----------------------------------------------------------
 
 import "./support/setup";
 
 import { describe, it, expect } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 
 import { renderPage } from "./support/render";
 import { hardNavigations } from "./support/navigation";
@@ -242,5 +244,39 @@ describe("StudentProgress", () => {
 
     // A running test at 12 / 12 still reads as a count, not as finished
     expect(within(bars[1].parentElement).getByText("12 / 12")).toBeInTheDocument();
+  });
+
+
+  // The dashboard polls every 2 s and the list changes as
+  // students come and go. A row belongs to its student — rows
+  // tied to a position would hand a leaving student's row (and
+  // its bar, mid-animation) to the next one. Plain render(): its
+  // rerender() keeps the tree, renderPage's router would not
+  it("keeps every student's own row while others leave the list", () => {
+    const { rerender } = render(
+      <StudentProgress
+        text="Testą Sprendžia:"
+        studentsprogress={[
+          fx.progressEntry({ studentid: 1, username: "PIRMAS", answeredquestioncount: 3, questioncount: 12 }),
+          fx.progressEntry({ studentid: 2, username: "ANTRAS", answeredquestioncount: 9, questioncount: 12 }),
+        ]}
+      />
+    );
+    const secondRow = screen.getByText("ANTRAS:").parentElement;
+    const secondBar = within(secondRow).getByRole("progressbar");
+
+    rerender(
+      <StudentProgress
+        text="Testą Sprendžia:"
+        studentsprogress={[
+          fx.progressEntry({ studentid: 2, username: "ANTRAS", answeredquestioncount: 10, questioncount: 12 }),
+        ]}
+      />
+    );
+
+    expect(screen.queryByText("PIRMAS:")).toBeNull();
+    expect(screen.getByText("ANTRAS:").parentElement).toBe(secondRow);
+    expect(within(secondRow).getByRole("progressbar")).toBe(secondBar);
+    expect(within(secondRow).getByText("10 / 12")).toBeInTheDocument();
   });
 });

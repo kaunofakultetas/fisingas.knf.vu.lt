@@ -8,6 +8,8 @@
 //  Used by:
 //    - StudentsListTable — the "Per Paskutinį Mėnesį" filter
 //      in the grid toolbar
+//    - QuestionCard — the question's on/off toggle in the card
+//      header
 // -----------------------------------------------------------
 
 import { styled } from '@mui/material/styles';

@@ -7,19 +7,22 @@
 //    - the request: GET <endpoint>, withCredentials
 //    - states: data starts [] (lists can map at once),
 //      loadingData true until the first answer, error
-//    - 401 → full navigation to /login (consumers never see
-//      auth errors, and stay "loading" meanwhile)
-//    - any other failure → `error`, loading ends, the LAST
-//      GOOD data is kept (a polling page survives a blip)
+//    - 401 → full navigation to /login, the admin role gate
+//      ("Error: Not Admin", HTTP 200) → full navigation to "/"
+//      (consumers never see auth problems, and stay "loading"
+//      meanwhile)
+//    - any other failure — a non-JSON reply included — →
+//      `error`, loading ends, the LAST GOOD data is kept (a
+//      polling page survives a blip)
 //    - refetch() — a manual reload without a loading flash
-//    - refreshInterval (seconds) — polling until unmount
+//    - only the newest request's reply is applied: a late one
+//      (an older refetch, the previous endpoint's request) is
+//      dropped
+//    - refreshInterval (seconds) — polling until unmount; a
+//      poll is skipped while the newest request is still
+//      running, unless that one has hung for 20 s
 //    - an endpoint change starts over: [] + loading again
 //    - allowEmpty + a falsy endpoint: no request at all
-//
-//  The hook's two known defects (a late reply from a previous
-//  endpoint, the "Error: Not Admin" role-gate reply handed
-//  over as data) are pinned in knownBugs.test.jsx (KB-09,
-//  KB-10) — not here.
 // -----------------------------------------------------------
 
 import "./support/setup";
@@ -121,14 +124,39 @@ describe("useFetchData — failures", () => {
     backend.on("GET", STUDENTS, reply.status(401, "Unauthorized"));
     render(<Probe endpoint={STUDENTS} />);
 
-    // The target is pinned, not how often it is set — a shared
-    // 401 handler (the fix of KB-21 / KB-36) may redirect as well
+    // The target is pinned, not how often it is set
     await waitFor(() => expect(hardNavigations()).toContain("/login"));
     await settle();
     expect([...new Set(hardNavigations())]).toEqual(["/login"]);
     expect(hook.loadingData).toBe(true);
     expect(hook.error).toBeNull();
     expect(hook.data).toEqual([]);
+  });
+
+
+  // A non-admin session asking an admin endpoint (e.g. a student
+  // logged in from another tab): the router at "/" sends the
+  // browser to the session's real home
+  it("sends the role-gate reply ('Error: Not Admin', HTTP 200) to '/' and never hands it over as data", async () => {
+    backend.on("GET", STUDENTS, reply.text("Error: Not Admin"));
+    render(<Probe endpoint={STUDENTS} />);
+
+    await waitFor(() => expect(hardNavigations()).toContain("/"));
+    await settle();
+    expect([...new Set(hardNavigations())]).toEqual(["/"]);
+    expect(hook.data).toEqual([]);
+    expect(hook.loadingData).toBe(true);
+  });
+
+
+  it("reports a reply that is not JSON (a proxy's error page) as an error, never as data", async () => {
+    backend.on("GET", STUDENTS, reply.text("<html><body>502 Bad Gateway</body></html>", 200, { offContract: true }));
+    render(<Probe endpoint={STUDENTS} />);
+
+    await waitFor(() => expect(hook.loadingData).toBe(false));
+    expect(hook.error).not.toBeNull();
+    expect(hook.data).toEqual([]);
+    expect(hardNavigations()).toEqual([]);
   });
 
 
@@ -226,6 +254,29 @@ describe("useFetchData — refetch", () => {
       await refetching;
     });
     expect(hook.data).toEqual([]);
+  });
+
+
+  it("applies only the newest request's reply — an older refetch answering late is dropped", async () => {
+    backend.on("GET", STUDENTS, reply.json([fx.studentDetail({ id: 1 })]));
+    render(<Probe endpoint={STUDENTS} />);
+    await waitFor(() => expect(hook.data).toHaveLength(1));
+
+    const older = deferred();
+    backend.once("GET", STUDENTS, () => older.promise);
+    backend.on("GET", STUDENTS, reply.json([fx.studentDetail({ id: 1 }), fx.studentDetail({ id: 2 })]));
+    let olderRefetch;
+    act(() => {
+      olderRefetch = hook.refetch();
+    });
+    await act(() => hook.refetch());
+    expect(hook.data).toHaveLength(2);
+
+    await act(async () => {
+      older.resolve(reply.json([]));
+      await olderRefetch;
+    });
+    expect(hook.data).toHaveLength(2);
   });
 });
 
@@ -325,6 +376,61 @@ describe("useFetchData — polling", () => {
     expect(hook.error).toBeNull();
     expect(hook.data.studentscount).toBe(3);
   });
+
+
+  // A backend slower than the pace: the requests do not pile up,
+  // and no older reply can land after a newer one
+  it("skips a poll while the previous one is still running — the data never goes back", async () => {
+    useFakeInterval();
+    const slow = deferred();
+    backend.once("GET", "/api/admin/home", reply.json(fx.dashboard({ studentscount: 1 })));
+    backend.once("GET", "/api/admin/home", () => slow.promise);
+    backend.on("GET", "/api/admin/home", reply.json(fx.dashboard({ studentscount: 9 })));
+    render(<Probe endpoint="/api/admin/home" refreshInterval={2} />);
+    await settle();
+
+    // The 2 s poll hangs, so the 4 s one is skipped
+    await act(() => vi.advanceTimersByTimeAsync(4000));
+    expect(backend.requests("GET", "/api/admin/home")).toHaveLength(2);
+
+    await act(async () => slow.resolve(reply.json(fx.dashboard({ studentscount: 5 }))));
+    await settle();
+    expect(hook.data.studentscount).toBe(5);
+
+    // Polling goes on once it has answered
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    await settle();
+    expect(backend.requests("GET", "/api/admin/home")).toHaveLength(3);
+    expect(hook.data.studentscount).toBe(9);
+  });
+
+
+  // A request that never settles (a dead connection) must not
+  // stop the page's refreshing for good; the browser gives up on
+  // it after the same 20 s (axios timeout)
+  it("lets polling go on past a request that has hung for 20 s — its late reply is dropped", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    const hung = deferred();
+    backend.once("GET", "/api/admin/home", reply.json(fx.dashboard({ studentscount: 1 })));
+    backend.once("GET", "/api/admin/home", () => hung.promise);
+    backend.on("GET", "/api/admin/home", reply.json(fx.dashboard({ studentscount: 7 })));
+    render(<Probe endpoint="/api/admin/home" refreshInterval={2} />);
+    await settle();
+
+    // The 2 s poll hangs; the polls up to 20 s after it are skipped
+    await act(() => vi.advanceTimersByTimeAsync(20000));
+    expect(backend.requests("GET", "/api/admin/home")).toHaveLength(2);
+
+    // At 22 s it has hung for 20 s — the next poll goes out
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    await settle();
+    expect(backend.requests("GET", "/api/admin/home")).toHaveLength(3);
+    expect(hook.data.studentscount).toBe(7);
+
+    await act(async () => hung.resolve(reply.json(fx.dashboard({ studentscount: 4 }))));
+    await settle();
+    expect(hook.data.studentscount).toBe(7);
+  });
 });
 
 
@@ -355,6 +461,24 @@ describe("useFetchData — endpoint changes and conditional fetching", () => {
     await act(async () => second.resolve(reply.json(fx.studentDetail({ id: 2, username: "ANTRAS" }))));
     await waitFor(() => expect(hook.data.username).toBe("ANTRAS"));
     expect(hook.loadingData).toBe(false);
+  });
+
+
+  // E.g. browser back / forward between two /admin/students/:id
+  // pages while the first record is still loading
+  it("drops a late reply of the previous endpoint — the current endpoint's data stays", async () => {
+    const first = deferred();
+    backend.once("GET", "/api/admin/students/1", () => first.promise);
+    backend.on("GET", "/api/admin/students/2", reply.json(fx.studentDetail({ id: 2, username: "ANTRAS" })));
+
+    const { rerender } = render(<Probe endpoint="/api/admin/students/1" />);
+    rerender(<Probe endpoint="/api/admin/students/2" />);
+    await waitFor(() => expect(hook.data.username).toBe("ANTRAS"));
+
+    await act(async () => first.resolve(reply.json(fx.studentDetail({ id: 1, username: "PIRMAS" }))));
+    await settle();
+
+    expect(hook.data.username).toBe("ANTRAS");
   });
 
 

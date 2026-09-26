@@ -8,7 +8,9 @@
 //  ("Atsakymai"), the student on TestFinish:
 //    - GET /api/admin/students/<studentID>/answers (axios,
 //      withCredentials, once); no cards until it answers, none
-//      for []
+//      for []; a failed load (5xx / no connection) is no empty
+//      review: "Nepavyko įkelti atsakymų" with a "Bandyti dar
+//      kartą" that asks again
 //    - the header: "Klausimas #<id>" (StudentAnswer's `id` —
 //      the payload has no `questionid`), the identified chip
 //      (isphishing === isphishinganswer) and the
@@ -21,16 +23,11 @@
 //      verdict never given (null) reads "Neatsakė"; an option
 //      whose key was never set (null) counts as missed whatever
 //      was ticked — like the backend's grading, so the red rows
-//      match the points
+//      match the points; options with the same text (e.g. two
+//      left blank) are rows of their own
 //    - the email screenshot /api/phishingpictures/<id>; its
 //      link areas (fetch GET .../links) only once it loaded,
 //      hovering an area shows its URL; clicks stay in the card
-//
-//  Pinned in knownBugs.test.jsx instead: two options with the
-//  same text (KB-15, duplicate keys — every payload here keeps
-//  its option texts distinct), the "Error: Not Admin" reply
-//  crashing the list (KB-10) and a failed load (500 / no
-//  connection) rendered as an empty review (KB-20).
 // -----------------------------------------------------------
 
 import "./support/setup";
@@ -39,6 +36,7 @@ import { describe, it, expect, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import { backend, deferred, reply } from "./support/backend";
+import { consoleErrors } from "./support/setup";
 import { hardNavigations } from "./support/navigation";
 import { renderPage, settle } from "./support/render";
 import { linkAreas } from "./support/interactions";
@@ -104,7 +102,8 @@ const colorsOf = (element, prefix) =>
   ["green-600", "amber-500", "red-500"].map((color) => prefix + color).filter((name) => element.classList.contains(name));
 
 // `total` options that should all be ticked, the first `missed`
-// of them left unticked — texts kept distinct (KB-15)
+// of them left unticked — texts kept distinct, so every row can
+// be looked up by its text
 const optionsMissing = (total, missed) =>
   Array.from({ length: total }, (_, index) => fx.answeredOption({
     optiontext: `Požymis Nr. ${index + 1}`,
@@ -172,11 +171,45 @@ describe("StudentAnswers — loading the answers", () => {
     await waitFor(() => expect(hardNavigations()).toContain("/login"));
     await settle();
 
-    // Only the target is pinned, not the count — the 401
-    // interceptor KB-21 / KB-36 suggest may redirect on top of
-    // the hook's own redirect
+    // Only the target is pinned, not how often it is set
     expect([...new Set(hardNavigations())]).toEqual(["/login"]);
     expect(screen.queryByText(/^Klausimas #/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+
+  // An empty review means "no test dealt" — a failed load must
+  // not look like one
+  it.each([
+    ["a server error (500)", reply.status(500, "Internal Server Error")],
+    ["a bad gateway during a deploy (502)", reply.status(502, "Bad Gateway")],
+    ["no connection", reply.networkError()],
+  ])("%s says 'Nepavyko įkelti atsakymų' and offers a retry — not an empty review", async (_, failure) => {
+    backend.on("GET", ANSWERS, failure);
+    renderPage(<StudentAnswers studentID={5} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Nepavyko įkelti atsakymų");
+    expect(within(alert).getByRole("button", { name: "Bandyti dar kartą" })).toBeInTheDocument();
+    expect(screen.queryByText(/^Klausimas #/)).toBeNull();
+    expect(hardNavigations()).toEqual([]);
+  });
+
+
+  it("'Bandyti dar kartą' asks for the answers again and shows the cards once they arrive", async () => {
+    backend.once("GET", ANSWERS, reply.status(500, "Internal Server Error"));
+    backend.on("GET", ANSWERS, reply.json([fx.studentAnswer({ id: 11 }), fx.studentAnswer({ id: 12 })]));
+    const { user } = renderPage(<StudentAnswers studentID={5} />);
+
+    await user.click(await screen.findByRole("button", { name: "Bandyti dar kartą" }));
+
+    expect(await screen.findByText("Klausimas #11")).toBeInTheDocument();
+    expect(screen.getByText("Klausimas #12")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    const requests = backend.requests("GET", ANSWERS);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toMatchObject({ client: "axios", withCredentials: true });
   });
 });
 
@@ -385,6 +418,24 @@ describe("StudentAnswers — the option rows", () => {
     const rows = card(11).querySelectorAll("tbody tr");
     expect(rows).toHaveLength(1);
     expect(within(rows[0]).getByText("Ar tai fišingas?")).toBeInTheDocument();
+  });
+
+
+  // Option texts are not unique — typically two options left
+  // blank ("")
+  it("shows two options with the same text as two rows — without a duplicate-key error", async () => {
+    await renderReview([fx.studentAnswer({
+      id: 11,
+      answeredoptions: [
+        fx.answeredOption({ optiontext: "", rightansweroption: 1, selectedansweroption: 1 }),
+        fx.answeredOption({ optiontext: "", rightansweroption: 0, selectedansweroption: 1 }),
+      ],
+    })]);
+
+    const rows = [...card(11).querySelectorAll("tbody tr")];
+    expect(rows).toHaveLength(3);
+    expect(rows.slice(1).map((row) => styleOf(row.children[2]))).toEqual(["correct", "wrong"]);
+    expect(consoleErrors().filter((message) => /same key/.test(message))).toEqual([]);
   });
 
 

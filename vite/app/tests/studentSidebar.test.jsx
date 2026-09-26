@@ -10,15 +10,18 @@
 //    - one numbered jump button per question: burgundy when
 //      answered, white when not, a ring on the current one
 //    - "Užbaigti testą" — IRREVERSIBLE, so hold-to-confirm
-//      (1.5 s); an early release explains itself in a toast
+//      (1.5 s) — with the mouse, a finger or Space held on the
+//      focused button (a keyboard-only student can finish); an
+//      early release explains itself in a toast; a release
+//      right at 1.5 s is a full hold
 // -----------------------------------------------------------
 
 import "./support/setup";
 
 import { describe, it, expect, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 
-import { findToast, renderPage, settle } from "./support/render";
+import { findToast, renderPage, settle, toastTexts } from "./support/render";
 import { longPress } from "./support/interactions";
 import * as fx from "./support/fixtures";
 
@@ -188,6 +191,41 @@ describe("StudentSidebar — finishing the test", () => {
 
     await findToast("Laikykite mygtuką ilgiau, kad užbaigtumėte testą");
     expect(onFinish).not.toHaveBeenCalled();
+  });
+
+
+  // Held exactly 1500 ms on a fake clock. Animation frames run
+  // every 16 ms from the clock's start, so the last one ran at
+  // 1488 ms (not complete yet) and the next is due at 1504 ms —
+  // the release lands between them. setTimeout shares the
+  // clock, so completing on a timer would not count
+  it("a hold released right at the full 1.5 s — between two animation frames — finishes the test", () => {
+    const { onFinish } = renderSidebar();
+    const button = finishButton();
+
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date", "requestAnimationFrame", "cancelAnimationFrame"] });
+    longPress(button, 1500);
+
+    expect(onFinish).toHaveBeenCalledTimes(1);
+    expect(toastTexts()).toEqual([]);
+  });
+
+
+  // Tab to the button, hold Space — the keyboard-only way
+  it("a keyboard-only student finishes the test by holding Space on the focused button", () => {
+    const { onFinish } = renderSidebar();
+    const button = finishButton();
+    act(() => button.focus());
+    expect(button).toHaveFocus();
+
+    vi.useFakeTimers({ toFake: ["Date", "requestAnimationFrame", "cancelAnimationFrame"] });
+    fireEvent.keyDown(button, { key: " ", code: "Space" });
+    act(() => {
+      vi.advanceTimersByTime(1600);
+    });
+    fireEvent.keyUp(button, { key: " ", code: "Space" });
+
+    expect(onFinish).toHaveBeenCalledTimes(1);
   });
 
 

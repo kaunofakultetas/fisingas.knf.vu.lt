@@ -14,7 +14,23 @@
 //  Opening /login also acts as logout: the session cookie is
 //  dropped on mount. After a successful login the page hard-
 //  navigates to "/" and the router sends the user to their
-//  home by role.
+//  home by role. A copy the browser restores from its
+//  back-forward cache (e.g. Back after a login) is reloaded
+//  at once — it is no mount, so it would keep that session
+//  and still show the credentials; the fresh load logs out
+//  and starts blank.
+//
+//  Behavior worth knowing:
+//    - Enter acts on the visible form from anywhere except a
+//      focused button, which handles Enter through its own
+//      click (Enter on "Jau turiu paskyrą" switches forms)
+//    - one request at a time: while a registration or login
+//      runs, its button shows PALAUKITE and a second click or
+//      Enter sends nothing. After a login's "OK" the button
+//      stays on PALAUKITE until this page is gone, so nothing
+//      logs in twice meanwhile
+//    - a login refusal belongs to the attempt that got it:
+//      switching forms or a successful registration drops it
 //
 //  This page styles itself — App excludes it from the MUI
 //  theme (see providers.jsx / excludedPaths), which is why
@@ -23,6 +39,7 @@
 //  Split into (root component last):
 //
 //    BRAND_FIELD_SX — burgundy focus styling for TextFields
+//    isButtonTarget — does a key event come from a button?
 //    CardHeader     — logo + app title
 //    ErrorBox       — red error chip (hidden when empty)
 //    BrandButton    — the burgundy submit button
@@ -31,7 +48,7 @@
 //    Login          — the page itself (default export)
 // -----------------------------------------------------------
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
 import { Stack, FormControl, TextField } from "@mui/material";
@@ -48,6 +65,12 @@ const BRAND_FIELD_SX = {
   '& label.Mui-focused': { color: 'rgb(123, 0, 63)' },
   '& .MuiInput-underline:after': { borderBottomColor: 'rgb(123, 0, 63)' },
 };
+
+
+// Enter on a focused button (or on anything inside one) is
+// that button's own click, so the forms' document-wide Enter
+// listeners must leave it alone
+const isButtonTarget = (event) => event.target instanceof Element && event.target.closest('button') !== null;
 
 
 
@@ -170,29 +193,41 @@ function BrandButton({ loading, onClick, children }) {
 //      server-side)
 //   2. The name + code are shown as credential chips with a
 //      write-these-down warning → "PRADĖTI TESTĄ" logs in
-//      with them
+//      with them (PALAUKITE while Login's request runs)
 //
-// "Jau turiu paskyrą" switches to the sign-in form.
+// "Jau turiu paskyrą" switches to the sign-in form. A new
+// registration drops the login refusal an earlier sign-in
+// attempt may have left behind.
 //
 // Used by:
 //   - Login (below) — form 0 (default)
 // -----------------------------------------------------------
 
-function RegisterForm({ selectedForm, setSelectedForm, handleLogin, loginErrorBoxText }) {
+function RegisterForm({ selectedForm, showForm, handleLogin, loggingIn, loginErrorBoxText, clearLoginError }) {
 
   const [errorBoxText, setErrorBoxText] = useState("");
   const [registering, setRegistering] = useState(false);
   const [studentUsername, setStudentUsername] = useState("");
   const [studentAccessCode, setStudentAccessCode] = useState("");
 
+  // One register request at a time — a ref, because the Enter
+  // listener below calls the handleRegister of an older
+  // render, which never sees `registering` turn true
+  const registerInFlight = useRef(false);
+
 
   const handleRegister = async () => {
+    if (registerInFlight.current) {
+      return;
+    }
+    registerInFlight.current = true;
     setRegistering(true);
     try {
       const response = await axios.post("/api/student/register", { username: studentUsername });
       if (response.data.status === "OK") {
         setStudentUsername(response.data.username);
         setStudentAccessCode(response.data.accessCode);
+        clearLoginError();
       }
       else {
         setErrorBoxText(response.data.error);
@@ -202,14 +237,19 @@ function RegisterForm({ selectedForm, setSelectedForm, handleLogin, loginErrorBo
       // is a network problem
       setErrorBoxText(error.response?.data?.error || "Nepavyko susisiekti su serveriu. Bandykite dar kartą.");
     }
+    registerInFlight.current = false;
     setRegistering(false);
   };
 
 
-  // Enter advances the current step (register, then login)
+  // Enter advances the current step (register, then login). A
+  // focused button is left to its own click — Enter on "Jau
+  // turiu paskyrą" switches forms, it does not register. The
+  // keydown is cancelled: the browser would otherwise submit
+  // this one-field form by itself
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (event.key === 'Enter' && selectedForm === 0) {
+      if (event.key === 'Enter' && selectedForm === 0 && !isButtonTarget(event)) {
         event.preventDefault();
         if (studentAccessCode === "") {
           handleRegister();
@@ -278,7 +318,7 @@ function RegisterForm({ selectedForm, setSelectedForm, handleLogin, loginErrorBo
 
           <ErrorBox>{loginErrorBoxText}</ErrorBox>
 
-          <BrandButton onClick={() => handleLogin(studentUsername, studentAccessCode)}>
+          <BrandButton loading={loggingIn} onClick={() => handleLogin(studentUsername, studentAccessCode)}>
             PRADĖTI TESTĄ
           </BrandButton>
         </>
@@ -288,7 +328,7 @@ function RegisterForm({ selectedForm, setSelectedForm, handleLogin, loginErrorBo
       {studentAccessCode === "" &&
         <button
           type="button"
-          onClick={() => setSelectedForm(1)}
+          onClick={() => showForm(1)}
           className="mt-5 text-sm text-[rgb(123,0,63)] font-semibold text-center cursor-pointer
             hover:text-[rgb(230,65,100)] transition-colors bg-transparent border-none"
         >
@@ -311,32 +351,32 @@ function RegisterForm({ selectedForm, setSelectedForm, handleLogin, loginErrorBo
 // -----------------------------------------------------------
 //
 // The sign-in form for returning students and administrators:
-// name/email + code/password. Enter submits; while the login
-// request runs the button turns grey with a bouncing-dots
-// loader. The back arrow returns to registration.
+// name/email + code/password. Enter submits; while Login's
+// login request runs the button turns grey with a
+// bouncing-dots loader. The back arrow returns to
+// registration.
 //
 // Used by:
 //   - Login (below) — form 1
 // -----------------------------------------------------------
 
-function LoginForm({ selectedForm, setSelectedForm, handleLogin, errorBoxText }) {
+function LoginForm({ selectedForm, showForm, handleLogin, loggingIn, errorBoxText }) {
 
-  const [loggingIn, setLoggingIn] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
 
-  const submit = async () => {
-    setLoggingIn(true);
-    await handleLogin(email, password);
-    setLoggingIn(false);
-  };
+  // handleLogin keeps a running login from being sent twice,
+  // whichever form or key asks
+  const submit = () => handleLogin(email, password);
 
 
-  // Enter submits (only while this form is the visible one)
+  // Enter submits (only while this form is the visible one). A
+  // focused button is left to its own click — Enter on the
+  // back arrow switches forms, it does not log in
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (event.key === 'Enter' && selectedForm === 1) {
+      if (event.key === 'Enter' && selectedForm === 1 && !isButtonTarget(event)) {
         submit();
       }
     };
@@ -391,7 +431,7 @@ function LoginForm({ selectedForm, setSelectedForm, handleLogin, errorBoxText })
       {/* Back to registration */}
       <button
         type="button"
-        onClick={() => setSelectedForm(0)}
+        onClick={() => showForm(0)}
         className="mt-5 inline-flex items-center justify-center gap-1 text-sm text-[rgb(123,0,63)] font-semibold
           cursor-pointer hover:text-[rgb(230,65,100)] transition-colors bg-transparent border-none"
       >
@@ -415,7 +455,9 @@ function LoginForm({ selectedForm, setSelectedForm, handleLogin, errorBoxText })
 //
 // The page itself: kills the session on mount (logout),
 // holds which form is visible (registration by default) and
-// does the actual login call.
+// does the actual login call for both forms — one at a time,
+// with the refusal message and the PALAUKITE state both
+// forms show for it.
 //
 // Used by:
 //   - App.jsx — route /login
@@ -425,6 +467,12 @@ export default function Login() {
 
   const [selectedForm, setSelectedForm] = useState(0);
   const [loginErrorBoxText, setLoginErrorBoxText] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
+
+  // One login request at a time — a ref, because the forms'
+  // Enter listeners call the handleLogin of an older render,
+  // which never sees `loggingIn` turn true
+  const loginInFlight = useRef(false);
 
 
   // Visiting /login logs the user out — kill the session on the
@@ -434,22 +482,67 @@ export default function Login() {
   }, []);
 
 
+  // A login refusal belongs to the attempt that got it: the
+  // form shown next, and the credentials of a new
+  // registration, start without it
+  const clearLoginError = () => setLoginErrorBoxText("");
+
+  const showForm = (form) => {
+    clearLoginError();
+    setSelectedForm(form);
+  };
+
+
   // Shared by both forms; the backend answers "OK" or an error
   // message ready for display. On success a full page load
-  // restarts the app with the fresh session.
+  // restarts the app with the fresh session — the request
+  // counts as running until this page is gone (a copy
+  // restored from the back-forward cache reloads, below), so
+  // the button stays on PALAUKITE and no second login
+  // replaces the session meanwhile.
   async function handleLogin(username, password) {
+    if (loginInFlight.current) {
+      return;
+    }
+    loginInFlight.current = true;
+    setLoggingIn(true);
+
     try {
       const response = await axios.post("/api/login", { username: username, password: password });
       if (response.data === "OK") {
         window.location.href = "/";
+        return;
       }
-      else {
-        setLoginErrorBoxText(response.data);
-      }
+      setLoginErrorBoxText(response.data);
     } catch {
       setLoginErrorBoxText("Nepavyko susisiekti su serveriu. Bandykite dar kartą.");
     }
+
+    loginInFlight.current = false;
+    setLoggingIn(false);
   }
+
+
+  // Back after a login may restore this page from the
+  // browser's back-forward cache exactly as it was left: no
+  // remount, so the logout above does not run and the session
+  // of that login stays alive, with registration's name and
+  // access code or the typed password still on screen. Such a
+  // copy reloads at once — the fresh load logs out and starts
+  // blank. Its login keeps counting as running, so the copy
+  // cannot log in again before the reload replaces it
+  useEffect(() => {
+    const handlePageShow = (event) => {
+      if (event.persisted) {
+        window.location.reload();
+      }
+    };
+
+    window.addEventListener('pageshow', handlePageShow);
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow);
+    };
+  }, []);
 
 
   return (
@@ -461,17 +554,20 @@ export default function Login() {
       <div className={selectedForm === 0 ? 'block' : 'hidden'}>
         <RegisterForm
           selectedForm={selectedForm}
-          setSelectedForm={setSelectedForm}
+          showForm={showForm}
           handleLogin={handleLogin}
+          loggingIn={loggingIn}
           loginErrorBoxText={loginErrorBoxText}
+          clearLoginError={clearLoginError}
         />
       </div>
 
       <div className={selectedForm === 1 ? 'block' : 'hidden'}>
         <LoginForm
           selectedForm={selectedForm}
-          setSelectedForm={setSelectedForm}
+          showForm={showForm}
           handleLogin={handleLogin}
+          loggingIn={loggingIn}
           errorBoxText={loginErrorBoxText}
         />
       </div>

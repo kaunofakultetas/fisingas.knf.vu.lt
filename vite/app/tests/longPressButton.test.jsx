@@ -6,15 +6,28 @@
 //  confirmation for irreversible actions (finish the test,
 //  delete a student / question / option / administrator):
 //    - the action fires only after holding for `duration`
-//      (default 3000 ms; the app passes 1500), exactly once
+//      (default 3000 ms; the app passes 1500), exactly once —
+//      also when the release comes after the duration but
+//      before the next animation frame noticed it
 //    - releasing or leaving early cancels (optional
 //      "hold longer" error toast); a completed hold can show a
 //      success toast
 //    - while held, the label is hidden (kept in the layout)
 //      and a progress ring shows the elapsed share
-//    - mouse and touch both work; disabled ignores presses;
-//      right-click menus are suppressed; unmounting mid-hold
-//      never fires the action later
+//    - mouse, touch and the keyboard (Space / Enter held on
+//      the button — auto-repeat never restarts the press, their
+//      scroll / click defaults are prevented) all work;
+//      disabled ignores presses; right-click menus are
+//      suppressed; unmounting mid-hold never fires the action
+//      later; a caller's own handlers for those events run as
+//      well and never switch the press off
+//    - a press that is no hold stops without firing or hinting:
+//      a finger moving over 10 px (a scroll starting on the
+//      button), a touch the system cancels, a blur
+//    - a touchend is default-prevented (the browser does not
+//      replay the tap as mouse events — no second press, no
+//      second hint); a touchstart never is (React listens to
+//      it passively)
 //    - LongPressDeleteButton — the red preset
 //
 //  The hold is measured with Date.now() in a
@@ -40,9 +53,10 @@ import { LongPressButton, LongPressDeleteButton } from "@/components/Other/LongP
 // A manual clock for the in-between states (longPress() covers
 // complete press–hold–release gestures). The fake frames land
 // every 16 ms from the moment the clock is installed — the
-// tests press right then — so a hold completes on the first
-// frame at or after `duration` (1504 ms for 1.5 s, 3008 ms for
-// 3 s); the holds below stay clear of that edge
+// tests press right then — so a held button completes on the
+// first frame at or after `duration` (1504 ms for 1.5 s, 3008
+// ms for 3 s), a release at or after `duration` at once; only
+// the tests about that edge hold right up to it
 const startClock = () => vi.useFakeTimers({ toFake: ["Date", "requestAnimationFrame", "cancelAnimationFrame"] });
 const advance = (ms) => act(() => {
   vi.advanceTimersByTime(ms);
@@ -126,6 +140,53 @@ describe("LongPressButton — completing and cancelling a hold", () => {
   });
 
 
+  // The last frame before a release at 1.5 s ran at 1488 ms, the
+  // next is due at 1504 ms — the release itself has to complete
+  it("completes on a release right at the full duration, between two animation frames", () => {
+    const onComplete = vi.fn();
+    renderPage(<LongPressButton onComplete={onComplete} duration={1500}>Veiksmas</LongPressButton>);
+    const target = button();
+
+    startClock();
+    fireEvent.mouseDown(target);
+    advance(1500);
+    expect(onComplete).not.toHaveBeenCalled();
+
+    fireEvent.mouseUp(target);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+
+    // …and the frame that was due does not fire it again
+    advance(100);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+
+  // The frame that reaches the duration and a release can both
+  // come in before React re-renders — here inside one act().
+  // Whichever is first ends the press; the other finds it over
+  it.each([
+    ["frame first", (target) => {
+      vi.advanceTimersByTime(1600);
+      fireEvent.mouseUp(target);
+    }],
+    ["release first", (target) => {
+      vi.advanceTimersByTime(1500);
+      fireEvent.mouseUp(target);
+      vi.advanceTimersByTime(100);
+    }],
+  ])("fires once when the last frame and the release both land before a re-render (%s)", (_, endHold) => {
+    const onComplete = vi.fn();
+    renderPage(<LongPressButton onComplete={onComplete} duration={1500}>Veiksmas</LongPressButton>);
+    const target = button();
+
+    startClock();
+    fireEvent.mouseDown(target);
+    act(() => endHold(target));
+
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+
   it("cancels when the mouse leaves the button mid-hold", () => {
     const onComplete = vi.fn();
     renderPage(<LongPressButton onComplete={onComplete} duration={1500}>Veiksmas</LongPressButton>);
@@ -156,6 +217,96 @@ describe("LongPressButton — completing and cancelling a hold", () => {
     advance(1600);
     fireEvent.touchEnd(target);
     expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+
+  // The system took the touch over (a scroll, an incoming call):
+  // the press stops — nothing fires later, no hint shows
+  it("stops a touch press the system cancels — nothing fires, no hint", () => {
+    const onComplete = vi.fn();
+    renderPage(
+      <LongPressButton onComplete={onComplete} duration={1500} uncompletedToastMessage="Laikykite ilgiau">
+        Veiksmas
+      </LongPressButton>,
+      { toaster: true }
+    );
+    const target = button();
+
+    startClock();
+    fireEvent.touchStart(target, TOUCH);
+    advance(500);
+    expect(screen.getAllByRole("progressbar")).not.toHaveLength(0);
+
+    fireEvent.touchCancel(target);
+    expect(screen.queryAllByRole("progressbar")).toHaveLength(0);
+
+    advance(2000);
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(toastTexts()).toEqual([]);
+  });
+
+
+  // A slow scroll that begins on the button: mobile browsers end
+  // it with touchmove + touchend, not touchcancel
+  it("stops a touch press whose finger moves away — a scroll never completes it, and no hint", () => {
+    const onComplete = vi.fn();
+    renderPage(
+      <LongPressButton onComplete={onComplete} duration={1500} uncompletedToastMessage="Laikykite ilgiau">
+        Veiksmas
+      </LongPressButton>,
+      { toaster: true }
+    );
+    const target = button();
+
+    startClock();
+    fireEvent.touchStart(target, TOUCH);
+    advance(300);
+    fireEvent.touchMove(target, { touches: [{ clientX: 10, clientY: 40 }] });
+    expect(screen.queryAllByRole("progressbar")).toHaveLength(0);
+
+    advance(1700);
+    fireEvent.touchEnd(target);
+
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(toastTexts()).toEqual([]);
+  });
+
+
+  it("keeps a touch press through a finger's small jitter (under 10 px)", () => {
+    const onComplete = vi.fn();
+    renderPage(<LongPressButton onComplete={onComplete} duration={1500}>Veiksmas</LongPressButton>);
+    const target = button();
+
+    startClock();
+    fireEvent.touchStart(target, TOUCH);
+    advance(300);
+    fireEvent.touchMove(target, { touches: [{ clientX: 16, clientY: 16 }] });
+    advance(300);
+    fireEvent.touchMove(target, { touches: [{ clientX: 4, clientY: 13 }] });
+    advance(1000);
+    fireEvent.touchEnd(target);
+
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+
+  // React listens to touchstart passively: preventDefault there
+  // is ignored and only makes the browser log a warning
+  it("prevents a mouse press's default, never a touchstart's", () => {
+    const seen = [];
+    const record = (event) => seen.push(event);
+    renderPage(<LongPressButton onMouseDown={record} onTouchStart={record}>Veiksmas</LongPressButton>);
+    const target = button();
+
+    fireEvent.touchStart(target, TOUCH);
+    fireEvent.touchEnd(target);
+    fireEvent.mouseDown(target);
+    fireEvent.mouseUp(target);
+
+    expect(seen.map((event) => [event.type, event.isDefaultPrevented()])).toEqual([
+      ["touchstart", false],
+      ["mousedown", true],
+    ]);
   });
 
 
@@ -214,6 +365,55 @@ describe("LongPressButton — completing and cancelling a hold", () => {
 
     // dispatchEvent answers false when the default was prevented
     expect(fireEvent.contextMenu(button())).toBe(false);
+  });
+
+
+  it("runs a caller's own mouse and touch handlers as well — the press keeps working", () => {
+    const onComplete = vi.fn();
+    const own = {
+      onMouseDown: vi.fn(),
+      onMouseUp: vi.fn(),
+      onMouseLeave: vi.fn(),
+      onTouchStart: vi.fn(),
+      onTouchMove: vi.fn(),
+      onTouchEnd: vi.fn(),
+    };
+    renderPage(<LongPressButton onComplete={onComplete} duration={1500} {...own}>Veiksmas</LongPressButton>);
+    const target = button();
+
+    longPress(target, 1600);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+
+    startClock();
+    fireEvent.touchStart(target, TOUCH);
+    advance(800);
+    fireEvent.touchMove(target, TOUCH);
+    advance(800);
+    fireEvent.touchEnd(target);
+    expect(onComplete).toHaveBeenCalledTimes(2);
+
+    // Leaving early still cancels
+    fireEvent.mouseDown(target);
+    advance(500);
+    fireEvent.mouseLeave(target);
+    advance(2000);
+    expect(onComplete).toHaveBeenCalledTimes(2);
+
+    expect(own.onMouseDown).toHaveBeenCalledTimes(2);
+    expect(own.onMouseUp).toHaveBeenCalledTimes(1);
+    expect(own.onMouseLeave).toHaveBeenCalledTimes(1);
+    expect(own.onTouchStart).toHaveBeenCalledTimes(1);
+    expect(own.onTouchMove).toHaveBeenCalledTimes(1);
+    expect(own.onTouchEnd).toHaveBeenCalledTimes(1);
+  });
+
+
+  it("runs a caller's own onContextMenu as well — the menu stays suppressed", () => {
+    const onContextMenu = vi.fn();
+    renderPage(<LongPressButton onContextMenu={onContextMenu}>Veiksmas</LongPressButton>);
+
+    expect(fireEvent.contextMenu(button())).toBe(false);
+    expect(onContextMenu).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -292,6 +492,49 @@ describe("LongPressButton — feedback toasts", () => {
   });
 
 
+  it("a release right at the full duration toasts the completion message — not 'hold longer'", async () => {
+    const onComplete = vi.fn();
+    renderPage(
+      <LongPressButton onComplete={onComplete} duration={1500} completedToastMessage="Atlikta" uncompletedToastMessage="Laikykite mygtuką ilgiau">
+        Veiksmas
+      </LongPressButton>,
+      { toaster: true }
+    );
+
+    longPress(button(), 1500);
+
+    await findToast("Atlikta");
+    expect(toastTexts()).toEqual(["Atlikta"]);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+
+  // A browser replays a tap as mouse events (mousedown, mouseup,
+  // click) unless its touchend was default-prevented — they would
+  // start and cancel a second press: a second hint
+  it("shows a short tap's 'hold longer' hint once — the tap is not replayed as mouse events", async () => {
+    renderPage(
+      <LongPressButton duration={1500} uncompletedToastMessage="Laikykite mygtuką ilgiau">Veiksmas</LongPressButton>,
+      { toaster: true }
+    );
+    const target = button();
+
+    startClock();
+    fireEvent.touchStart(target, TOUCH);
+    advance(100);
+    const replayed = fireEvent.touchEnd(target);   // false: default-prevented
+    if (replayed) {
+      fireEvent.mouseDown(target);
+      fireEvent.mouseUp(target);
+    }
+    vi.useRealTimers();
+
+    expect(replayed).toBe(false);
+    await findToast("Laikykite mygtuką ilgiau");
+    expect(toastTexts()).toEqual(["Laikykite mygtuką ilgiau"]);
+  });
+
+
   it("does not toast 'hold longer' after a completed hold is released", async () => {
     renderPage(
       <LongPressButton duration={1500} uncompletedToastMessage="Laikykite mygtuką ilgiau">Veiksmas</LongPressButton>,
@@ -302,6 +545,146 @@ describe("LongPressButton — feedback toasts", () => {
     await settle();
 
     expect(toastTexts()).toEqual([]);
+  });
+});
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// The keyboard
+// -----------------------------------------------------------
+//
+// Space or Enter held on the focused button presses it like the
+// mouse — a keyboard-only user has no other way to confirm.
+// -----------------------------------------------------------
+
+describe("LongPressButton — the keyboard", () => {
+
+  const SPACE = { key: " ", code: "Space" };
+  const ENTER = { key: "Enter", code: "Enter" };
+
+
+  it.each([
+    ["Space", SPACE],
+    ["Enter", ENTER],
+  ])("holding %s for the full duration completes the press once", (_, key) => {
+    const onComplete = vi.fn();
+    renderPage(<LongPressButton onComplete={onComplete} duration={1500}>Veiksmas</LongPressButton>);
+    const target = button();
+
+    startClock();
+    fireEvent.keyDown(target, key);
+    advance(1600);
+    fireEvent.keyUp(target, key);
+
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+
+  it("a release at 1.4 s fires nothing and shows the 'hold longer' hint", async () => {
+    const onComplete = vi.fn();
+    renderPage(
+      <LongPressButton onComplete={onComplete} duration={1500} uncompletedToastMessage="Laikykite mygtuką ilgiau">
+        Veiksmas
+      </LongPressButton>,
+      { toaster: true }
+    );
+    const target = button();
+
+    startClock();
+    fireEvent.keyDown(target, SPACE);
+    advance(1400);
+    fireEvent.keyUp(target, SPACE);
+    vi.useRealTimers();
+
+    await findToast("Laikykite mygtuką ilgiau");
+    expect(onComplete).not.toHaveBeenCalled();
+    await settle();
+  });
+
+
+  // A held key repeats its keydown; restarting the press on each
+  // repeat would push the completion out for as long as it is held
+  it("auto-repeated keydowns do not restart the press", () => {
+    const onComplete = vi.fn();
+    renderPage(<LongPressButton onComplete={onComplete} duration={1500}>Veiksmas</LongPressButton>);
+    const target = button();
+
+    startClock();
+    fireEvent.keyDown(target, SPACE);
+    advance(500);
+    fireEvent.keyDown(target, { ...SPACE, repeat: true });
+    advance(500);
+    fireEvent.keyDown(target, { ...SPACE, repeat: true });
+    advance(600);
+
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    fireEvent.keyUp(target, SPACE);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+
+  it("a blur mid-hold stops the press — nothing fires, and no hint", () => {
+    const onComplete = vi.fn();
+    renderPage(
+      <LongPressButton onComplete={onComplete} duration={1500} uncompletedToastMessage="Laikykite ilgiau">
+        Veiksmas
+      </LongPressButton>,
+      { toaster: true }
+    );
+    const target = button();
+
+    startClock();
+    fireEvent.keyDown(target, SPACE);
+    advance(500);
+    fireEvent.blur(target);
+    expect(screen.queryAllByRole("progressbar")).toHaveLength(0);
+
+    advance(2000);
+    fireEvent.keyUp(target, SPACE);
+
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(toastTexts()).toEqual([]);
+  });
+
+
+  // Space scrolls the page on keydown and clicks the button on
+  // keyup, Enter clicks it on keydown — a hold needs neither
+  it("keeps Space and Enter from scrolling the page or clicking the button — other keys pass", () => {
+    renderPage(<LongPressButton duration={1500}>Veiksmas</LongPressButton>);
+    const target = button();
+
+    // dispatchEvent answers false when the default was prevented
+    expect(fireEvent.keyDown(target, SPACE)).toBe(false);
+    expect(fireEvent.keyUp(target, SPACE)).toBe(false);
+    expect(fireEvent.keyDown(target, ENTER)).toBe(false);
+    expect(fireEvent.keyUp(target, ENTER)).toBe(false);
+
+    expect(fireEvent.keyDown(target, { key: "Tab", code: "Tab" })).toBe(true);
+    expect(screen.queryAllByRole("progressbar")).toHaveLength(0);
+  });
+
+
+  it("runs a caller's own keyboard and blur handlers as well — the press keeps working", () => {
+    const onComplete = vi.fn();
+    const own = { onKeyDown: vi.fn(), onKeyUp: vi.fn(), onBlur: vi.fn() };
+    renderPage(<LongPressButton onComplete={onComplete} duration={1500} {...own}>Veiksmas</LongPressButton>);
+    const target = button();
+
+    startClock();
+    fireEvent.keyDown(target, SPACE);
+    advance(1600);
+    fireEvent.keyUp(target, SPACE);
+    fireEvent.blur(target);
+
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    expect(own.onKeyDown).toHaveBeenCalledTimes(1);
+    expect(own.onKeyUp).toHaveBeenCalledTimes(1);
+    expect(own.onBlur).toHaveBeenCalledTimes(1);
   });
 });
 

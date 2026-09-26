@@ -10,6 +10,13 @@
 //    - StudentProgress card — live progress bars of everyone
 //                             currently taking the test
 //
+//  Nothing renders before the first reply. While no dashboard
+//  has arrived because the loading failed, the admin frame
+//  shows a load error with a retry button instead; the polling
+//  goes on meanwhile, so the dashboard replaces the error as
+//  soon as the backend answers. A failed poll after that keeps
+//  the last dashboard on screen.
+//
 //  Icon names arrive as strings from the backend and are
 //  mapped to MUI icons via getIconFromName.
 //
@@ -20,14 +27,18 @@
 //    Home           — the page itself (default export)
 // -----------------------------------------------------------
 
+import { useState, useRef, useId } from "react";
 import axios from "axios";
 import toast from 'react-hot-toast';
 import { TextField, MenuItem } from '@mui/material';
 import useFetchData from "@/hooks/useFetchData";
+import { redirectOnExpiredSession } from "@/utils/session";
+import { TEST_SIZE_CHOICES, DEFAULT_TEST_SIZE } from "@/utils/testSize";
 
 import AdminPageLayout from "@/systemPages/AdminPages/AdminPageLayout";
 import Widget from "@/components/Admin/Widget/Widget";
 import StudentProgress from "@/components/Admin/Widget/StudentProgress";
+import LoadError from "@/components/Other/LoadError/LoadError";
 
 import PeopleOutlinedIcon from '@mui/icons-material/PeopleOutlined';
 import QuestionMarkOutlinedIcon from '@mui/icons-material/QuestionMarkOutlined';
@@ -56,6 +67,18 @@ import CastForEducationOutlinedIcon from '@mui/icons-material/CastForEducationOu
 // on every change — no save button — and confirms with a
 // toast.
 //
+// It shows the size the dashboard reports (`storedSize`) —
+// DEFAULT_TEST_SIZE while none was ever saved, the size the
+// backend then deals — so the polls keep it up to date. The
+// admin's pick shows at once and is held only while its save
+// is in flight: a saved pick until the dashboard reload that
+// reports it has landed, a failed one gives way to the
+// stored size again.
+//
+// The "Testo dydis" caption is the select's label, so
+// assistive tech names the picker — and the menu it opens —
+// after it.
+//
 // Styled as a quiet inset panel so it reads as part of the
 // white widget card instead of competing with it.
 //
@@ -63,32 +86,60 @@ import CastForEducationOutlinedIcon from '@mui/icons-material/CastForEducationOu
 //   - Home (below) — inside the "Klausimai" widget
 // -----------------------------------------------------------
 
-const TEST_SIZE_CHOICES = [9, 12, 15, 21, 30];
+function TestSizePicker({ storedSize, reloadDashboard }) {
 
-function TestSizePicker({ currentSize }) {
+  // Ties the "Testo dydis" caption to the select as its label
+  const captionId = useId();
+
+  // The admin's pick while its save is in flight (null: none)
+  const [pendingSize, setPendingSize] = useState(null);
+
+  // Only the newest pick's outcome may drop the held pick — an
+  // earlier save settling late must not undo a newer pick
+  const latestPick = useRef(0);
+
+  // A string like the option values — a number would make MUI
+  // take a re-pick of the shown size for a change
+  const shownSize = pendingSize ?? String(storedSize ?? DEFAULT_TEST_SIZE);
+
 
   const saveTestSize = (newSize) => {
+    const pick = ++latestPick.current;
+    setPendingSize(newSize);
+
     axios.post("/api/admin/update/phishingtestsize",
       { phishingtestsize: newSize }, { withCredentials: true })
       .then(() => {
         toast.success(<b>Išsaugota</b>, { duration: 3000 });
+
+        // Hold the pick until the dashboard reports the saved
+        // size — letting go now would flash the old size until
+        // the next poll
+        return reloadDashboard();
       })
-      .catch(() => {
+      .catch((error) => {
+        if (redirectOnExpiredSession(error)) return;
         toast.error(<b>Nepavyko išsaugoti</b>, { duration: 3000 });
+      })
+      .finally(() => {
+        if (pick === latestPick.current) {
+          setPendingSize(null);
+        }
       });
   };
 
 
   return (
     <div className="flex flex-col gap-1.5 h-full justify-center bg-[rgb(245,246,248)] border border-[rgb(231,228,228)] rounded-[10px] px-4 py-2">
-      <span className="font-bold text-xs text-gray-400">Testo dydis</span>
+      <span id={captionId} className="font-bold text-xs text-gray-400">Testo dydis</span>
 
       <TextField
         select
         size="small"
         variant="outlined"
-        defaultValue={currentSize}
+        value={shownSize}
         onChange={(e) => saveTestSize(e.target.value)}
+        slotProps={{ select: { labelId: captionId } }}
         sx={{
           width: '160px',
           '& .MuiOutlinedInput-root': {
@@ -127,7 +178,7 @@ function TestSizePicker({ currentSize }) {
 
 export default function Home() {
 
-  const { data, loadingData } = useFetchData("/api/admin/home", 2);
+  const { data, loadingData, refetch } = useFetchData("/api/admin/home", 2);
 
 
   // Backend sends icon names as strings — map them to the
@@ -156,6 +207,20 @@ export default function Home() {
   }
 
 
+  // Loaded, yet `data` is still the hook's initial [] — the
+  // loading failed before any dashboard arrived. The error sits
+  // in a white card like the other admin pages' load errors
+  if (Array.isArray(data)) {
+    return (
+      <AdminPageLayout backgroundColor="#EBECEF">
+        <div className="m-5 bg-white rounded-[15px] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
+          <LoadError message="Nepavyko įkelti pradžios puslapio" onRetry={refetch} />
+        </div>
+      </AdminPageLayout>
+    );
+  }
+
+
   return (
     <AdminPageLayout backgroundColor="#EBECEF">
       <div className="flex flex-col pt-5 min-h-full">
@@ -174,7 +239,7 @@ export default function Home() {
             icon={getIconFromName("QuestionMarkOutlinedIcon")}
             link="/admin/questions"
           >
-            <TestSizePicker currentSize={String(data.phishingtestsize)} />
+            <TestSizePicker storedSize={data.phishingtestsize} reloadDashboard={refetch} />
           </Widget>
         </div>
 

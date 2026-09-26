@@ -11,25 +11,29 @@
 //    - react-dropzone vets a pick against the server's
 //      whitelist before a byte leaves the browser: PNG / JPG /
 //      GIF (by MIME type or extension), at most 5 MB, one
-//      file; anything else only toasts. An accepted pick is
-//      previewed as a data: URL
+//      file. A refused pick only toasts — several files dropped
+//      at once "Vienu metu galima įkelti tik vieną
+//      paveikslėlį", anything else the whitelist. An accepted
+//      pick is previewed as a data: URL
 //    - the upload: POST /api/phishingpictures (axios,
 //      withCredentials), "Content-Type: multipart/form-data"
 //      as set by the code, a FormData whose only field is
 //      "image" = the picked File
 //    - the replies: {type: "ok"} → success toast, getData()
-//      (the list refetch), setOpen(false); 200 {type: "error"}
-//      → its reason; any other 200 body → "Neaiškus
-//      atsakymas."; a failed request → "Serverio klaida." —
-//      after any failure the dialog stays open with the image.
-//      The contract's only 2xx answer is {type, message}: the
-//      other 200 bodies here are marked offContract
+//      (the list refetch), setOpen(false); a refusal {type:
+//      "error", reason} — HTTP 400 (the file) or 403 (not an
+//      admin), and a 200 one the page also handles → its
+//      reason in Lithuanian (one it has no Lithuanian for
+//      as it comes); any other 200 body → "Neaiškus
+//      atsakymas."; any other failed request → "Serverio
+//      klaida." — after any failure the dialog stays open
+//      with the image. A 401 (the session ended) sends the
+//      admin to /login instead, with no toast. The contract's
+//      only 2xx answer is {type, message}: the other 200
+//      bodies here are marked offContract
 //    - the button is disabled while the request runs: every
 //      extra click would create another question
 //    - ×, Escape and the backdrop close it — setOpen(false)
-//
-//  A 400 refusal hides the backend's reason — known bug KB-02,
-//  deliberately not exercised here.
 // -----------------------------------------------------------
 
 import "./support/setup";
@@ -40,6 +44,7 @@ import userEvent from "@testing-library/user-event";
 
 import { backend, deferred, reply } from "./support/backend";
 import { findToast, renderPage, settle, toastTexts } from "./support/render";
+import { hardNavigations } from "./support/navigation";
 
 import AddQuestion from "@/systemPages/AdminPages/Questions/QuestionsList/AddQuestion/AddQuestion";
 
@@ -50,6 +55,7 @@ const UPLOADED = { type: "ok", message: "Image uploaded successfully" };
 const PROMPT = "Vilkite paveikslėlį čia arba spustelėkite norėdami pasirinkti";
 const PREVIEW = "Pasirinktas paveikslėlis";
 const REFUSED_PICK = "Tinka tik PNG, JPG arba GIF paveikslėlis iki 5 MB";
+const ONE_AT_A_TIME = "Vienu metu galima įkelti tik vieną paveikslėlį";
 
 const MB = 1024 * 1024;
 
@@ -290,6 +296,21 @@ describe("AddQuestion — refused picks", () => {
   });
 
 
+  // The file dialog lets only one be picked, a drag does not —
+  // react-dropzone then refuses both as "too-many-files"
+  it("refuses two good images dropped at once as one too many — not as a wrong type or size", async () => {
+    renderDialog();
+
+    fireEvent.drop(dropArea(), dragOf(image("pirmas.png", "image/png"), image("antras.png", "image/png")));
+
+    expect((await findToast(ONE_AT_A_TIME)).textContent).toBe(ONE_AT_A_TIME);
+    expect(toastTexts()).toEqual([ONE_AT_A_TIME]);
+    expect(preview()).toBeNull();
+    expect(uploadButton()).toBeDisabled();
+    expect(backend.requests()).toHaveLength(0);
+  });
+
+
   it("keeps the image picked before a refused pick — and uploads that one", async () => {
     backend.on("POST", UPLOAD, reply.json(UPLOADED));
     const { user } = renderDialog();
@@ -382,15 +403,52 @@ describe("AddQuestion — uploading", () => {
   });
 
 
-  it("on a 200 {type: 'error'} shows the backend's reason and stays open with the image", async () => {
-    // The backend refuses with a 400 (see KB-02) — a refusal on a
+  // Every refusal the backend has (upload_picture): {type:
+  // "error", reason} with HTTP 400 (what is wrong with the
+  // file) or 403 (not an admin) — told in Lithuanian
+  it.each([
+    [400, "No file part in the request", "Užklausoje nėra paveikslėlio"],
+    [400, "File type not allowed", "Netinkamas failo tipas — tinka PNG, JPG arba GIF"],
+    [400, "Empty file", "Failas tuščias"],
+    [400, "File is too large", "Failas per didelis — daugiausia 5 MB"],
+    [400, "File is not an image", "Failas nėra PNG, JPG ar GIF paveikslėlis"],
+    [403, "Not Admin", "Neturite administratoriaus teisių"],
+  ])("on a %i refusal '%s' says why in Lithuanian and stays open with the image", async (status, reason, shown) => {
+    backend.on("POST", UPLOAD, reply.json({ type: "error", reason }, status));
+    const { user, getData, setOpen } = renderDialog();
+
+    await pickAndUpload(user);
+
+    expect((await findToast(shown)).textContent).toBe(`Nepavyko įkelti:${shown}`);
+    expect(toastTexts()).toEqual([`Nepavyko įkelti:${shown}`]);
+    expect(getData).not.toHaveBeenCalled();
+    expect(setOpen).not.toHaveBeenCalled();
+    expect(preview()).not.toBeNull();
+    await waitFor(() => expect(uploadButton()).toBeEnabled());
+  });
+
+
+  // A reason added to the backend later still says more than
+  // "Serverio klaida."
+  it("shows a refusal reason it has no Lithuanian for as it comes", async () => {
+    backend.on("POST", UPLOAD, reply.json({ type: "error", reason: "Image dimensions too small" }, 400));
+    const { user } = renderDialog();
+
+    await pickAndUpload(user);
+
+    expect((await findToast("Image dimensions too small")).textContent).toBe("Nepavyko įkelti:Image dimensions too small");
+  });
+
+
+  it("on a 200 {type: 'error'} says why in Lithuanian too and stays open with the image", async () => {
+    // The backend refuses with a 400 (above) — a refusal on a
     // 200 is off the contract, but the page keeps a branch for it
     backend.on("POST", UPLOAD, reply.json({ type: "error", reason: "Empty file" }, 200, { offContract: true }));
     const { user, getData, setOpen } = renderDialog();
 
     await pickAndUpload(user);
 
-    expect((await findToast("Empty file")).textContent).toBe("Nepavyko įkelti:Empty file");
+    expect((await findToast("Failas tuščias")).textContent).toBe("Nepavyko įkelti:Failas tuščias");
     expect(getData).not.toHaveBeenCalled();
     expect(setOpen).not.toHaveBeenCalled();
     expect(preview()).not.toBeNull();
@@ -430,6 +488,22 @@ describe("AddQuestion — uploading", () => {
     expect(getData).not.toHaveBeenCalled();
     expect(setOpen).not.toHaveBeenCalled();
     expect(preview()).not.toBeNull();
+  });
+
+
+  // The session ended meanwhile (logged out in another tab, or
+  // dropped server-side) — any admin page load would do the same
+  it("a 401 sends the admin to /login instead of toasting 'Serverio klaida.'", async () => {
+    backend.on("POST", UPLOAD, reply.status(401, "Unauthorized"));
+    const { user, getData, setOpen } = renderDialog();
+
+    await pickAndUpload(user);
+    await waitFor(() => expect(hardNavigations()).toEqual(["/login"]));
+    await settle();
+
+    expect(toastTexts()).toEqual([]);
+    expect(getData).not.toHaveBeenCalled();
+    expect(setOpen).not.toHaveBeenCalled();
   });
 
 

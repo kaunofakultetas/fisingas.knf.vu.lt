@@ -9,6 +9,11 @@
 //  AddEditAdministrator modal; after a successful save/delete
 //  the grid refetches.
 //
+//  A list that failed to load shows as a failure with a retry
+//  (LoadError) in place of the count and the grid — an empty
+//  grid would claim there are no administrators at all. A
+//  failed refetch keeps the last list on screen.
+//
 //  Split into (root component last):
 //
 //    ADMINISTRATOR_COLUMNS — column definitions
@@ -29,6 +34,7 @@ import AddEditAdministrator from "./AddEditAdministrator/AddEditAdministrator";
 import ColumnsButton from '@/components/DatagridCustomComponents/ColumnsButton';
 import ToolbarButton from '@/components/DatagridCustomComponents/ToolbarButton';
 import ButtonsPagination from '@/components/Other/ButtonsPagination/ButtonsPagination';
+import LoadError from '@/components/Other/LoadError/LoadError';
 import { dateTimeColumn } from '@/utils/timestamps';
 
 
@@ -41,8 +47,14 @@ import { dateTimeColumn } from '@/utils/timestamps';
 // ADMINISTRATOR_COLUMNS
 // -----------------------------------------------------------
 //
-// Column definitions. "Įjungtas?" renders as a colored pill
-// (enabled = green, disabled = grey).
+// Column definitions. "Įjungtas?" prints its 1 / 0 as the
+// words "Įjungtas" / "Išjungtas" (valueFormatter) and draws
+// that word as a colored pill (enabled = green, disabled =
+// grey). The quick search matches each column's printed
+// value, so it finds the word the pill shows.
+//
+// Used by:
+//   - AdministratorsList (below) — the grid's columns
 // -----------------------------------------------------------
 
 const ADMINISTRATOR_COLUMNS = [
@@ -60,11 +72,12 @@ const ADMINISTRATOR_COLUMNS = [
     field: "enabled",
     headerName: "Įjungtas?",
     width: 110,
+    valueFormatter: (value) => (value === 1 ? 'Įjungtas' : 'Išjungtas'),
     renderCell: (params) => {
-      const isEnabled = params.row.enabled === 1;
+      const isEnabled = params.value === 1;
       return (
         <div className={`rounded-[9px] w-20 text-center ${isEnabled ? 'bg-[green]' : 'bg-[grey]'}`}>
-          {isEnabled ? 'Įjungtas' : 'Išjungtas'}
+          {params.formattedValue}
         </div>
       );
     },
@@ -91,17 +104,29 @@ const ADMINISTRATOR_COLUMNS = [
 // picker and the "Įterpti Naują" button. triggerAddNew comes
 // in through the grid's slotProps.toolbar.
 //
+// The search box holds ONE phrase: the parser keeps the
+// trimmed input whole (the grid's default splits it into
+// words). Parser and formatter live at module level to keep
+// their identity: a new `parser` makes QuickFilter rebuild its
+// debounced search, dropping the search still waiting out its
+// 150 ms — inline functions would lose it to any re-render of
+// the page inside that wait (a refetch landing, the dialog
+// opening).
+//
 // Used by:
 //   - AdministratorsList (below) — the grid's `toolbar` slot
 // -----------------------------------------------------------
+
+const parseSearch = (searchInput) => [searchInput.trim()];
+const formatSearch = (quickFilterValues) => quickFilterValues.join('');
 
 function QuickSearchToolbar({ triggerAddNew }) {
   return (
     <Toolbar sx={{ justifyContent: 'flex-start', flexWrap: 'wrap', rowGap: '4px' }}>
       <QuickFilter
         expanded
-        parser={(searchInput) => [searchInput.trim()]}
-        formatter={(quickFilterValues) => quickFilterValues.join('')}
+        parser={parseSearch}
+        formatter={formatSearch}
       >
         <QuickFilterControl placeholder="Ieškoti..." size="small" />
       </QuickFilter>
@@ -127,7 +152,12 @@ function QuickSearchToolbar({ triggerAddNew }) {
 
 export default function AdministratorsList() {
 
-  const { data, loadingData, refetch: getData } = useFetchData("/api/admin/administrators");
+  const { data, loadingData, error, refetch: getData } = useFetchData("/api/admin/administrators");
+
+  // A load failed before any list arrived: `data` is still the
+  // hook's initial [], which must not read as "(0)"
+  // administrators (a failed refetch keeps the last list)
+  const loadFailed = Boolean(error) && data.length === 0;
 
   // Modal state — userLineData undefined means "create new"
   const [openModal, setOpenModal] = useState(false);
@@ -155,60 +185,66 @@ export default function AdministratorsList() {
           <Typography variant="h5" sx={{ fontWeight: 600 }}>
             Administratorių Sąrašas
           </Typography>
-          {!loadingData && (
+          {!loadingData && !loadFailed && (
             <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
               ({data.length})
             </Typography>
           )}
         </Box>
 
-        {/* The grid */}
+        {/* The grid — or the failed load with its retry, which
+            also keeps "Įterpti Naują" away from a list nobody
+            has seen */}
         <Box className="rounded-[15px] bg-white p-4 shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
-          <DataGrid
-            sx={{
-              height: 'calc(100vh - 230px)',
-              cursor: 'pointer',
-              border: 'none',
-              '& .MuiDataGrid-row:hover': {
-                backgroundColor: 'rgba(123, 0, 63, 0.08)',
-              },
-            }}
-            rows={data}
-            loading={loadingData}
-            columns={ADMINISTRATOR_COLUMNS}
-            pageSizeOptions={[100]}
-            rowHeight={30}
-            showToolbar
-            onRowClick={handleRowClick}
-
-            initialState={{
-              columns: {
-                columnVisibilityModel: {},
-              },
-              filter: {
-                filterModel: {
-                  items: [],
-                  quickFilterLogicOperator: GridLogicOperator.Or,
-                  quickFilterExcludeHiddenColumns: false,
+          {loadFailed ? (
+            <LoadError message="Nepavyko įkelti administratorių sąrašo" onRetry={getData} />
+          ) : (
+            <DataGrid
+              sx={{
+                height: 'calc(100vh - 230px)',
+                cursor: 'pointer',
+                border: 'none',
+                '& .MuiDataGrid-row:hover': {
+                  backgroundColor: 'rgba(123, 0, 63, 0.08)',
                 },
-              },
-              pagination: {
-                paginationModel: { pageSize: 100 },
-              },
-            }}
+              }}
+              rows={data}
+              loading={loadingData}
+              columns={ADMINISTRATOR_COLUMNS}
+              pageSizeOptions={[100]}
+              rowHeight={30}
+              showToolbar
+              onRowClick={handleRowClick}
 
-            slots={{
-              toolbar: QuickSearchToolbar,
-              loadingOverlay: LinearProgress,
-              pagination: ButtonsPagination,
-            }}
-            slotProps={{
-              panel: { placement: 'bottom-start' },
-              toolbar: {
-                triggerAddNew,
-              },
-            }}
-          />
+              initialState={{
+                columns: {
+                  columnVisibilityModel: {},
+                },
+                filter: {
+                  filterModel: {
+                    items: [],
+                    quickFilterLogicOperator: GridLogicOperator.Or,
+                    quickFilterExcludeHiddenColumns: false,
+                  },
+                },
+                pagination: {
+                  paginationModel: { pageSize: 100 },
+                },
+              }}
+
+              slots={{
+                toolbar: QuickSearchToolbar,
+                loadingOverlay: LinearProgress,
+                pagination: ButtonsPagination,
+              }}
+              slotProps={{
+                panel: { placement: 'bottom-start' },
+                toolbar: {
+                  triggerAddNew,
+                },
+              }}
+            />
+          )}
         </Box>
 
         {/* Add / edit modal */}

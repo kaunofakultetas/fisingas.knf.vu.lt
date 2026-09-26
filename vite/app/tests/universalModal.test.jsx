@@ -4,12 +4,15 @@
 //
 //  src/components/Other/UniversalModal — the shared dialog
 //  (the administrator editor and the image upload use it):
-//    - header: variant icon, title, description, close (×)
+//    - header: variant icon, title, description, close (×) —
+//      a button named "Uždaryti"
 //    - body: arbitrary children
 //    - footer: custom `actions`, or the standard Cancel /
 //      Confirm pair ("Atšaukti" / "Patvirtinti")
 //    - confirm AWAITS an async onConfirm before closing
-//      (closeOnConfirm), cancel calls onCancel then onClose
+//      (closeOnConfirm); an onConfirm that rejects or throws
+//      keeps the dialog open, and its error is caught — no
+//      unhandled rejection. Cancel calls onCancel then onClose
 //    - loading disables both buttons (spinner on confirm)
 //    - Escape and the backdrop close it; the backdrop can be
 //      switched off (Escape still works)
@@ -37,10 +40,25 @@ const renderModal = (props = {}) => {
   return { ...result, ...handlers, ...props };
 };
 
-// The × has no accessible name (only an aria-hidden icon)
-const closeButton = () => screen.getByTestId("CloseIcon").closest("button");
+const closeButton = () => screen.getByRole("button", { name: "Uždaryti" });
 
 const VARIANT_ICONS = ["ErrorOutlineIcon", "WarningAmberIcon", "InfoOutlinedIcon", "CheckCircleOutlineIcon"];
+
+// Collects the promise rejections nobody handled while `run`
+// goes on. Node reports one once the microtasks of the task
+// that dropped it have run — `run` ends with a settle(), a
+// later task, so every report is in by then
+const unhandledRejectionsDuring = async (run) => {
+  const rejections = [];
+  const record = (reason) => rejections.push(reason);
+  process.on("unhandledRejection", record);
+  try {
+    await run();
+  } finally {
+    process.off("unhandledRejection", record);
+  }
+  return rejections;
+};
 
 
 
@@ -94,10 +112,10 @@ describe("UniversalModal — rendering", () => {
 
 
   it("takes custom button texts", () => {
-    renderModal({ confirmText: "Įkelti", cancelText: "Uždaryti" });
+    renderModal({ confirmText: "Įkelti", cancelText: "Grįžti" });
 
     expect(screen.getByRole("button", { name: "Įkelti" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Uždaryti" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Grįžti" })).toBeInTheDocument();
   });
 
 
@@ -141,6 +159,16 @@ describe("UniversalModal — rendering", () => {
     renderModal();
 
     expect(closeButton()).toBeInTheDocument();
+  });
+
+
+  // The icon alone is aria-hidden — the button carries the name
+  it("names the close (×) button 'Uždaryti' for screen readers", () => {
+    renderModal();
+
+    const close = screen.getByTestId("CloseIcon").closest("button");
+    expect(close).toHaveAccessibleName("Uždaryti");
+    expect(close).toBe(closeButton());
   });
 
 
@@ -197,6 +225,47 @@ describe("UniversalModal — confirm and cancel", () => {
 
     await act(async () => confirming.resolve());
     await settle();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+
+  // The caller reports its own failure; the dialog stays for
+  // another try, and the error must not escape unhandled
+  it.each([
+    ["rejects", () => Promise.reject(new Error("Nepavyko"))],
+    ["throws", () => {
+      throw new Error("Nepavyko");
+    }],
+  ])("stays open when onConfirm %s — the error is caught, nothing left unhandled", async (_, failingConfirm) => {
+    const onConfirm = vi.fn(failingConfirm);
+    const { user, onClose } = renderModal({ onConfirm });
+
+    const rejections = await unhandledRejectionsDuring(async () => {
+      await user.click(screen.getByRole("button", { name: "Patvirtinti" }));
+      await settle();
+    });
+
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(rejections).toEqual([]);
+    expect(screen.getByRole("button", { name: "Patvirtinti" })).toBeEnabled();
+  });
+
+
+  it("confirms again after a failed onConfirm — and closes once it succeeds", async () => {
+    const onConfirm = vi.fn()
+      .mockImplementationOnce(() => Promise.reject(new Error("Nepavyko")))
+      .mockImplementationOnce(() => Promise.resolve());
+    const { user, onClose } = renderModal({ onConfirm });
+
+    await user.click(screen.getByRole("button", { name: "Patvirtinti" }));
+    await settle();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Patvirtinti" }));
+    await settle();
+
+    expect(onConfirm).toHaveBeenCalledTimes(2);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

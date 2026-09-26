@@ -13,12 +13,16 @@
 //      same StudentAnswers the admin sees
 //
 //  The student's results come from /api/admin/students/<id> —
-//  the backend allows students to read their own record.
+//  the backend allows students to read their own record. When
+//  that load fails, the tiles give way to the reason and a
+//  retry: zeros made up from the missing record would read as
+//  a failed test.
 //
 //  Split into (root component last):
 //
 //    CredentialPill — one "label: value" credential chip
 //    SummaryTile    — one icon + label + value tile
+//    SummaryTiles   — the grade tile + the three count tiles
 //    TestFinish     — the page itself (default export)
 // -----------------------------------------------------------
 
@@ -29,6 +33,7 @@ import useFetchData from "@/hooks/useFetchData";
 
 import Navbar from "@/components/Navbar/Navbar";
 import Footer from "@/components/Other/Footer/Footer";
+import LoadError from "@/components/Other/LoadError/LoadError";
 import StudentAnswers from '@/systemPages/AdminPages/StudentInformation/StudentAnswers/StudentAnswers';
 
 import SchoolIcon from '@mui/icons-material/School';
@@ -76,8 +81,8 @@ function CredentialPill({ label, value }) {
 // circle, the value in large bold digits and a small label.
 //
 // Used by:
-//   - TestFinish (below) — the three count tiles (the grade
-//     tile is inlined, it has its own emphasis styling)
+//   - SummaryTiles (below) — the three count tiles (the grade
+//     tile is inlined there, it has its own emphasis styling)
 // -----------------------------------------------------------
 
 function SummaryTile({ icon, label, value }) {
@@ -88,6 +93,65 @@ function SummaryTile({ icon, label, value }) {
       </div>
       <div className="text-2xl font-bold text-gray-800">{value}</div>
       <div className="text-xs font-semibold uppercase tracking-wider text-gray-400">{label}</div>
+    </div>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// SummaryTiles
+// -----------------------------------------------------------
+//
+// The grade headline tile plus the three count tiles. Without
+// a record (its load failed) the reason and a retry take
+// their place — zeros made up from the missing record would
+// read as a failed test.
+//
+// Used by:
+//   - TestFinish (below)
+// -----------------------------------------------------------
+
+function SummaryTiles({ data, failed, onRetry }) {
+
+  if (failed) {
+    return <LoadError message="Nepavyko įkelti rezultatų" onRetry={onRetry} />;
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-8">
+
+      {/* Grade — the headline tile */}
+      <div className="flex flex-col items-center justify-center gap-2 rounded-xl bg-[rgb(123,0,63)] p-6 text-center text-white shadow-[0_4px_14px_rgba(123,0,63,0.35)]">
+        <div className="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center">
+          <SchoolIcon sx={{ fontSize: 32 }} />
+        </div>
+        <div className="text-4xl font-bold">{data.testgrade || 0.0}</div>
+        <div className="text-xs font-semibold uppercase tracking-wider text-white/70">Testo Įvertinimas</div>
+      </div>
+
+      <SummaryTile
+        icon={<PiHandsClappingLight size={28} />}
+        label="Teisingai Identifikuota bei Teisingos Opcijos"
+        value={`${data.fullycorrectcount || 0} / ${data.questioncount || 0}`}
+      />
+
+      <SummaryTile
+        icon={<BsHandThumbsUp size={26} />}
+        label="Teisingai Identifikuota"
+        value={`${data.totalidentifiedcorrectly || 0} / ${data.questioncount || 0}`}
+      />
+
+      <SummaryTile
+        icon={<GrCheckboxSelected size={24} />}
+        label="Teisingos Opcijos"
+        value={`${data.totalcorrectoptionscount || 0} / ${data.totaloptionscount || 0}`}
+      />
+
     </div>
   );
 }
@@ -110,7 +174,11 @@ function SummaryTile({ icon, label, value }) {
 export default function TestFinish({ authData }) {
 
   // The student may read their own record on this endpoint
-  const { data, loadingData } = useFetchData("/api/admin/students/" + authData.userid);
+  const { data, loadingData, error, refetch } = useFetchData("/api/admin/students/" + authData.userid);
+
+  // The load failed and no record arrived — data is still the
+  // hook's initial [] (a record is an object)
+  const recordFailed = error && Array.isArray(data);
 
 
   // Mark the test as finished — from now on /student redirects
@@ -159,36 +227,7 @@ export default function TestFinish({ authData }) {
           </div>
 
           {/* Grade + count tiles */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-8">
-
-            {/* Grade — the headline tile */}
-            <div className="flex flex-col items-center justify-center gap-2 rounded-xl bg-[rgb(123,0,63)] p-6 text-center text-white shadow-[0_4px_14px_rgba(123,0,63,0.35)]">
-              <div className="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center">
-                <SchoolIcon sx={{ fontSize: 32 }} />
-              </div>
-              <div className="text-4xl font-bold">{data.testgrade || 0.0}</div>
-              <div className="text-xs font-semibold uppercase tracking-wider text-white/70">Testo Įvertinimas</div>
-            </div>
-
-            <SummaryTile
-              icon={<PiHandsClappingLight size={28} />}
-              label="Teisingai Identifikuota bei Teisingos Opcijos"
-              value={`${data.fullycorrectcount || 0} / ${data.questioncount || 0}`}
-            />
-
-            <SummaryTile
-              icon={<BsHandThumbsUp size={26} />}
-              label="Teisingai Identifikuota"
-              value={`${data.totalidentifiedcorrectly || 0} / ${data.questioncount || 0}`}
-            />
-
-            <SummaryTile
-              icon={<GrCheckboxSelected size={24} />}
-              label="Teisingos Opcijos"
-              value={`${data.totalcorrectoptionscount || 0} / ${data.totaloptionscount || 0}`}
-            />
-
-          </div>
+          <SummaryTiles data={data} failed={recordFailed} onRetry={refetch} />
         </div>
       </div>
 

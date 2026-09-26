@@ -13,34 +13,31 @@
 //    - the areas arrive as PERCENT STRINGS ("15%") and become
 //      absolutely positioned boxes: percent × the measured
 //      image size, shifted by the image's offset inside its
-//      container; filled with clickableAreaColor (default
+//      container; a null coordinate (a stored value the API
+//      cannot parse) counts as 0, as in the link editor;
+//      filled with clickableAreaColor (default
 //      rgba(255, 255, 0, 0.5) — the test page passes a
 //      transparent one)
 //    - hover → the URL in a black bubble 30 px above the area;
 //      the bubble stays open while the pointer is on it
 //    - onImageClick for any click inside (with the event)
-//    - a window resize re-measures
+//    - a window resize re-measures, and so does a size change
+//      of the image or its container without one (a
+//      ResizeObserver — the page reflowing)
 //    - a failed request (no connection, the plain-text 401 /
 //      404 / 500 pages, a 200 HTML page — the status is never
 //      checked, only the body) → console.error "Error fetching
 //      clickable areas:", no areas, no crash
-//    - a new src is blurred again and fetches its own areas
-//      after its own load
+//    - a new src is blurred again, shows none of the previous
+//      image's areas — nor its URL bubble — and fetches its
+//      own areas after its own load; a late reply to the
+//      previous src's request (a list or a failure) is dropped
+//      without a trace
 //
 //  jsdom has no layout: the tests stub getBoundingClientRect
 //  of the <img> and of its container before the load / resize
-//  that measures them.
-//
-//  The viewer's known defects are pinned in knownBugs.test.jsx;
-//  the tests here hold with and without their fixes:
-//    - KB-13 (the previous src's areas landing on the next
-//      image) — no test here leaves an areas request running
-//      across a src change, or looks at the next image between
-//      its load and its own areas
-//    - KB-28 (only a window "resize" re-measures) — a window
-//      resize here also reports the new sizes to any
-//      ResizeObserver, as a browser would
-//    - KB-29 (a null coordinate) — no test here sends one
+//  that measures them, and report size changes to the
+//  ResizeObservers themselves (resizeObserved).
 // -----------------------------------------------------------
 
 import "./support/setup";
@@ -77,6 +74,17 @@ const LINK_BOX = { left: 80, top: 114, width: 80, height: 6 };
 // down from the (unmoved) container's corner
 const GROWN_IMAGE_BOX = { left: 110, top: 70, width: 800, height: 400 };
 
+// The page narrowed without a window resize (the admin sidebar
+// pinned): the container 400 × 250, the image in it 300 × 150,
+// still 20 px right and 30 px down
+const NARROWED_CONTAINER_BOX = { left: 10, top: 20, width: 400, height: 250 };
+const NARROWED_IMAGE_BOX = { left: 30, top: 50, width: 300, height: 150 };
+
+// The container grew 200 px wider; the centered image kept its
+// 400 × 200 and moved along: now 150 px right of the corner
+const WIDER_CONTAINER_BOX = { left: 10, top: 20, width: 700, height: 300 };
+const RECENTERED_IMAGE_BOX = { left: 160, top: 50, width: 400, height: 200 };
+
 
 const domRect = ({ left, top, width, height }) => ({
   left, top, width, height, x: left, y: top, right: left + width, bottom: top + height,
@@ -91,22 +99,32 @@ const placeImage = (image, imageBox = IMAGE_BOX, containerBox = CONTAINER_BOX) =
 
 const theImage = () => screen.getByAltText("Fišingo El. Laiškas");
 
-// A window resize as the page sees it: the "resize" event, and
-// the image's and its container's (placed) sizes reported to
-// any ResizeObserver watching them — today only the event
-// re-measures (KB-28), a fix may use an observer instead
-const resizeWindow = () => {
+// An element's (placed) size, as a ResizeObserver reports it
+const sizeOf = (element) => {
+  const { width, height } = element.getBoundingClientRect();
+  return { width, height };
+};
+
+// The page reflowed without a window resize (the admin sidebar
+// pinned, a scrollbar appearing): only the ResizeObservers hear
+// of the image's and its container's placed sizes
+const reflow = () => {
   const image = theImage();
-  const sizeOf = (element) => {
-    const { width, height } = element.getBoundingClientRect();
-    return { width, height };
-  };
 
   act(() => {
-    window.dispatchEvent(new Event("resize"));
     resizeObserved(image, sizeOf(image));
     resizeObserved(image.parentNode, sizeOf(image.parentNode));
   });
+};
+
+// A window resize as the page sees it: the "resize" event, and
+// the new sizes reported to the ResizeObservers, as a browser
+// would
+const resizeWindow = () => {
+  act(() => {
+    window.dispatchEvent(new Event("resize"));
+  });
+  reflow();
 };
 
 // "114px" → 114, rounded to 1/1000 px: percent × size can
@@ -167,6 +185,27 @@ const showNextQuestion = async ({ hovering = false } = {}) => {
   }
 
   result.rerender(<InteractiveImage src={NEXT_SRC} clickableAreasUrl={NEXT_LINKS} />);
+  await settle();
+
+  return result;
+};
+
+// The first image's areas request is still running when the
+// next question's image takes its place, loads and gets its
+// own areas; only then does `lateReply` answer the first one
+const answerFirstRequestLate = async (lateReply) => {
+  const firstAreas = deferred();
+  backend.once("GET", LINKS, () => firstAreas.promise);
+  backend.on("GET", NEXT_LINKS, reply.json([fx.questionLink({ id: 2, url: "https://antras.example" })]));
+
+  const result = render(<InteractiveImage src={SRC} clickableAreasUrl={LINKS} />);
+  fireEvent.load(theImage());
+
+  result.rerender(<InteractiveImage src={NEXT_SRC} clickableAreasUrl={NEXT_LINKS} />);
+  fireEvent.load(theImage());
+  await waitFor(() => expect(linkAreas(result.container)).toHaveLength(1));
+
+  await act(async () => firstAreas.resolve(lateReply));
   await settle();
 
   return result;
@@ -344,6 +383,24 @@ describe("InteractiveImage — drawing the areas", () => {
     const { container } = await renderLoaded(many);
 
     expect(linkAreas(container)).toHaveLength(15);
+  });
+
+
+  // The API answers null for a stored coordinate it cannot
+  // parse; the link editor shows that row at 0 % — so does the
+  // viewer, instead of a "NaNpx" the style engine would drop
+  it("reads a null coordinate as 0 — the area and its bubble still get a valid box", async () => {
+    const { container } = await renderLoaded([fx.questionLink({ x: null, height: null })]);
+    const [area] = linkAreas(container);
+
+    // 20 + 0 × 400, 30 + 42 % × 200, 20 % × 400, 0 × 200
+    expect(boxOf(area)).toEqual({ left: 20, top: 114, width: 80, height: 0 });
+
+    fireEvent.mouseEnter(area);
+
+    const bubble = screen.getByText("http://example.com");
+    expect(px(bubble.style.left)).toBe(20);
+    expect(px(bubble.style.top)).toBe(114 - 30);
   });
 
 
@@ -553,6 +610,34 @@ describe("InteractiveImage — re-measuring", () => {
     expect(px(bubble.style.left)).toBe(220);
     expect(px(bubble.style.top)).toBe(218 - 30);
   });
+
+
+  // The admin sidebar pinned, a scrollbar appearing: the image
+  // follows its container's width while the window stays put
+  it("follows an image that resizes without a window resize", async () => {
+    const { container } = await renderLoaded();
+
+    placeImage(theImage(), NARROWED_IMAGE_BOX, NARROWED_CONTAINER_BOX);
+    reflow();
+
+    // 20 + 15 % × 300, 30 + 42 % × 150, 20 % × 300, 3 % × 150
+    expect(boxOf(linkAreas(container)[0])).toEqual({ left: 65, top: 93, width: 60, height: 4.5 });
+  });
+
+
+  // The image keeps its size, so only its container's
+  // ResizeObserver entry tells that it moved
+  it("follows a centered image that moves when only its container resizes", async () => {
+    const { container } = await renderLoaded();
+
+    placeImage(theImage(), RECENTERED_IMAGE_BOX, WIDER_CONTAINER_BOX);
+    act(() => {
+      resizeObserved(theImage().parentNode, sizeOf(theImage().parentNode));
+    });
+
+    // 150 + 15 % × 400, 30 + 42 % × 200 — the size unchanged
+    expect(boxOf(linkAreas(container)[0])).toEqual({ left: 210, top: 114, width: 80, height: 6 });
+  });
 });
 
 
@@ -642,6 +727,70 @@ describe("InteractiveImage — a new src", () => {
     fireEvent.mouseEnter(linkAreas(container)[1]);
 
     expect(screen.getByText("https://trecias.example")).toBeInTheDocument();
+  });
+
+
+  it("shows none of the previous image's areas on the next one while its own are on their way", async () => {
+    const nextAreas = deferred();
+    backend.on("GET", LINKS, reply.json([fx.questionLink({ id: 1, url: "https://pirmas.example" })]));
+    backend.on("GET", NEXT_LINKS, () => nextAreas.promise);
+    const { container, rerender } = render(<InteractiveImage src={SRC} clickableAreasUrl={LINKS} />);
+    placeImage(theImage());
+    fireEvent.load(theImage());
+    await waitFor(() => expect(linkAreas(container)).toHaveLength(1));
+
+    rerender(<InteractiveImage src={NEXT_SRC} clickableAreasUrl={NEXT_LINKS} />);
+    fireEvent.load(theImage());
+    await settle();
+
+    // Loaded, unblurred — and nothing to hover yet
+    expect(theImage().style.filter).toBe("");
+    expect(linkAreas(container)).toEqual([]);
+
+    await act(async () => nextAreas.resolve(reply.json([fx.questionLink({ id: 2, url: "https://antras.example" })])));
+    await waitFor(() => expect(linkAreas(container)).toHaveLength(1));
+    fireEvent.mouseEnter(linkAreas(container)[0]);
+
+    expect(screen.getByText("https://antras.example")).toBeInTheDocument();
+    expect(screen.queryByText("https://pirmas.example")).toBeNull();
+  });
+
+
+  // A keyboard switch (Tab to a sidebar number + Enter) fires no
+  // mouseleave — and the removed area gets none either
+  it("brings no URL bubble of the previous image back once the next one has loaded", async () => {
+    const { container } = await showNextQuestion({ hovering: true });
+
+    fireEvent.load(theImage());
+    await waitFor(() => expect(linkAreas(container)).toHaveLength(2));
+
+    // Nothing hovers the next image: no bubble at all
+    expect(screen.queryByText("https://pirmas.example")).toBeNull();
+    expect(screen.queryByText("https://antras.example")).toBeNull();
+    expect(screen.queryByText("https://trecias.example")).toBeNull();
+  });
+
+
+  it("drops a late reply to the previous image's request — the next image keeps its own areas", async () => {
+    const { container } = await answerFirstRequestLate(
+      reply.json([fx.questionLink({ id: 1, url: "https://pirmas.example" })])
+    );
+
+    expect(linkAreas(container)).toHaveLength(1);
+    fireEvent.mouseEnter(linkAreas(container)[0]);
+
+    expect(screen.getByText("https://antras.example")).toBeInTheDocument();
+    expect(screen.queryByText("https://pirmas.example")).toBeNull();
+  });
+
+
+  // The failure belongs to an image no longer on screen — the
+  // console stays as quiet as the page
+  it("drops a late failure of the previous image's request without logging it", async () => {
+    const { container } = await answerFirstRequestLate(reply.status(500, "Internal Server Error"));
+
+    expect(consoleErrors()).toEqual([]);
+    expect(linkAreas(container)).toHaveLength(1);
   });
 });
 

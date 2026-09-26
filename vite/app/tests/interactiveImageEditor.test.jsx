@@ -9,58 +9,58 @@
 //    - GET <initialAreasUrl> through axios, withCredentials;
 //      "Kraunasi..." until it answers — a failure (or a 200
 //      that is not a list) toasts "Nepavyko užkrauti nuorodų"
-//      and never turns into an editor that could save
-//    - percent strings → numbers ("15%" → 15, null → 0)
+//      and shows it with "Bandyti dar kartą" (which loads
+//      again), never an editor that could save; a 401 sends
+//      the admin to /login
+//    - a new initialAreasUrl (another question, the editor
+//      still mounted) starts over: "Kraunasi...", none of the
+//      previous question's areas, no selection; a late reply
+//      for the previous URL is dropped
+//    - percent strings → numbers ("15%" → 15, null → 0); an
+//      area stored off the image is pulled back onto it as it
+//      loads (its size kept) — shown and saved inside
 //    - the side panel: "Nuorodos (N)", one card per area (the
-//      number, the "Nuoroda" URL field, delete, the X / Y /
-//      Plotis / Aukštis chips in whole percent) or the empty
-//      state; the selection is shared by cards and boxes
+//      number, the "Nuoroda" URL field, "Ištrinti nuorodą Nr.
+//      N", the X / Y / Plotis / Aukštis chips in whole
+//      percent) or the empty state; the selection is shared by
+//      cards and boxes
 //    - "Pridėti": {url "", 10 / 10 / 20 / 20 %} named
 //      Date.now(), selected at once
 //    - "Išsaugoti": POST <initialAreasUrl>, withCredentials,
 //      {areas: [{id, url, x, y, width, height}]} — every
 //      coordinate rounded to whole percent and sent as a 0–1
-//      FRACTION; "OK" → "Nuorodos išsaugotos" and
-//      onSaveButtonClick; 400 / 404 / 500 / no connection →
-//      "Nepavyko išsaugoti nuorodų"; a 401 is never reported
-//      as saved
+//      FRACTION; only "OK" is a success → "Nuorodos
+//      išsaugotos" and onSaveButtonClick; the role gate "Error:
+//      Not Admin" (HTTP 200) → a full page load of "/"; a 401
+//      → /login; any other reply, 400 / 404 / 500 / no
+//      connection → "Nepavyko išsaugoti nuorodų" — the editor
+//      stays with its areas
 //    - the boxes on the image (react-rnd, replaced by a double
-//      — see the mock): drawn once the image is measured; px =
-//      percent × the image size (+ the image's offset in the
+//      — see the mock): drawn once the image is measured and
+//      bounded by the image, not the grey canvas around it; px
+//      = percent × the image size (+ the image's offset in the
 //      canvas for the position); a finished drag / resize is
-//      converted back to whole percent
+//      converted back to whole percent and kept on the image
+//      (x, y ≥ 0; x + width, y + height ≤ 100 — pulled back,
+//      its size kept, whatever react-rnd reports)
 //    - window resizes and canvas resizes (ResizeObserver)
 //      re-measure
 //
 //  jsdom has no layout: the tests stub getBoundingClientRect
 //  of the <img> and of its canvas before the load / resize that
 //  measures them.
-//
-//  The editor's known defects are pinned in knownBugs.test.jsx;
-//  the tests here hold with and without their fixes:
-//    - KB-05 (a 200 "Error: Not Admin" save reply reported as
-//      saved) — every save here is answered "OK" or a failure
-//    - KB-30 (boxes bounded by the canvas, not the image) — no
-//      test pins `bounds`; every drag / resize stays on the
-//      image
-//    - KB-31 (a new initialAreasUrl keeps the old areas) — no
-//      test changes it
-//    - KB-32 (a failed load stays on "Kraunasi..." for good) —
-//      the failure tests ask only for the toast and that
-//      nothing can be saved
-//    - KB-36 (a 401 is toasted like any failure instead of
-//      sending the admin to /login) — the 401 tests ask only
-//      that nothing is saved or reported as saved
 // -----------------------------------------------------------
 
 import "./support/setup";
 
 import { describe, it, expect, vi } from "vitest";
-import { act, fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { Toaster } from "react-hot-toast";
 
 import { backend, deferred, reply } from "./support/backend";
 import { resizeObserved } from "./support/setup";
 import { findToast, renderPage, settle, toastTexts } from "./support/render";
+import { hardNavigations } from "./support/navigation";
 import * as fx from "./support/fixtures";
 
 import InteractiveImageEditor from "@/components/Other/InteractiveImage/InteractiveImageEditor";
@@ -99,6 +99,9 @@ vi.mock("react-rnd", async () => {
 
 const SRC = "/api/phishingpictures/21";
 const LINKS = "/api/phishingpictures/21/links";
+
+const NEXT_SRC = "/api/phishingpictures/22";
+const NEXT_LINKS = "/api/phishingpictures/22/links";
 
 const FIRST = fx.questionLink({ id: 1, url: "https://pirmas.example" });
 const SECOND = fx.questionLink({ id: 2, url: "https://antras.example", x: "50%", y: "10%", width: "25%", height: "8%" });
@@ -180,6 +183,17 @@ const renderMeasured = async (areas = [fx.questionLink()], props = {}) => {
   return { ...result, image };
 };
 
+// A page whose route param changes keeps its editor mounted and
+// hands it another question: render(editorFor(...)), then
+// rerender(editorFor(...)) — the same tree, so the same editor.
+// The Toaster beside it shows its toasts
+const editorFor = (src, areasUrl) => (
+  <>
+    <InteractiveImageEditor src={src} initialAreasUrl={areasUrl} />
+    <Toaster />
+  </>
+);
+
 
 const addButton = () => screen.getByRole("button", { name: "Pridėti" });
 
@@ -200,7 +214,9 @@ const cards = () => screen.queryAllByLabelText("Nuoroda").map((field) => field.c
 
 const urlField = (card) => within(card).getByLabelText("Nuoroda");
 
-const deleteButton = (card) => within(card).getByRole("button", { name: "delete" });
+// A card's delete button — named after the card's number
+const deleteButton = (card) =>
+  within(card).getByRole("button", { name: `Ištrinti nuorodą Nr. ${cards().indexOf(card) + 1}` });
 
 // The grey coordinate chips of a card, in order
 const chipsOf = (card) => [...card.querySelectorAll(".bg-gray-100")].map((chip) => chip.textContent);
@@ -260,6 +276,30 @@ const resizeBox = (box, direction, { width, height }) => {
   });
 };
 
+// The element a box's `bounds` names — react-rnd keeps a drag /
+// resize inside it ("parent", a selector or an element)
+const boundaryOf = (box) => {
+  const { bounds } = box.rndProps;
+  if (bounds === "parent") return box.parentNode;
+  if (bounds instanceof Element) return bounds;
+  if (typeof bounds === "string") return document.querySelector(bounds);
+  return null;
+};
+
+// A drag the way react-rnd finishes it for a box with `bounds`:
+// the requested corner (canvas px) clamped so the box stays
+// inside its boundary — the double leaves that to the test
+const dragWithinBounds = (box, x, y) => {
+  const { size } = box.rndProps;
+  const canvas = box.parentNode.getBoundingClientRect();
+  const limit = boundaryOf(box)?.getBoundingClientRect();
+  const clamp = (value, low, high) => Math.min(Math.max(value, low), high);
+  const left = limit ? clamp(x, limit.left - canvas.left, limit.left - canvas.left + limit.width - size.width) : x;
+  const top = limit ? clamp(y, limit.top - canvas.top, limit.top - canvas.top + limit.height - size.height) : y;
+
+  dragBox(box, left, top);
+};
+
 
 
 
@@ -304,9 +344,9 @@ describe("InteractiveImageEditor — loading the areas", () => {
   });
 
 
-  // Whatever a failed load shows (today "Kraunasi..." for good —
-  // KB-32), it must not be an editor: "Išsaugoti" there would
-  // replace the question's stored areas with none
+  // A failed load says so and offers a retry in place — never an
+  // empty editor: "Išsaugoti" there would replace the question's
+  // stored areas with none
   it.each([
     ["a server error", reply.status(500, "Internal Server Error")],
     ["an unknown question", reply.status(404, "Not Found")],
@@ -317,26 +357,52 @@ describe("InteractiveImageEditor — loading the areas", () => {
       "a 200 HTML page instead of the list",
       reply.text("<!DOCTYPE html><html><body>Prisijunkite prie tinklo</body></html>", 200, { offContract: true }),
     ],
-  ])("toasts 'Nepavyko užkrauti nuorodų' on %s and offers nothing to save", async (_, failure) => {
+  ])("toasts 'Nepavyko užkrauti nuorodų' on %s and shows it with a retry — nothing to save", async (_, failure) => {
     backend.on("GET", LINKS, failure);
     renderEditor();
 
     await findToast("Nepavyko užkrauti nuorodų");
 
+    const failed = await screen.findByRole("alert");
+    expect(failed).toHaveTextContent("Nepavyko užkrauti nuorodų");
+    expect(within(failed).getByRole("button", { name: "Bandyti dar kartą" })).toBeInTheDocument();
+    expect(screen.queryByText("Kraunasi...")).toBeNull();
     expect(screen.queryByRole("button", { name: "Išsaugoti" })).toBeNull();
     expect(cards()).toEqual([]);
   });
 
 
-  // An expired session is toasted like the failures above today;
-  // KB-36 would send the admin to /login instead — either way
-  // there is nothing to save from
-  it("offers nothing to save when the session has expired (401)", async () => {
+  it("'Bandyti dar kartą' loads the areas again — 'Kraunasi...', then the editor", async () => {
+    const retried = deferred();
+    backend.once("GET", LINKS, reply.status(500, "Internal Server Error"));
+    backend.once("GET", LINKS, () => retried.promise);
+    const { user } = renderEditor();
+
+    await user.click(await screen.findByRole("button", { name: "Bandyti dar kartą" }));
+
+    expect(screen.getByText("Kraunasi...")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    await waitFor(() => expect(backend.requests("GET", LINKS)).toHaveLength(2));
+    expect(backend.lastRequest("GET", LINKS)).toMatchObject({ client: "axios", withCredentials: true });
+
+    await act(async () => retried.resolve(reply.json([FIRST])));
+
+    expect(await screen.findByRole("heading", { name: "Nuorodos" })).toBeInTheDocument();
+    expect(cards()).toHaveLength(1);
+    expect(urlField(cards()[0])).toHaveValue("https://pirmas.example");
+  });
+
+
+  // Like every admin page load: an expired session means signing
+  // in again — nothing to retry, nothing to save
+  it("sends the admin to /login when the session has expired (401)", async () => {
     backend.on("GET", LINKS, reply.status(401, "Unauthorized"));
     renderEditor();
-    await settle();
+
+    await waitFor(() => expect(hardNavigations()).toEqual(["/login"]));
 
     expect(backend.requests("GET", LINKS)).toHaveLength(1);
+    expect(toastTexts()).toEqual([]);
     expect(screen.queryByRole("button", { name: "Išsaugoti" })).toBeNull();
     expect(cards()).toEqual([]);
   });
@@ -346,6 +412,80 @@ describe("InteractiveImageEditor — loading the areas", () => {
     await renderLoaded();
 
     expect(theImage()).toHaveAttribute("src", SRC);
+  });
+});
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Another question under the same editor
+// -----------------------------------------------------------
+
+describe("InteractiveImageEditor — another question under the same editor", () => {
+
+  it("starts over on a new initialAreasUrl — 'Kraunasi...', none of the previous areas, no selection", async () => {
+    const nextAreas = deferred();
+    backend.on("GET", LINKS, reply.json([FIRST, SECOND]));
+    backend.on("GET", NEXT_LINKS, () => nextAreas.promise);
+    const { rerender } = render(editorFor(SRC, LINKS));
+    await screen.findByDisplayValue("https://pirmas.example");
+    fireEvent.click(cards()[0]);
+    expect(cards().map(lookOfCard)).toEqual(["selected", "idle"]);
+
+    rerender(editorFor(NEXT_SRC, NEXT_LINKS));
+
+    expect(screen.getByText("Kraunasi...")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("https://pirmas.example")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Išsaugoti" })).toBeNull();
+
+    await act(async () => nextAreas.resolve(reply.json([fx.questionLink({ id: 3, url: "https://trecias.example" })])));
+
+    expect(await screen.findByDisplayValue("https://trecias.example")).toBeInTheDocument();
+    expect(cards().map(lookOfCard)).toEqual(["idle"]);
+    expect(theImage()).toHaveAttribute("src", NEXT_SRC);
+  });
+
+
+  // "Išsaugoti" would otherwise post the previous question's
+  // areas to the next one — replacing its real ones
+  it("shows none of the previous question's areas when the next question's load fails", async () => {
+    backend.on("GET", LINKS, reply.json([FIRST]));
+    backend.on("GET", NEXT_LINKS, reply.status(500, "Internal Server Error"));
+    const { rerender } = render(editorFor(SRC, LINKS));
+    await screen.findByDisplayValue("https://pirmas.example");
+
+    rerender(editorFor(NEXT_SRC, NEXT_LINKS));
+    await screen.findByRole("button", { name: "Bandyti dar kartą" });
+
+    expect(screen.queryByDisplayValue("https://pirmas.example")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Išsaugoti" })).toBeNull();
+    expect(backend.requests("POST")).toEqual([]);
+  });
+
+
+  it.each([
+    ["its areas", reply.json([FIRST])],
+    ["its failure", reply.status(500, "Internal Server Error")],
+  ])("drops the previous question's late reply — %s — and keeps the next question's editor", async (_, lateReply) => {
+    const firstAreas = deferred();
+    backend.once("GET", LINKS, () => firstAreas.promise);
+    backend.on("GET", NEXT_LINKS, reply.json([fx.questionLink({ id: 3, url: "https://trecias.example" })]));
+    const { rerender } = render(editorFor(SRC, LINKS));
+
+    rerender(editorFor(NEXT_SRC, NEXT_LINKS));
+    await screen.findByDisplayValue("https://trecias.example");
+
+    await act(async () => firstAreas.resolve(lateReply));
+    await settle();
+
+    expect(cards()).toHaveLength(1);
+    expect(urlField(cards()[0])).toHaveValue("https://trecias.example");
+    expect(screen.queryByDisplayValue("https://pirmas.example")).toBeNull();
+    expect(toastTexts()).toEqual([]);
   });
 });
 
@@ -485,6 +625,24 @@ describe("InteractiveImageEditor — adding, selecting, deleting, editing", () =
 
     await user.click(first);
     expect(cards().map(lookOfCard)).toEqual(["selected", "idle"]);
+  });
+
+
+  // Every card's button says which area it removes — a screen
+  // reader lists them apart
+  it("names each delete button after its card's number — renumbered after a delete", async () => {
+    const { user } = await renderLoaded([FIRST, SECOND]);
+    const [first, second] = cards();
+
+    expect(within(first).getByRole("button", { name: "Ištrinti nuorodą Nr. 1" })).toBeInTheDocument();
+    expect(within(second).getByRole("button", { name: "Ištrinti nuorodą Nr. 2" })).toBeInTheDocument();
+
+    await user.click(within(first).getByRole("button", { name: "Ištrinti nuorodą Nr. 1" }));
+
+    const [left] = cards();
+    expect(urlField(left)).toHaveValue("https://antras.example");
+    expect(within(left).getByRole("button", { name: "Ištrinti nuorodą Nr. 1" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ištrinti nuorodą Nr. 2" })).toBeNull();
   });
 
 
@@ -683,6 +841,9 @@ describe("InteractiveImageEditor — saving", () => {
     ["a deleted question (404)", reply.status(404, "Not Found")],
     ["a server error (500)", reply.status(500, "Internal Server Error")],
     ["no connection", reply.networkError()],
+    // Only "OK" means stored — a captive portal's page answered
+    // 200 is no success either
+    ["a 200 reply other than 'OK'", reply.text("<!DOCTYPE html><html><body>Prisijunkite prie tinklo</body></html>")],
   ])("%s → 'Nepavyko išsaugoti nuorodų', no callback, the areas stay", async (_, failure) => {
     const { user, onSaved } = await renderLoaded([FIRST, SECOND]);
     backend.on("POST", LINKS, failure);
@@ -692,22 +853,40 @@ describe("InteractiveImageEditor — saving", () => {
 
     expect(onSaved).not.toHaveBeenCalled();
     expect(toastTexts()).not.toContain("Nuorodos išsaugotos");
+    expect(hardNavigations()).toEqual([]);
     expect(cards()).toHaveLength(2);
   });
 
 
-  // Toasted "Nepavyko išsaugoti nuorodų" today; KB-36 would send
-  // the admin to /login instead — either way it is no success
-  it("never reports a save refused to an expired session (401) as saved", async () => {
+  // The endpoint's documented role gate — e.g. a student logged
+  // in from another tab of the same browser: the page goes to
+  // "/", where the router sends the user to their real home
+  it("sends the admin home on the role gate's 'Error: Not Admin' (HTTP 200) — never reported as saved", async () => {
+    const { user, onSaved } = await renderLoaded([FIRST, SECOND]);
+    backend.on("POST", LINKS, reply.text("Error: Not Admin"));
+
+    await user.click(saveButton());
+
+    await waitFor(() => expect(hardNavigations()).toEqual(["/"]));
+    expect(backend.requests("POST", LINKS)).toHaveLength(1);
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(toastTexts()).not.toContain("Nuorodos išsaugotos");
+    expect(cards()).toHaveLength(2);
+  });
+
+
+  // Like every admin page: an expired session means signing in
+  // again — reported neither as saved nor as a server failure
+  it("sends the admin to /login when the session has expired (401)", async () => {
     const { user, onSaved } = await renderLoaded([FIRST, SECOND]);
     backend.on("POST", LINKS, reply.status(401, "Unauthorized"));
 
     await user.click(saveButton());
-    await settle();
 
+    await waitFor(() => expect(hardNavigations()).toEqual(["/login"]));
     expect(backend.requests("POST", LINKS)).toHaveLength(1);
     expect(onSaved).not.toHaveBeenCalled();
-    expect(toastTexts()).not.toContain("Nuorodos išsaugotos");
+    expect(toastTexts()).toEqual([]);
     expect(cards()).toHaveLength(2);
   });
 
@@ -760,8 +939,6 @@ describe("InteractiveImageEditor — the boxes on the image", () => {
   });
 
 
-  // Which element bounds a drag is KB-30's business (today the
-  // canvas, where it should be the image) — not asserted here
   it("sizes and places each box in px from its percentages", async () => {
     await renderMeasured([FIRST, SECOND]);
 
@@ -828,6 +1005,98 @@ describe("InteractiveImageEditor — the boxes on the image", () => {
 
     expect(await saveOk(user)).toEqual({
       areas: [{ id: 1, url: "http://example.com", x: 0.25, y: 0.31, width: 0.2, height: 0.03 }],
+    });
+  });
+
+
+  // The image sits centered on a grey canvas; a link area out
+  // there would be drawn beside the screenshot on the test page
+  it("bounds every box by the image — not the grey canvas around it", async () => {
+    const { image } = await renderMeasured([FIRST, SECOND]);
+
+    expect(boxes()).toHaveLength(2);
+    for (const box of boxes()) {
+      expect(boundaryOf(box)).toBe(image);
+    }
+  });
+
+
+  it("a box dragged toward the grey canvas stops at the image's edge — and is saved there", async () => {
+    const { user } = await renderMeasured([fx.questionLink()]);
+    const [box] = boxes();
+
+    // Canvas x 25 lies 25 px into the grey left of the image
+    // (which starts at 50)
+    dragWithinBounds(box, 25, box.rndProps.position.y);
+
+    expect(chipsOf(cards()[0])).toEqual(["X: 0%", "Y: 42%", "Plotis: 20%", "Aukštis: 3%"]);
+    expect(await saveOk(user)).toEqual({
+      areas: [{ id: 1, url: "http://example.com", x: 0, y: 0.42, width: 0.2, height: 0.03 }],
+    });
+  });
+
+
+  // Whatever react-rnd reports — rounding x and width separately
+  // can land a box past the edge too — the area goes back onto
+  // the image whole
+  // The POST stores whatever it is sent, so an area may be
+  // stored off the image — it loads onto the image, and what
+  // the editor shows is what it saves
+  it.each([
+    [
+      "past the right edge (x 95 %, width 20 %)",
+      { x: "95%", width: "20%" },
+      // 95 + 20 > 100: moved back to 80, its width kept
+      ["X: 80%", "Y: 42%", "Plotis: 20%", "Aukštis: 3%"],
+      // 80 % × 500 + 50, 42 % × 300 + 10, 20 % × 500, 3 % × 300
+      { x: 450, y: 136, width: 100, height: 9 },
+      { x: 0.8, y: 0.42, width: 0.2, height: 0.03 },
+    ],
+    [
+      "above the image and taller than it (y −10 %, height 120 %)",
+      { y: "-10%", height: "120%" },
+      // The whole height at most, from the top
+      ["X: 15%", "Y: 0%", "Plotis: 20%", "Aukštis: 100%"],
+      { x: 125, y: 10, width: 100, height: 300 },
+      { x: 0.15, y: 0, width: 0.2, height: 1 },
+    ],
+  ])("pulls an area stored %s onto the image as it loads — shown and saved inside", async (_, stored, chips, box, saved) => {
+    const { user } = await renderMeasured([fx.questionLink(stored)]);
+
+    expect(chipsOf(cards()[0])).toEqual(chips);
+    expect(geometry(boxes()[0])).toEqual(box);
+    expect(await saveOk(user)).toEqual({ areas: [{ id: 1, url: "http://example.com", ...saved }] });
+  });
+
+
+  it("pulls a box that ended past the image's edge back onto it, its size kept", async () => {
+    await renderMeasured([fx.questionLink()]);
+
+    // (25 − 50) / 500 = −5 %, (−20 − 10) / 300 = −10 %
+    dragBox(boxes()[0], 25, -20);
+
+    expect(chipsOf(cards()[0])).toEqual(["X: 0%", "Y: 0%", "Plotis: 20%", "Aukštis: 3%"]);
+
+    // (480 − 50) / 500 = 86 % — 86 + 20 > 100;
+    // (320 − 10) / 300 = 103 %
+    dragBox(boxes()[0], 480, 320);
+
+    expect(chipsOf(cards()[0])).toEqual(["X: 80%", "Y: 97%", "Plotis: 20%", "Aukštis: 3%"]);
+    // 80 % × 500 + 50, 97 % × 300 + 10
+    expect(geometry(boxes()[0])).toEqual({ x: 450, y: 301, width: 100, height: 9 });
+  });
+
+
+  it("keeps a box resized past the image's edges within the image", async () => {
+    const { user } = await renderMeasured([fx.questionLink()]);
+
+    // The bottom-right handle pulled from 100 × 9 out to
+    // 600 × 400 px: 120 % × 133 % — the whole image at most
+    resizeBox(boxes()[0], "bottomRight", { width: 600, height: 400 });
+
+    expect(chipsOf(cards()[0])).toEqual(["X: 0%", "Y: 0%", "Plotis: 100%", "Aukštis: 100%"]);
+    expect(await saveOk(user)).toEqual({
+      areas: [{ id: 1, url: "http://example.com", x: 0, y: 0, width: 1, height: 1 }],
     });
   });
 

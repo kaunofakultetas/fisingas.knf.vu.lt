@@ -2,13 +2,16 @@
 //  [*] Admin — StudentTestSummaryTable
 //
 //  The compact one-row-per-question summary grid of a
-//  student's test: email thumbnail, whether it was identified
-//  correctly, how many options were right and the points —
-//  solid green/amber/red chips, the same visual language as
-//  the StudentAnswers cards.
+//  student's test: the question id, email thumbnail, whether
+//  it was identified correctly, how many options were right
+//  and the points — solid green/amber/red chips, the same
+//  visual language as the StudentAnswers cards.
 //
 //  Same data source as StudentAnswers
 //  (GET /api/admin/students/<id>/answers), just condensed.
+//  A failed load shows a message with a retry (LoadError)
+//  instead of the grid — an empty grid would pass for a
+//  student who answered nothing.
 //
 //  Split into (root component last):
 //
@@ -23,6 +26,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import useFetchData from "@/hooks/useFetchData";
 
 import ButtonsPagination from '@/components/Other/ButtonsPagination/ButtonsPagination';
+import LoadError from '@/components/Other/LoadError/LoadError';
 
 
 
@@ -37,6 +41,9 @@ import ButtonsPagination from '@/components/Other/ButtonsPagination/ButtonsPagin
 // Column definitions. The results render as solid chips in
 // the same visual language as the StudentAnswers cards:
 // green = fully correct, amber = partially, red = wrong.
+//
+// Used by:
+//   - StudentTestSummaryTable (below)
 // -----------------------------------------------------------
 
 const SUMMARY_COLUMNS = [
@@ -44,9 +51,11 @@ const SUMMARY_COLUMNS = [
     field: "id",
     headerName: "ID",
     width: 80,
+    // The answers payload names the question id `id` — it
+    // carries no `questionid` (unlike the student's own test)
     renderCell: (params) => {
       return (
-        <span className="font-semibold text-gray-400">#{params.row.questionid}</span>
+        <span className="font-semibold text-gray-400">#{params.row.id}</span>
       );
     },
   },
@@ -161,7 +170,14 @@ const SUMMARY_COLUMNS = [
 
 export default function StudentTestSummaryTable({ studentID }) {
 
-  const { data, loadingData } = useFetchData("/api/admin/students/" + studentID + "/answers");
+  const { data, loadingData, error, refetch } = useFetchData("/api/admin/students/" + studentID + "/answers");
+
+
+  // Loaded once and never refreshed, so an error means no
+  // answers have arrived
+  if (error) {
+    return <LoadError message="Nepavyko įkelti atsakymų" onRetry={refetch} />;
+  }
 
 
   return (

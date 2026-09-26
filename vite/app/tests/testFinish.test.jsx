@@ -17,27 +17,27 @@
 //      the grade tile (the testgrade string as sent) and three
 //      "x / y" count tiles; the blank-field contract ("" — no
 //      test dealt) reads 0 and 0 / 0
+//    - a failed record load (5xx / no connection) shows no
+//      made-up grade: "Nepavyko įkelti rezultatų" with a
+//      "Bandyti dar kartą" that asks again takes the tiles'
+//      place; the heading, the credentials and the review stay
 //    - any failure of the finish call toasts "Nepavyko užbaigti
 //      testo — perkraukite puslapį" through the page's own
 //      <Toaster/>; the results stay
 //    - under the summary, the StudentAnswers review: GET
 //      /api/admin/students/<userid>/answers, sent once the
-//      record has loaded (the review is not mounted before)
+//      record has loaded (the review is not mounted before); a
+//      failed review load says so under the summary
 //
 //  The review cards themselves are pinned in
-//  studentAnswers.test.jsx. Pinned in knownBugs.test.jsx
-//  instead: a failed record load (500 / no connection) showing
-//  a 0 grade and "0 / 0" tiles (KB-19) and a failed review load
-//  leaving the review blank (KB-20) — the failure tests here
-//  assert only what stays on screen, never what a failed load
-//  renders in its place.
+//  studentAnswers.test.jsx.
 // -----------------------------------------------------------
 
 import "./support/setup";
 
 import { useState } from "react";
 import { describe, it, expect } from "vitest";
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 
 import { backend, deferred, reply } from "./support/backend";
 import { hardNavigations } from "./support/navigation";
@@ -206,9 +206,7 @@ describe("TestFinish — loading", () => {
 
   it("a 401 on the record sends the browser to /login and shows no results", async () => {
     // The session is gone — the finish call is refused the same
-    // way. Whether that call redirects too is left open (the 401
-    // interceptor KB-21 / KB-36 suggest would add a second
-    // "/login"), so only the target is pinned, not the count
+    // way. Only the target is pinned, not how often it is set
     routes({ record: reply.status(401, "Unauthorized"), finish: reply.status(401, "Unauthorized") });
     renderFinish();
 
@@ -359,6 +357,72 @@ describe("TestFinish — the summary", () => {
 
 
 // -----------------------------------------------------------
+// A failed record load
+// -----------------------------------------------------------
+//
+// Right after finishing, a 0 grade and "0 / 0" tiles would
+// read as a failed test — not as a request that failed.
+// -----------------------------------------------------------
+
+describe("TestFinish — a failed record load", () => {
+
+  it.each([
+    ["a server error (500)", reply.status(500, "Internal Server Error")],
+    ["a bad gateway during a deploy (502)", reply.status(502, "Bad Gateway")],
+    ["no connection", reply.networkError()],
+  ])("%s invents no results — 'Nepavyko įkelti rezultatų' and a retry take the tiles' place", async (_, failure) => {
+    routes({ record: failure });
+    renderFinish();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Nepavyko įkelti rezultatų");
+    expect(within(alert).getByRole("button", { name: "Bandyti dar kartą" })).toBeInTheDocument();
+    await settle();
+
+    expect(screen.queryByText("Testo Įvertinimas")).toBeNull();
+    expect(screen.queryAllByText(/\d+ \/ \d+/)).toHaveLength(0);
+    expect(hardNavigations()).toEqual([]);
+  });
+
+
+  it("keeps the heading, the credentials and the answers review around the message", async () => {
+    routes({ record: reply.status(500, "Internal Server Error"), answers: reply.json([fx.studentAnswer({ id: 11 })]) });
+    renderFinish();
+    await screen.findByRole("alert");
+
+    expect(screen.getByRole("heading", { name: "Testas baigtas!" })).toBeInTheDocument();
+    expect(credential("Vardas")).toBe("JONAS_JONAITIS");
+    expect(credential("Kodas")).toBe("48291037");
+    expect(await screen.findByText("Klausimas #11")).toBeInTheDocument();
+  });
+
+
+  it("'Bandyti dar kartą' asks for the record again and shows the results once it arrives", async () => {
+    backend.once("GET", RECORD, reply.status(500, "Internal Server Error"));
+    routes();
+    const { user } = renderFinish();
+
+    await user.click(await screen.findByRole("button", { name: "Bandyti dar kartą" }));
+
+    await waitFor(() => expect(tileValue("Testo Įvertinimas")).toBe("7.50"));
+    expect(tileValue("Teisingai Identifikuota bei Teisingos Opcijos")).toBe("8 / 12");
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    const records = backend.requests("GET", RECORD);
+    expect(records).toHaveLength(2);
+    expect(records[1]).toMatchObject({ client: "axios", withCredentials: true });
+    // Ending the test is not repeated
+    expect(backend.requests("GET", FINISH)).toHaveLength(1);
+  });
+});
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // The finish call failing
 // -----------------------------------------------------------
 
@@ -448,10 +512,12 @@ describe("TestFinish — the answers review", () => {
   });
 
 
-  it("a failed review load leaves the summary in place", async () => {
+  it("a failed review load says so under the summary, which stays in place", async () => {
     await renderLoaded({ answers: reply.status(500, "Internal Server Error") });
-    await waitFor(() => expect(backend.requests("GET", ANSWERS)).toHaveLength(1));
-    await settle();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Nepavyko įkelti atsakymų");
+    expect(screen.getByText("Teisingos Opcijos").compareDocumentPosition(alert)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
     expect(screen.getByRole("heading", { name: "Testas baigtas!" })).toBeInTheDocument();
     expect(tileValue("Testo Įvertinimas")).toBe("7.50");

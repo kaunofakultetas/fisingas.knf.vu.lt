@@ -477,15 +477,35 @@ describe("the contract guard — reads", () => {
   });
 
 
-  it("allows the declared virtual reads and known-bug reads", () => {
+  it("allows the declared virtual reads", () => {
     const found = violationsOf(() => {
       const [answer] = received("GET", "/api/admin/students/5/answers", [fx.studentAnswer()]);
       void answer.phishingpicture;
       void answer.identified;
-      void answer.questionid;
     });
 
     expect(found).toEqual([]);
+  });
+
+
+  // No entry of the contract pins a known-bug read at the moment
+  // — the test lends one to the answers endpoint for its run
+  it("allows a read the contract pins as a known bug, and only that one", () => {
+    const answerShape = API["GET /api/admin/students/:id/answers"].response.oneOf[0];
+    answerShape.knownBugReads = { questionid: "KB-99" };
+
+    try {
+      const found = violationsOf(() => {
+        const [answer] = received("GET", "/api/admin/students/5/answers", [fx.studentAnswer()]);
+        void answer.questionid;
+        void answer.questiontitle;
+      });
+
+      expect(found).toHaveLength(1);
+      expect(found[0]).toContain('"questiontitle"');
+    } finally {
+      delete answerShape.knownBugReads;
+    }
   });
 
 

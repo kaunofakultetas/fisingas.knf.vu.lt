@@ -9,18 +9,25 @@
 //
 //  Data comes from GET /api/admin/questions; `refetch` is
 //  passed down so the list can refresh itself after adding
-//  or deleting a question or editing link areas.
+//  or deleting a question or editing link areas. A bank that
+//  could not be loaded at all shows the load error with a
+//  retry instead — never an empty bank the admin might fill
+//  again; a failed refresh keeps the bank already on screen.
 //
 //  Split into (root component last):
 //
-//    SummaryTile     — one icon + label + value tile
-//    TestSizeWarning — banner when too few questions enabled
-//    Questions       — the page itself (default export)
+//    SummaryTile            — one icon + label + value tile
+//    enabledQuestionsPhrase — "įjungti tik N klausimai" in the
+//                             count's grammatical form
+//    TestSizeWarning        — banner when too few are enabled
+//    Questions              — the page itself (default export)
 // -----------------------------------------------------------
 
 import useFetchData from "@/hooks/useFetchData";
+import { DEFAULT_TEST_SIZE } from "@/utils/testSize";
 
 import AdminPageLayout from "@/systemPages/AdminPages/AdminPageLayout";
+import LoadError from "@/components/Other/LoadError/LoadError";
 import QuestionsList from "./QuestionsList/QuestionsList";
 
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
@@ -67,20 +74,60 @@ function SummaryTile({ icon, label, value }) {
 
 
 // -----------------------------------------------------------
+// enabledQuestionsPhrase
+// -----------------------------------------------------------
+//
+// "įjungtas tik 1 klausimas", "įjungti tik 2 klausimai",
+// "įjungta tik 0 klausimų" — Lithuanian picks both words by
+// the count's last digits: …1 (but not …11) takes the
+// singular, …2–…9 (but not …12–…19) the plural, everything
+// else (…0 and …11–…19) the genitive plural.
+//
+// Used by:
+//   - TestSizeWarning (below)
+// -----------------------------------------------------------
+
+function enabledQuestionsPhrase(count) {
+
+  const lastDigit = count % 10;
+  const isTeen = count % 100 >= 11 && count % 100 <= 19;
+
+  if (lastDigit === 1 && !isTeen) {
+    return `įjungtas tik ${count} klausimas`;
+  }
+
+  if (lastDigit >= 2 && !isTeen) {
+    return `įjungti tik ${count} klausimai`;
+  }
+
+  return `įjungta tik ${count} klausimų`;
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // TestSizeWarning
 // -----------------------------------------------------------
 //
 // Amber banner shown when fewer questions are enabled than
 // the configured test size — new tests would then deal fewer
 // questions than intended. Hidden while everything is fine.
+// A size never saved (null) is the DEFAULT_TEST_SIZE the
+// backend deals then, as the dashboard shows it.
 //
 // Used by:
 //   - Questions (below)
 // -----------------------------------------------------------
 
-function TestSizeWarning({ enabledCount, testSize }) {
+function TestSizeWarning({ enabledCount, testSize: savedTestSize }) {
 
-  if (testSize == null || (enabledCount ?? 0) >= testSize) {
+  const testSize = savedTestSize ?? DEFAULT_TEST_SIZE;
+
+  if ((enabledCount ?? 0) >= testSize) {
     return null;
   }
 
@@ -89,7 +136,7 @@ function TestSizeWarning({ enabledCount, testSize }) {
       <WarningAmberIcon sx={{ color: '#B7791F' }} />
       <span className="text-sm text-[#7A5A13]">
         <b>Įjungtų klausimų per mažai:</b> testo dydis yra {testSize},
-        bet įjungti tik {enabledCount ?? 0} klausimai — nauji testai gaus
+        bet {enabledQuestionsPhrase(enabledCount ?? 0)} — nauji testai gaus
         mažiau klausimų nei numatyta. Įjunkite daugiau klausimų arba
         sumažinkite testo dydį pagrindiniame puslapyje.
       </span>
@@ -113,11 +160,26 @@ function TestSizeWarning({ enabledCount, testSize }) {
 
 export default function Questions() {
 
-  const { data, loadingData, refetch: triggerQuestionListUpdate } = useFetchData("/api/admin/questions");
+  const { data, loadingData, error, refetch: triggerQuestionListUpdate } = useFetchData("/api/admin/questions");
 
 
   if (loadingData) {
     return null;
+  }
+
+
+  // Nothing ever arrived: `data` is still the hook's initial
+  // [], which the list would draw as an empty bank. A bank
+  // that did load carries `questions` — a failed refresh keeps
+  // it on screen
+  if (error && !data.questions) {
+    return (
+      <AdminPageLayout backgroundColor="#EBECEF">
+        <div className="m-5 bg-white rounded-[15px] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
+          <LoadError message="Nepavyko įkelti klausimų banko" onRetry={triggerQuestionListUpdate} />
+        </div>
+      </AdminPageLayout>
+    );
   }
 
 

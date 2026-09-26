@@ -13,7 +13,12 @@
 //      there at once, its "(N)" — N = the whole list, whatever
 //      the search shows — and the rows only once the reply is
 //      in (a loading bar until then); a 401 is a full page
-//      load of /login
+//      load of /login, the role gate "Error: Not Admin" (HTTP
+//      200, a session that is not an admin's) one of "/" —
+//      never a list. A first load that fails shows "Nepavyko
+//      įkelti administratorių sąrašo" with "Bandyti dar kartą"
+//      (it asks again) in place of the count and the grid; a
+//      failed refetch keeps the list on screen
 //    - the DataGrid: ID, El. Paštas, Įjungtas? (a green
 //      "Įjungtas" / grey "Išjungtas" pill for 1 / 0) and
 //      Paskutinįkart Pastebėtas (Vilnius wall time, sorted by
@@ -22,9 +27,14 @@
 //    - the toolbar: "Ieškoti..." (debounced; the trimmed input
 //      is ONE phrase, matched case-insensitively inside every
 //      column's printed value — the Vilnius time for last
-//      seen, hidden columns too; the pill column has no
-//      printed value, only its 1 / 0), STULPELIAI (the column
-//      picker) and "Įterpti Naują"
+//      seen, the pill's word for Įjungtas?, hidden columns
+//      too — and never lost to a re-render of the page while
+//      it waits), STULPELIAI and "Įterpti Naują"
+//    - STULPELIAI opens the grid's column picker (a checkbox
+//      per column; unticked = hidden) and says so with
+//      aria-expanded; a second click closes it, and after the
+//      picker closed itself — a click elsewhere, Escape — one
+//      click opens it again
 //
 //  .../AddEditAdministrator/AddEditAdministrator.jsx — one
 //  dialog, two modes:
@@ -41,24 +51,26 @@
 //          id "" creates, else it is the row's id — a NUMBER;
 //          enabled 1 / 0 — NUMBERS; password "" keeps the old
 //        {action: "delete", id}
-//    - {type: "ok"} → "Išsaugota", the grid refetches, the
-//      dialog closes; 200 {type: "error", reason} →
-//      "Nepavyko:" + the reason, the dialog stays as it was;
-//      any other 200 body (e.g. the role gate "Error: Not
-//      Admin") → "Nepavyko:Neaiškus atsakymas."; a failed
-//      request → "Nepavyko:Serverio klaida."
-//    - ×, Escape and the backdrop close it, sending nothing
+//      While one is on its way, "Įterpti" / "Išsaugoti" and
+//      "Ištrinti" are disabled: one request per save / delete
+//    - only the answer speaks: {type: "ok"} → "Išsaugota" (a
+//      save) / "Įrašas ištrintas" (a delete), the grid
+//      refetches, the dialog closes; {type: "error", reason}
+//      — HTTP 200, or 400 from the backend's shape checks —
+//      → "Nepavyko:" + the reason in Lithuanian (every reason
+//      the backend gives is translated; an unknown one shows
+//      as it came), the dialog stays as it was; the role gate
+//      "Error: Not Admin" (HTTP 200) → a full page load of
+//      "/", a 401 → one of /login, nothing toasted either way;
+//      any other 200 body → "Nepavyko:Neaiškus atsakymas.";
+//      any other failed request → "Nepavyko:Serverio klaida."
+//    - × ("Uždaryti"), Escape and the backdrop close it,
+//      sending nothing
 //
-//  Left to knownBugs.test.jsx, and so NOT exercised here:
-//  KB-03 (no test scripts a 400 refusal), KB-04 (the delete
-//  button's own "Įrašas ištrintas" toast is never asserted,
-//  present or absent), KB-10 (the GET is never answered with
-//  the role-gate text), KB-36 (no save is answered 401), KB-37
-//  (no hold ends within a frame of the 1.5 s), KB-39 (the
-//  picker is only ever closed by a click on STULPELIAI,
-//  which closes it with and without the fix), KB-41 (the
-//  only failed first load here is the 401) and KB-42 (no
-//  save is clicked twice). The grid's built-in texts are
+//  NOT exercised here: a release right at the 1.5 s edge of
+//  the hold — the holds here are 1.6 s (complete) or 1.4 s
+//  (early); the edge is LongPressButton's own timing, pinned
+//  in longPressButton.test.jsx. The grid's built-in texts are
 //  English (no localeText) and are not pinned either.
 //
 //  NOTE the grid's column-menu buttons are labelled "<column>
@@ -96,17 +108,44 @@ const EMAIL_WITHOUT_AT = "Email address must contain @";
 const OWN_ACCOUNT_DISABLED = "You cannot disable your own account";
 const OWN_ACCOUNT_DELETED = "You cannot delete your own account";
 
-// Any other 200 body. The role gate is the contract's own
-// answer to a non-admin session; the rest are off the
-// contract on purpose
+// The shape checks refuse with HTTP 400 and the same object —
+// e.g. "Invalid email" for an address over 255 characters (the
+// field sets no limit)
+const shapeRefusal = (reason) => reply.json({ type: "error", reason }, 400);
+const INVALID_EMAIL = "Invalid email";
+
+// Every reason the backend gives (administrators_views.py), its
+// HTTP status, and what the dialog shows after "Nepavyko:"
+const REASONS = [
+  ["Invalid request body", 400, "Netinkamas užklausos turinys"],
+  [INVALID_EMAIL, 400, "Netinkamas el. pašto adresas (daugiausia 255 simboliai)"],
+  ["Invalid password", 400, "Netinkamas slaptažodis"],
+  ["Invalid id", 400, "Netinkamas administratoriaus ID"],
+  ["Invalid enabled flag", 400, "Netinkama „Įjungtas?“ reikšmė"],
+  [EMAIL_WITHOUT_AT, 200, "El. pašto adrese turi būti simbolis @"],
+  [PASSWORD_TOO_SHORT, 200, "Slaptažodis turi būti bent 8 simbolių ilgio"],
+  [PASSWORD_TOO_LONG, 200, "Slaptažodis per ilgas: daugiausia 72 baitai (lietuviška raidė užima 2)"],
+  [EMAIL_TAKEN, 200, "Administratorius su tokiu el. pašto adresu jau yra"],
+  [OWN_ACCOUNT_DISABLED, 200, "Negalite išjungti savo paskyros"],
+  [OWN_ACCOUNT_DELETED, 200, "Negalite ištrinti savo paskyros"],
+];
+
+// What the dialog shows for one of them
+const shown = (reason) => REASONS.find(([sent]) => sent === reason)[2];
+
+// The role gate: the contract's own answer (HTTP 200, plain
+// text) to a session that is not an admin's
+const ROLE_GATE = reply.text("Error: Not Admin");
+
+// Any other 200 body — off the contract on purpose
 const UNCLEAR_ANSWERS = [
-  ["the role-gate text 'Error: Not Admin'", reply.text("Error: Not Admin")],
   ["an empty object", reply.json({}, 200, { offContract: true })],
   ["the question endpoints' {status: 'ok'}", reply.json({ status: "ok" }, 200, { offContract: true })],
   ["a plain-text 'OK'", reply.text("OK", 200, { offContract: true })],
 ];
 
-// Requests that fail outright — never a 400 (that is KB-03)
+// Requests that fail outright, with no reason to show — for the
+// list's GET and the dialog's POST alike
 const FAILURES = [
   ["no connection", reply.networkError()],
   ["a 500", reply.status(500, "Internal Server Error")],
@@ -191,7 +230,7 @@ const button = (name) => screen.getByRole("button", { name });
 // button's accessible name
 const deleteButton = () => button("Ištrinti");
 
-const closeButton = () => within(dialog()).getByTestId("CloseIcon").closest("button");
+const closeButton = () => within(dialog()).getByRole("button", { name: "Uždaryti" });
 const backdrop = () => dialog().querySelector(".MuiBackdrop-root");
 
 
@@ -314,10 +353,75 @@ describe("AdministratorsList — loading the list", () => {
 
     await waitFor(() => expect(hardNavigations()).toContain("/login"));
     await settle();
-    // The target, not the count: a shared 401 interceptor (the
-    // fix of KB-21 / KB-36) may redirect besides useFetchData
+    // The target is pinned, not how often it is set
     expect([...new Set(hardNavigations())]).toEqual(["/login"]);
     expect(screen.queryByText(/^\(\d+\)$/)).toBeNull();
+  });
+
+
+  // The string is never handed to the grid as its rows — setup.js
+  // fails the test on any error React would log for them
+  it("sends a session that is not an admin's (the role gate 'Error: Not Admin', HTTP 200) to '/' with a full page load — never a list", async () => {
+    backend.on("GET", ADMINISTRATORS, ROLE_GATE);
+    renderPage(<AdministratorsList />, { path: "/admin/administrators" });
+
+    await waitFor(() => expect(hardNavigations()).toContain("/"));
+    await settle();
+    expect([...new Set(hardNavigations())]).toEqual(["/"]);
+    expect(screen.queryByText(/^\(\d+\)$/)).toBeNull();
+    expect(rowIds()).toEqual([]);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+
+  // An empty grid under "(0)" would say there are no
+  // administrators at all — and invite re-creating them
+  it.each(FAILURES)("a first load failing with %s says 'Nepavyko įkelti administratorių sąrašo' and offers 'Bandyti dar kartą' — no count, no grid", async (_, failure) => {
+    backend.on("GET", ADMINISTRATORS, failure);
+    renderPage(<AdministratorsList />, { path: "/admin/administrators" });
+
+    const failed = await screen.findByRole("alert", {}, { timeout: 3000 });
+    expect(failed).toHaveTextContent("Nepavyko įkelti administratorių sąrašo");
+    expect(within(failed).getByRole("button", { name: "Bandyti dar kartą" })).toBeInTheDocument();
+
+    expect(screen.getByRole("heading", { name: "Administratorių Sąrašas" })).toBeInTheDocument();
+    expect(screen.queryByText(/^\(\d+\)$/)).toBeNull();
+    expect(screen.queryByRole("grid")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Įterpti Naują" })).toBeNull();
+    expect(gets()).toHaveLength(1);
+  });
+
+
+  it("'Bandyti dar kartą' asks again — and shows the list, counted, once it arrives", async () => {
+    backend.once("GET", ADMINISTRATORS, reply.status(500, "Internal Server Error"));
+    backend.on("GET", ADMINISTRATORS, reply.json(TEAM));
+    const { user } = renderPage(<AdministratorsList />, { path: "/admin/administrators" });
+    const failed = await screen.findByRole("alert", {}, { timeout: 3000 });
+
+    await user.click(within(failed).getByRole("button", { name: "Bandyti dar kartą" }));
+
+    expect(await screen.findByText("(3)", {}, { timeout: 3000 })).toBeInTheDocument();
+    await waitForRows(["1", "2", "3"]);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(gets()).toHaveLength(2);
+    expect(gets()[1].withCredentials).toBe(true);
+  });
+
+
+  it("keeps the list on screen when the refetch after a save fails", async () => {
+    backend.on("POST", ADMINISTRATORS, SAVED);
+    const { user } = await renderList();
+    backend.on("GET", ADMINISTRATORS, reply.status(500, "Internal Server Error"));
+    await openEdit(user, 2);
+
+    await user.click(button("Išsaugoti"));
+    await findToast("Išsaugota");
+    await waitFor(() => expect(gets()).toHaveLength(2));
+    await settle();
+
+    expect(rowIds()).toEqual(["1", "2", "3"]);
+    expect(screen.getByText("(3)")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
 
@@ -522,6 +626,27 @@ describe("AdministratorsList — the quick search", () => {
   });
 
 
+  // The pill's word is the column's printed value — the search
+  // finds what the admin reads, not the 1 / 0 behind it
+  it("finds the disabled administrator by the word on the pill — 'Išjungtas' — and only that one", async () => {
+    await renderList();
+
+    search("Išjungtas");
+
+    await waitForRows(["3"]);
+    expect(pill(3).textContent).toBe("Išjungtas");
+  });
+
+
+  it("finds the enabled administrators by 'įjungtas' — case-insensitive, 'Išjungtas' left out", async () => {
+    await renderList();
+
+    search("įjungtas");
+
+    await waitForRows(["1", "2"]);
+  });
+
+
   it("finds an administrator by the last-seen time as shown — Vilnius time, not UTC", async () => {
     await renderList();
 
@@ -543,6 +668,25 @@ describe("AdministratorsList — the quick search", () => {
 
     await waitForRows(["1", "2", "3"]);
   });
+
+
+  // The search runs 150 ms after the last keystroke. Here the
+  // page re-renders inside that wait — "Įterpti Naują" opens the
+  // dialog and Escape closes it, all in the same task as the
+  // typing, so no timer can run in between — and the waiting
+  // search must survive it (a refetch landing mid-typing
+  // re-renders the page the same way)
+  it("applies a search even when the page re-renders before the search runs", async () => {
+    await renderList();
+
+    search("jonas");
+    fireEvent.click(button("Įterpti Naują"));
+    fireEvent.keyDown(emailField(), { key: "Escape" });
+    expect(dialog()).toBeNull();
+
+    await waitForRows(["2"]);
+    expect(searchBox()).toHaveValue("jonas");
+  });
 }, SLOW_UI_TIMEOUT);
 
 
@@ -559,6 +703,9 @@ describe("AdministratorsList — the column picker (STULPELIAI)", () => {
 
   const columnToggle = (title) => screen.getByRole("checkbox", { name: title });
 
+  // A column of the picker — on screen while the picker is open
+  const pickerColumn = () => screen.queryByRole("checkbox", { name: "El. Paštas" });
+
   // Resolves with the picker's "El. Paštas" checkbox
   const openPicker = async (user) => {
     await user.click(button("STULPELIAI"));
@@ -568,6 +715,19 @@ describe("AdministratorsList — the column picker (STULPELIAI)", () => {
   const hideEmailColumn = async (user) => {
     await user.click(await openPicker(user));
     await waitFor(() => expect(columnFields()).toEqual(["id", "enabled", "lastseen"]));
+  };
+
+  // The picker opened by STULPELIAI and then closed by the grid
+  // itself — `closeIt` does that: the panel closes on a pointerup
+  // outside it (a click-away armed one tick after it opened) and
+  // on Escape inside it. Resolves with the user-event instance
+  const pickerClosedByTheGrid = async (closeIt) => {
+    const { user } = await renderList();
+    await openPicker(user);
+
+    await closeIt(user);
+    await waitFor(() => expect(pickerColumn()).toBeNull());
+    return user;
   };
 
 
@@ -605,6 +765,40 @@ describe("AdministratorsList — the column picker (STULPELIAI)", () => {
     search("jonas");
 
     await waitForRows(["2"]);
+  });
+
+
+  it("says whether the picker is open — aria-haspopup, and aria-expanded 'true' only while it is", async () => {
+    const { user } = await renderList();
+    expect(button("STULPELIAI")).toHaveAttribute("aria-haspopup", "true");
+    expect(button("STULPELIAI")).not.toHaveAttribute("aria-expanded");
+
+    await openPicker(user);
+    expect(button("STULPELIAI")).toHaveAttribute("aria-expanded", "true");
+
+    await user.click(button("STULPELIAI"));
+    await waitFor(() => expect(pickerColumn()).toBeNull());
+    expect(button("STULPELIAI")).not.toHaveAttribute("aria-expanded");
+  });
+
+
+  it("after a click elsewhere closed the picker, one click on STULPELIAI opens it again", async () => {
+    const user = await pickerClosedByTheGrid((user) => user.click(screen.getByRole("heading", { name: "Administratorių Sąrašas" })));
+
+    await user.click(button("STULPELIAI"));
+
+    expect(await screen.findByRole("checkbox", { name: "El. Paštas" })).toBeInTheDocument();
+  });
+
+
+  it("after Escape closed the picker, one click on STULPELIAI opens it again", async () => {
+    const user = await pickerClosedByTheGrid(() => {
+      fireEvent.keyDown(pickerColumn(), { key: "Escape" });
+    });
+
+    await user.click(button("STULPELIAI"));
+
+    expect(await screen.findByRole("checkbox", { name: "El. Paštas" })).toBeInTheDocument();
   });
 }, SLOW_UI_TIMEOUT);
 
@@ -730,7 +924,7 @@ describe("AdministratorsList — creating an administrator", () => {
     PASSWORD_TOO_SHORT,
     PASSWORD_TOO_LONG,
     EMAIL_WITHOUT_AT,
-  ])("shows the refusal '%s' as 'Nepavyko:' + the reason — the dialog stays open with what was typed, no refetch", async (reason) => {
+  ])("shows the refusal '%s' as 'Nepavyko:' + the reason in Lithuanian — the dialog stays open with what was typed, no refetch", async (reason) => {
     backend.on("POST", ADMINISTRATORS, refusal(reason));
     const { user } = await renderList();
     await openCreate(user);
@@ -738,9 +932,9 @@ describe("AdministratorsList — creating an administrator", () => {
 
     await user.click(button("Įterpti"));
 
-    expect((await findToast(reason)).textContent).toBe(`Nepavyko:${reason}`);
+    expect((await findToast(shown(reason))).textContent).toBe(`Nepavyko:${shown(reason)}`);
     await settle();
-    expect(toastTexts()).toEqual([`Nepavyko:${reason}`]);
+    expect(toastTexts()).toEqual([`Nepavyko:${shown(reason)}`]);
     expect(screen.getByRole("heading", { name: "Naujas Administratorius" })).toBeInTheDocument();
     expect(emailField()).toHaveValue("naujas@knf.vu.lt");
     expect(passwordField()).toHaveValue("ilgas-slaptazodis");
@@ -757,7 +951,7 @@ describe("AdministratorsList — creating an administrator", () => {
     await openCreate(user);
     await fillNew(user, { email: "admin@knf.vu.lt" });
     await user.click(button("Įterpti"));
-    await findToast(EMAIL_TAKEN);
+    await findToast(shown(EMAIL_TAKEN));
 
     await retypeEmail(user, "naujas@knf.vu.lt");
     await user.click(button("Įterpti"));
@@ -796,6 +990,95 @@ describe("AdministratorsList — creating an administrator", () => {
     expect(dialog()).not.toBeNull();
     expect(emailField()).toHaveValue("naujas@knf.vu.lt");
     expect(gets()).toHaveLength(1);
+  });
+
+
+  it("shows the reason of a 400 refusal in Lithuanian — 'Invalid email' as its 255-character limit — the dialog stays open with what was typed, no refetch", async () => {
+    backend.on("POST", ADMINISTRATORS, shapeRefusal(INVALID_EMAIL));
+    const { user } = await renderList();
+    await openCreate(user);
+    await fillNew(user);
+
+    await user.click(button("Įterpti"));
+
+    expect((await findToast(shown(INVALID_EMAIL))).textContent).toBe("Nepavyko:Netinkamas el. pašto adresas (daugiausia 255 simboliai)");
+    await settle();
+    expect(toastTexts()).toEqual([`Nepavyko:${shown(INVALID_EMAIL)}`]);
+    expect(dialog()).not.toBeNull();
+    expect(emailField()).toHaveValue("naujas@knf.vu.lt");
+    expect(button("Įterpti")).toBeEnabled();
+    expect(gets()).toHaveLength(1);
+  });
+
+
+  it("sends an expired session (401) to /login with a full page load — nothing toasted, no refetch", async () => {
+    backend.on("POST", ADMINISTRATORS, reply.status(401, "Unauthorized"));
+    const { user } = await renderList();
+    await openCreate(user);
+    await fillNew(user);
+
+    await user.click(button("Įterpti"));
+
+    await waitFor(() => expect(hardNavigations()).toContain("/login"));
+    await settle();
+    expect([...new Set(hardNavigations())]).toEqual(["/login"]);
+    expect(toastTexts()).toEqual([]);
+    expect(gets()).toHaveLength(1);
+  });
+
+
+  it("sends a session that is not an admin's (the role gate 'Error: Not Admin', HTTP 200) to '/' with a full page load — nothing toasted, no refetch", async () => {
+    backend.on("POST", ADMINISTRATORS, ROLE_GATE);
+    const { user } = await renderList();
+    await openCreate(user);
+    await fillNew(user);
+
+    await user.click(button("Įterpti"));
+
+    await waitFor(() => expect(hardNavigations()).toContain("/"));
+    await settle();
+    expect([...new Set(hardNavigations())]).toEqual(["/"]);
+    expect(toastTexts()).toEqual([]);
+    expect(gets()).toHaveLength(1);
+  });
+
+
+  it("disables 'Įterpti' while the create is on its way — and enables it again after a refusal", async () => {
+    const save = deferred();
+    backend.on("POST", ADMINISTRATORS, () => save.promise);
+    const { user } = await renderList();
+    await openCreate(user);
+    await fillNew(user);
+
+    await user.click(button("Įterpti"));
+    expect(button("Įterpti")).toBeDisabled();
+
+    await act(async () => save.resolve(refusal(EMAIL_TAKEN)));
+
+    await findToast(shown(EMAIL_TAKEN));
+    expect(button("Įterpti")).toBeEnabled();
+  });
+
+
+  // One user-event call: its pointer-events check runs once, so
+  // the button the first click disabled simply does not get the
+  // second
+  it("sends one create however often 'Įterpti' is clicked while it runs — one 'Išsaugota'", async () => {
+    const save = deferred();
+    backend.on("POST", ADMINISTRATORS, () => save.promise);
+    const { user } = await renderList();
+    await openCreate(user);
+    await fillNew(user);
+
+    await user.dblClick(button("Įterpti"));
+    expect(posts()).toHaveLength(1);
+
+    await act(async () => save.resolve(SAVED));
+    await findToast("Išsaugota");
+    await settle();
+
+    expect(posts()).toHaveLength(1);
+    expect(toastTexts()).toEqual(["Išsaugota"]);
   });
 
 
@@ -1087,7 +1370,27 @@ describe("AdministratorsList — editing an administrator", () => {
   });
 
 
-  it("shows the self-lockout refusal 'You cannot disable your own account' — the dialog stays open, 'Ne' still picked", async () => {
+  it("disables 'Išsaugoti' and 'Ištrinti' while the update is on its way — one update however often clicked", async () => {
+    const save = deferred();
+    backend.on("POST", ADMINISTRATORS, () => save.promise);
+    const { user } = await renderList();
+    await openEdit(user, 2);
+
+    await user.dblClick(button("Išsaugoti"));
+
+    expect(button("Išsaugoti")).toBeDisabled();
+    expect(deleteButton()).toBeDisabled();
+    expect(posts()).toHaveLength(1);
+
+    await act(async () => save.resolve(SAVED));
+    await findToast("Išsaugota");
+    await waitFor(() => expect(dialog()).toBeNull());
+    expect(posts()).toHaveLength(1);
+    expect(toastTexts()).toEqual(["Išsaugota"]);
+  });
+
+
+  it("shows the self-lockout refusal 'You cannot disable your own account' as 'Negalite išjungti savo paskyros' — the dialog stays open, 'Ne' still picked", async () => {
     backend.on("POST", ADMINISTRATORS, refusal(OWN_ACCOUNT_DISABLED));
     const { user } = await renderList();
     await openEdit(user, 1);
@@ -1095,7 +1398,7 @@ describe("AdministratorsList — editing an administrator", () => {
 
     await user.click(button("Išsaugoti"));
 
-    expect((await findToast(OWN_ACCOUNT_DISABLED)).textContent).toBe(`Nepavyko:${OWN_ACCOUNT_DISABLED}`);
+    expect((await findToast(shown(OWN_ACCOUNT_DISABLED))).textContent).toBe("Nepavyko:Negalite išjungti savo paskyros");
     await settle();
     expect(posts()[0].json).toEqual({ action: "insertupdate", id: 1, email: "admin@knf.vu.lt", enabled: 0, password: "" });
     expect(screen.getByRole("heading", { name: "Redaguoti Administratorių" })).toBeInTheDocument();
@@ -1105,7 +1408,7 @@ describe("AdministratorsList — editing an administrator", () => {
   });
 
 
-  it("shows 'Administrator with this email already exists' for an address someone else has — the dialog stays open", async () => {
+  it("shows 'Administrator with this email already exists', in Lithuanian, for an address someone else has — the dialog stays open", async () => {
     backend.on("POST", ADMINISTRATORS, refusal(EMAIL_TAKEN));
     const { user } = await renderList();
     await openEdit(user, 2);
@@ -1113,7 +1416,7 @@ describe("AdministratorsList — editing an administrator", () => {
 
     await user.click(button("Išsaugoti"));
 
-    expect((await findToast(EMAIL_TAKEN)).textContent).toBe(`Nepavyko:${EMAIL_TAKEN}`);
+    expect((await findToast(shown(EMAIL_TAKEN))).textContent).toBe(`Nepavyko:${shown(EMAIL_TAKEN)}`);
     await settle();
     expect(emailField()).toHaveValue("admin@knf.vu.lt");
     expect(gets()).toHaveLength(1);
@@ -1225,9 +1528,7 @@ describe("AdministratorsList — deleting an administrator", () => {
   });
 
 
-  // Only the reply's own "Išsaugota" is looked for — the hold's
-  // early "Įrašas ištrintas" is KB-04
-  it("on {type: 'ok'}: 'Išsaugota', the dialog closes, the refetched list is without the row", async () => {
+  it("on {type: 'ok'}: 'Įrašas ištrintas' as the only toast, the dialog closes, the refetched list is without the row", async () => {
     backend.on("POST", ADMINISTRATORS, SAVED);
     const { user } = await renderList();
     backend.on("GET", ADMINISTRATORS, reply.json([ADMIN, JONAS]));
@@ -1235,40 +1536,103 @@ describe("AdministratorsList — deleting an administrator", () => {
 
     longPress(deleteButton(), 1600);
 
-    expect((await findToast("Išsaugota")).textContent).toBe("Išsaugota");
+    expect((await findToast("Įrašas ištrintas")).textContent).toBe("Įrašas ištrintas");
     await waitFor(() => expect(dialog()).toBeNull());
     await waitForRows(["1", "2"]);
     expect(gets()).toHaveLength(2);
     expect(screen.getByText("(2)")).toBeInTheDocument();
+    expect(toastTexts()).toEqual(["Įrašas ištrintas"]);
   });
 
 
-  it("shows the self-lockout refusal 'You cannot delete your own account' — the dialog stays open, the row stays", async () => {
+  it("says nothing until the delete has landed — 'Įrašas ištrintas' only with the backend's {type: 'ok'}", async () => {
+    const deletion = deferred();
+    backend.on("POST", ADMINISTRATORS, () => deletion.promise);
+    const { user } = await renderList();
+    backend.on("GET", ADMINISTRATORS, reply.json([ADMIN, JONAS]));
+    await openEdit(user, 3);
+
+    longPress(deleteButton(), 1600);
+    await settle();
+
+    expect(posts()).toHaveLength(1);
+    expect(toastTexts()).toEqual([]);
+    expect(dialog()).not.toBeNull();
+
+    await act(async () => deletion.resolve(SAVED));
+
+    await findToast("Įrašas ištrintas");
+    await waitFor(() => expect(dialog()).toBeNull());
+    await waitForRows(["1", "2"]);
+  });
+
+
+  it("a refused delete shows only the refusal — never 'Įrašas ištrintas'", async () => {
+    backend.on("POST", ADMINISTRATORS, refusal(OWN_ACCOUNT_DELETED));
+    const { user } = await renderList();
+    await openEdit(user, 1);
+
+    longPress(deleteButton(), 1600);
+    await findToast(shown(OWN_ACCOUNT_DELETED));
+    await settle();
+
+    expect(toastTexts()).toEqual(["Nepavyko:Negalite ištrinti savo paskyros"]);
+  });
+
+
+  it("ignores a second hold while the delete is on its way — 'Ištrinti' and 'Išsaugoti' disabled, one delete sent", async () => {
+    const deletion = deferred();
+    backend.on("POST", ADMINISTRATORS, () => deletion.promise);
+    const { user } = await renderList();
+    await openEdit(user, 3);
+    const held = deleteButton();
+
+    longPress(held, 1600);
+    await settle();
+    expect(held).toBeDisabled();
+    expect(button("Išsaugoti")).toBeDisabled();
+
+    longPress(held, 1600);
+    await settle();
+    expect(posts()).toHaveLength(1);
+
+    await act(async () => deletion.resolve(SAVED));
+    await findToast("Įrašas ištrintas");
+    await settle();
+    expect(posts()).toHaveLength(1);
+    expect(toastTexts()).toEqual(["Įrašas ištrintas"]);
+  });
+
+
+  it("shows the self-lockout refusal 'You cannot delete your own account' as 'Negalite ištrinti savo paskyros' — the dialog stays open, its buttons usable again, the row stays", async () => {
     backend.on("POST", ADMINISTRATORS, refusal(OWN_ACCOUNT_DELETED));
     const { user } = await renderList();
     await openEdit(user, 1);
 
     longPress(deleteButton(), 1600);
 
-    expect((await findToast(OWN_ACCOUNT_DELETED)).textContent).toBe(`Nepavyko:${OWN_ACCOUNT_DELETED}`);
+    expect((await findToast(shown(OWN_ACCOUNT_DELETED))).textContent).toBe(`Nepavyko:${shown(OWN_ACCOUNT_DELETED)}`);
     await settle();
     expect(posts()[0].json).toEqual({ action: "delete", id: 1 });
     expect(screen.getByRole("heading", { name: "Redaguoti Administratorių" })).toBeInTheDocument();
+    expect(deleteButton()).toBeEnabled();
+    expect(button("Išsaugoti")).toBeEnabled();
     expect(gets()).toHaveLength(1);
     expect(rowIds()).toEqual(["1", "2", "3"]);
   });
 
 
-  it("answers the role-gate text with 'Nepavyko:Neaiškus atsakymas.' — the dialog stays open", async () => {
-    backend.on("POST", ADMINISTRATORS, reply.text("Error: Not Admin"));
+  it("sends a session that is not an admin's (the role gate 'Error: Not Admin') to '/' with a full page load — nothing toasted, no refetch", async () => {
+    backend.on("POST", ADMINISTRATORS, ROLE_GATE);
     const { user } = await renderList();
     await openEdit(user, 3);
 
     longPress(deleteButton(), 1600);
 
-    expect((await findToast("Neaiškus atsakymas.")).textContent).toBe("Nepavyko:Neaiškus atsakymas.");
+    await waitFor(() => expect(hardNavigations()).toContain("/"));
     await settle();
-    expect(dialog()).not.toBeNull();
+    expect([...new Set(hardNavigations())]).toEqual(["/"]);
+    expect(toastTexts()).toEqual([]);
     expect(gets()).toHaveLength(1);
   });
 
@@ -1374,8 +1738,9 @@ describe("AddEditAdministrator — what it tells the list", () => {
 
 
   it.each([
-    ["a refusal", refusal(EMAIL_TAKEN), EMAIL_TAKEN],
-    ["the role-gate text", reply.text("Error: Not Admin"), "Neaiškus atsakymas."],
+    ["a refusal", refusal(EMAIL_TAKEN), shown(EMAIL_TAKEN)],
+    ["a 400 refusal", shapeRefusal(INVALID_EMAIL), shown(INVALID_EMAIL)],
+    ["an unclear answer", reply.json({}, 200, { offContract: true }), "Neaiškus atsakymas."],
     ["a 500", reply.status(500, "Internal Server Error"), "Serverio klaida."],
     ["no connection", reply.networkError(), "Serverio klaida."],
   ])("after %s neither refreshes the list nor closes", async (_, answer, message) => {
@@ -1392,6 +1757,24 @@ describe("AddEditAdministrator — what it tells the list", () => {
   });
 
 
+  it.each([
+    ["the role gate 'Error: Not Admin'", "/", ROLE_GATE],
+    ["an expired session (401)", "/login", reply.status(401, "Unauthorized")],
+  ])("after %s neither refreshes the list nor closes — the browser is sent to %s", async (_, target, answer) => {
+    backend.on("POST", ADMINISTRATORS, answer);
+    const { user, setOpen, getData } = renderDialog(rowClick(ONA));
+
+    await user.click(button("Išsaugoti"));
+    await waitFor(() => expect(hardNavigations()).toContain(target));
+    await settle();
+
+    expect([...new Set(hardNavigations())]).toEqual([target]);
+    expect(getData).not.toHaveBeenCalled();
+    expect(setOpen).not.toHaveBeenCalled();
+    expect(toastTexts()).toEqual([]);
+  });
+
+
   it.each(CLOSERS)("%s calls setOpen(false) — nothing sent, the list not refreshed", async (_, close) => {
     const { user, setOpen, getData } = renderDialog(rowClick(ONA));
 
@@ -1402,5 +1785,38 @@ describe("AddEditAdministrator — what it tells the list", () => {
     expect(setOpen).toHaveBeenCalledWith(false);
     expect(getData).not.toHaveBeenCalled();
     expect(backend.requests()).toHaveLength(0);
+  });
+}, SLOW_UI_TIMEOUT);
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// The backend's reasons, in Lithuanian
+// -----------------------------------------------------------
+
+describe("AddEditAdministrator — the backend's reasons, in Lithuanian", () => {
+
+  // The edit dialog saves at once — nothing to type
+  it.each(REASONS)("shows '%s' (HTTP %i) as 'Nepavyko:%s'", async (reason, status, lithuanian) => {
+    backend.on("POST", ADMINISTRATORS, reply.json({ type: "error", reason }, status));
+    const { user } = renderDialog(rowClick(JONAS));
+
+    await user.click(button("Išsaugoti"));
+
+    expect((await findToast(lithuanian)).textContent).toBe(`Nepavyko:${lithuanian}`);
+  });
+
+
+  it.each([200, 400])("shows a reason it does not know as it came (HTTP %i)", async (status) => {
+    backend.on("POST", ADMINISTRATORS, reply.json({ type: "error", reason: "Something unforeseen" }, status));
+    const { user } = renderDialog(rowClick(JONAS));
+
+    await user.click(button("Išsaugoti"));
+
+    expect((await findToast("Something unforeseen")).textContent).toBe("Nepavyko:Something unforeseen");
   });
 }, SLOW_UI_TIMEOUT);

@@ -18,7 +18,10 @@
 //  "Neatsakė" shows when the question was never answered.
 //
 //  Data comes from GET /api/admin/students/<id>/answers —
-//  the backend also allows students to read their own.
+//  the backend also allows students to read their own. An
+//  empty list means no test was dealt, so a failed load must
+//  not look like one: it shows the reason and a retry instead
+//  (LoadError).
 //
 //  Split into (root component last):
 //
@@ -36,6 +39,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import RemoveIcon from '@mui/icons-material/Remove';
 
 import InteractiveImage from "@/components/Other/InteractiveImage/InteractiveImage";
+import LoadError from "@/components/Other/LoadError/LoadError";
 
 
 
@@ -251,8 +255,11 @@ function AnswerCard({ answer }) {
 
             <IsPhishingRow answer={answer} />
 
-            {answer.answeredoptions.map((answeredoption) => (
-              <OptionRow key={answeredoption.optiontext} answeredoption={answeredoption} />
+            {/* Option texts are not unique (two options left blank
+                are both "") and the rows never reorder — so they
+                are keyed by position */}
+            {answer.answeredoptions.map((answeredoption, index) => (
+              <OptionRow key={index} answeredoption={answeredoption} />
             ))}
 
           </tbody>
@@ -280,7 +287,15 @@ function AnswerCard({ answer }) {
 
 export default function StudentAnswers({ studentID }) {
 
-  const { data } = useFetchData("/api/admin/students/" + studentID + "/answers");
+  const { data, error, refetch } = useFetchData("/api/admin/students/" + studentID + "/answers");
+
+
+  // Nothing loaded and the load failed — data is still the
+  // hook's initial []
+  if (error && data.length === 0) {
+    return <LoadError message="Nepavyko įkelti atsakymų" onRetry={refetch} />;
+  }
+
 
   return (
     <div className="flex flex-col gap-5">

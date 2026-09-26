@@ -7,46 +7,50 @@
 //  Footer and LongPressButton:
 //    - loading: exactly ONE GET /api/student/questions
 //      (withCredentials), "Kraunasi..." until it answers; a 401
-//      is a full navigation to /login
+//      is a full navigation to /login; any other failure (5xx,
+//      no connection) → "Nepavyko įkelti klausimų" with a
+//      "Bandyti dar kartą" that asks again. Under StrictMode's
+//      double mount only the newest load counts
 //    - `{}` (a finished test or an admin session, per swagger)
 //      and [] → "Testas dar neparuoštas" + a reload button
 //    - the open question: "Klausimas n / N", the email
 //      /api/phishingpictures/{questionid}, "Papildomai:" only
 //      for a non-empty `question`, the follow-up checkboxes
-//      (isselected 1 = ticked; 0 and null = not)
+//      (isselected 1 = ticked; 0 and null = not), each named
+//      after its option text
 //    - "Tikras" = selectedanswer 0, "Fišingas" = 1; an option
 //      row toggles isselected null → 1 → 0 → 1
 //    - AUTOSAVE: every change POSTs the WHOLE StudentQuestion
 //      array (withCredentials) — the GET reply with the change
-//      applied; nothing is sent before the student clicks
+//      applied; nothing is sent before the student clicks.
+//      Every change builds a new state: what a save was handed
+//      never changes afterwards
 //    - saves are SERIALISED: one POST on the wire at a time;
 //      clicks made meanwhile are coalesced into ONE follow-up
 //      carrying the newest state
-//    - a failed save (5xx / no connection) toasts; the next
-//      click sends again
+//    - only a save answered "OK" is saved. A failed one (5xx,
+//      no connection, "Error: …" for a refused body) toasts;
+//      the next click sends again. A save refused with 401
+//      (the session ended) is a full navigation to /login, one
+//      answered `{}` (a locked test, not a student's session)
+//      to "/" — no toast, and nothing is sent after either
 //    - finishing ("Užbaigti testą", held 1.5 s) waits for the
 //      running save, re-sends a failed one once, and only then
 //      loads /student/finish; still failing → a toast and the
-//      student stays. A save answered `{}` counts as saved
+//      student stays. After a save that sent the browser away
+//      (/login, "/") finishing sends and claims nothing
+//    - a page restored from the back-forward cache (Back after
+//      finishing) reloads
 //    - the fullscreen email (Atgal / backdrop / Escape) and the
 //      link-area URL tooltips in both views
-//
-//  TestHome mutates the question objects it received in place,
-//  so expected payloads are always built from fresh fixtures.
-//
-//  Not here (knownBugs.test.jsx): the endless spinner after a
-//  non-401 load failure (KB-12), the previous question's link
-//  areas on the next question's email (KB-13) and a save
-//  refused with 401 taken for a lost connection (KB-21). The
-//  tests below hold with and without those fixes: failed saves
-//  are 5xx / no connection, and the next email is only checked
-//  before it has loaded and once its own areas are in.
 // -----------------------------------------------------------
 
 import "./support/setup";
 
-import { describe, it, expect } from "vitest";
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import axios from "axios";
 
 import { backend, deferred, reply } from "./support/backend";
 import { hardNavigations, reloadCount } from "./support/navigation";
@@ -174,16 +178,79 @@ describe("TestHome — loading the dealt test", () => {
     backend.on("GET", QUESTIONS, reply.status(401, "Unauthorized"));
     renderPage(<TestHome />, { path: "/student" });
 
-    // The target is pinned, not how often it is set — a shared
-    // 401 handler (the fix of KB-21 / KB-36) may redirect as well
+    // The target is pinned, not how often it is set
     await waitFor(() => expect(hardNavigations()).toContain("/login"));
     await settle();
     expect([...new Set(hardNavigations())]).toEqual(["/login"]);
 
-    // Not mistaken for an empty test while the browser leaves
+    // Not mistaken for an empty test — nor for a failed load —
+    // while the browser leaves
     expect(screen.queryByText("Testas dar neparuoštas")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByText("Kraunasi...")).toBeInTheDocument();
     expect(backend.requests()).toHaveLength(1);
+  });
+
+
+  it.each([
+    ["a server error (500)", reply.status(500, "Internal Server Error")],
+    ["a bad gateway during a deploy (502)", reply.status(502, "Bad Gateway")],
+    ["no connection", reply.networkError()],
+  ])("%s replaces the spinner with 'Nepavyko įkelti klausimų' and a retry", async (_, failure) => {
+    backend.on("GET", QUESTIONS, failure);
+    renderPage(<TestHome />, { path: "/student" });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Nepavyko įkelti klausimų");
+    expect(within(alert).getByRole("button", { name: "Bandyti dar kartą" })).toBeInTheDocument();
+    expect(screen.queryByText("Kraunasi...")).toBeNull();
+
+    // Not an empty test either; the navbar stays, so the student
+    // can still log out
+    expect(screen.queryByText("Testas dar neparuoštas")).toBeNull();
+    expect(screen.getByRole("button", { name: "Atsijungti" })).toBeInTheDocument();
+    expect(hardNavigations()).toEqual([]);
+  });
+
+
+  it("'Bandyti dar kartą' after a failed load asks again — the spinner, then the test", async () => {
+    const retry = deferred();
+    backend.once("GET", QUESTIONS, reply.status(500, "Internal Server Error"));
+    backend.once("GET", QUESTIONS, () => retry.promise);
+    const { user } = renderPage(<TestHome />, { path: "/student" });
+
+    await user.click(await screen.findByRole("button", { name: "Bandyti dar kartą" }));
+
+    expect(screen.getByText("Kraunasi...")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    await act(async () => retry.resolve(reply.json(fx.dealtTest(3))));
+
+    expect(await screen.findByRole("heading", { name: questionTitle(1, 3) })).toBeInTheDocument();
+    const requests = backend.requests();
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toMatchObject({ client: "axios", method: "GET", url: QUESTIONS, withCredentials: true });
+    expect(reloadCount()).toBe(0);
+  });
+
+
+  // Development builds mount every component twice (the app
+  // renders in StrictMode) — two loads race, and only the newest
+  // may count. StrictMode must wrap the WHOLE tree to replay the
+  // effects, so the page is rendered bare, inside a router only
+  it("under StrictMode's double mount only the newest load counts — a failed first one hides nothing", async () => {
+    backend.once("GET", QUESTIONS, reply.status(500, "Internal Server Error"));
+    backend.once("GET", QUESTIONS, reply.json(fx.dealtTest(3)));
+    render(<TestHome />, {
+      wrapper: ({ children }) => <MemoryRouter initialEntries={["/student"]}>{children}</MemoryRouter>,
+      reactStrictMode: true,
+    });
+
+    expect(await screen.findByRole("heading", { name: questionTitle(1, 3) })).toBeInTheDocument();
+    await settle();
+
+    expect(backend.requests("GET", QUESTIONS)).toHaveLength(2);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 
@@ -286,6 +353,22 @@ describe("TestHome — the open question", () => {
     ]);
 
     expect(optionRows()).toEqual([[SENDER_OPTION, false], [LINK_OPTION, true], [URGENT_OPTION, false]]);
+  });
+
+
+  // The option text sits next to the checkbox, not in a label —
+  // without a name of its own a screen reader says just "checkbox"
+  it("names each follow-up checkbox after its option text", async () => {
+    const { user } = await openTest(twoQuestions());
+
+    expect(screen.getByRole("checkbox", { name: SENDER_OPTION })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: LINK_OPTION })).not.toBeChecked();
+
+    await user.click(jumpButton(2));
+
+    expect(screen.getByRole("checkbox", { name: URGENT_OPTION })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: TYPOS_OPTION })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: SENDER_OPTION })).toBeNull();
   });
 
 
@@ -566,15 +649,26 @@ describe("TestHome — autosave: every change POSTs the whole test", () => {
   });
 
 
-  it("a save answered `{}` (a finished test / an admin session) is not reported as a failure", async () => {
+  // What the page hands axios is read again later (a follow-up
+  // save sends the newest state) — so a state, once built, is
+  // never edited: the next click builds a new one
+  it("hands every save a state of its own — later clicks never change it", async () => {
+    const post = vi.spyOn(axios, "post");
     const { user } = await openTest(fx.dealtTest(2));
-    backend.on("POST", QUESTIONS, reply.json({}));
+    backend.on("POST", QUESTIONS, reply.text("OK"));
 
     await user.click(verdict("Fišingas"));
     await waitFor(() => expect(saves()).toHaveLength(1));
-    await settle();
+    const firstState = post.mock.calls[0][1];
 
-    expect(toastTexts()).toEqual([]);
+    await user.click(screen.getByText(SENDER_OPTION));
+    await user.click(verdict("Tikras"));
+    await waitFor(() => expect(saves()).toHaveLength(3));
+
+    const expected = fx.dealtTest(2);
+    expected[0].selectedanswer = 1;
+    expect(JSON.parse(JSON.stringify(firstState))).toEqual(expected);
+    expect(saves()[0].json).toEqual(expected);
   });
 });
 
@@ -771,6 +865,83 @@ describe("TestHome — a failed save", () => {
     expected[0].selectedanswer = 1;
     expected[0].questionoptions[0].isselected = 1;
     expect(saves()[1].json).toEqual(expected);
+  });
+
+
+  // The session ended — e.g. the student opened /login in another
+  // tab of the same browser, which logs out. The connection is
+  // fine, and every further save would be refused as well
+  it("a save refused with 401 sends the browser to /login — no connection toast, and nothing is sent after it", async () => {
+    const { user } = await openTest(fx.dealtTest(2));
+    backend.on("POST", QUESTIONS, reply.status(401, "Unauthorized"));
+
+    await user.click(verdict("Fišingas"));
+    await waitFor(() => expect(hardNavigations()).toEqual(["/login"]));
+
+    // A click while the browser leaves
+    await user.click(screen.getByText(LINK_OPTION));
+    await settle();
+
+    expect(saves()).toHaveLength(1);
+    expect(toastTexts()).toEqual([]);
+    expect(hardNavigations()).toEqual(["/login"]);
+  });
+
+
+  it("a save refused with 401 drops the clicks queued behind it", async () => {
+    const { user } = await openTest(fx.dealtTest(2));
+    const first = deferred();
+    backend.once("POST", QUESTIONS, () => first.promise);
+    backend.on("POST", QUESTIONS, reply.status(401, "Unauthorized"));
+
+    await user.click(verdict("Fišingas"));
+    await user.click(screen.getByText(SENDER_OPTION));
+    await act(async () => first.resolve(reply.status(401, "Unauthorized")));
+    await settle();
+
+    expect(hardNavigations()).toEqual(["/login"]);
+    expect(saves()).toHaveLength(1);
+    expect(toastTexts()).toEqual([]);
+  });
+
+
+  // `{}` — the test is locked (finished, e.g. on another device)
+  // or the session is not a student's. "/" routes the browser by
+  // the real state: the results, or the admin pages
+  it("a save answered `{}` sends the browser to '/' — no toast, and nothing is sent after it", async () => {
+    const { user } = await openTest(fx.dealtTest(2));
+    backend.on("POST", QUESTIONS, reply.json({}));
+
+    await user.click(verdict("Fišingas"));
+    await waitFor(() => expect(hardNavigations()).toEqual(["/"]));
+
+    // A click while the browser leaves
+    await user.click(screen.getByText(LINK_OPTION));
+    await settle();
+
+    expect(saves()).toHaveLength(1);
+    expect(toastTexts()).toEqual([]);
+    expect(hardNavigations()).toEqual(["/"]);
+  });
+
+
+  // The backend refuses a body it cannot take with HTTP 200 all
+  // the same — only "OK" means stored
+  it("a save answered 'Error: …' (a refused body) is a failed save — the toast, and the next click sends again", async () => {
+    const { user } = await openTest(fx.dealtTest(2));
+    backend.once("POST", QUESTIONS, reply.text("Error: This is not questions state object"));
+    backend.on("POST", QUESTIONS, reply.text("OK"));
+
+    await user.click(verdict("Fišingas"));
+    await findToast(SAVE_FAILED);
+
+    await user.click(screen.getByText(LINK_OPTION));
+    await waitFor(() => expect(saves()).toHaveLength(2));
+    const expected = fx.dealtTest(2);
+    expected[0].selectedanswer = 1;
+    expected[0].questionoptions[1].isselected = 1;
+    expect(saves()[1].json).toEqual(expected);
+    expect(hardNavigations()).toEqual([]);
   });
 });
 
@@ -1027,9 +1198,12 @@ describe("TestHome — finishing the test", () => {
   });
 
 
-  it("still failing: says the last answers are not saved and stays on the test", async () => {
+  it.each([
+    ["no connection", reply.networkError()],
+    ["a refused body, 'Error: …'", reply.text("Error: This is not questions state object")],
+  ])("still failing (%s): says the last answers are not saved and stays on the test", async (_, failure) => {
     const { user } = await openTest(fx.dealtTest(2));
-    backend.on("POST", QUESTIONS, reply.networkError());
+    backend.on("POST", QUESTIONS, failure);
     await user.click(verdict("Fišingas"));
     await findToast(SAVE_FAILED);
 
@@ -1059,7 +1233,9 @@ describe("TestHome — finishing the test", () => {
   });
 
 
-  it("counts a save answered `{}` as saved — finishing goes ahead", async () => {
+  // The test was locked meanwhile (e.g. finished on another
+  // device) — "/" knows where a finished student belongs
+  it("a save answered `{}` while finishing sends the browser to '/' — not to the results, and without a toast", async () => {
     const { user } = await openTest(fx.dealtTest(2));
     const running = deferred();
     backend.once("POST", QUESTIONS, () => running.promise);
@@ -1068,9 +1244,61 @@ describe("TestHome — finishing the test", () => {
     finish();
     await act(async () => running.resolve(reply.json({})));
 
-    await waitFor(() => expect(hardNavigations()).toEqual(["/student/finish"]));
+    await waitFor(() => expect(hardNavigations()).toEqual(["/"]));
+    await settle();
+    expect(hardNavigations()).toEqual(["/"]);
     expect(saves()).toHaveLength(1);
     expect(toastTexts()).toEqual([]);
+  });
+
+
+  it("after a save refused with 401, finishing re-sends nothing and claims no connection problem — the browser is on its way to /login", async () => {
+    const { user } = await openTest(fx.dealtTest(2));
+    backend.on("POST", QUESTIONS, reply.status(401, "Unauthorized"));
+    await user.click(verdict("Fišingas"));
+    await waitFor(() => expect(hardNavigations()).toEqual(["/login"]));
+
+    finish();
+    await settle();
+
+    expect(hardNavigations()).toEqual(["/login"]);
+    expect(toastTexts()).toEqual([]);
+    expect(saves()).toHaveLength(1);
+  });
+
+
+  it("a re-send refused with 401 while finishing goes to /login — not to the results, and with no 'not saved' toast", async () => {
+    const { user } = await openTest(fx.dealtTest(2));
+    backend.once("POST", QUESTIONS, reply.status(500, "Internal Server Error"));
+    backend.on("POST", QUESTIONS, reply.status(401, "Unauthorized"));
+    await user.click(verdict("Fišingas"));
+    await findToast(SAVE_FAILED);
+
+    finish();
+
+    await waitFor(() => expect(hardNavigations()).toEqual(["/login"]));
+    await settle();
+    expect(hardNavigations()).toEqual(["/login"]);
+    expect(saves()).toHaveLength(2);
+    expect(toastTexts()).toEqual([SAVE_FAILED]);
+  });
+
+
+  // Back after finishing can bring the test page back from the
+  // browser's back-forward cache — the locked test clickable
+  it("reloads when the browser restores the page from its back-forward cache", async () => {
+    const { unmount } = await openTest(fx.dealtTest(2));
+
+    fireEvent(window, new PageTransitionEvent("pageshow", { persisted: false }));
+    expect(reloadCount()).toBe(0);
+
+    fireEvent(window, new PageTransitionEvent("pageshow", { persisted: true }));
+    expect(reloadCount()).toBe(1);
+
+    // The listener leaves with the page
+    unmount();
+    fireEvent(window, new PageTransitionEvent("pageshow", { persisted: true }));
+    expect(reloadCount()).toBe(1);
   });
 
 

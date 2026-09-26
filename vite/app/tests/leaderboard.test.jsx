@@ -13,7 +13,9 @@
 //      "Kraunama..." until the first reply, and no empty-state
 //      message meanwhile
 //    - the countdown "Atnaujinimas po: Ns": 5 → 1 once a
-//      second, then a refetch and 5 again; the rows stay (no
+//      second, then a refresh and 5 again — one request per
+//      cycle (under <StrictMode> too), and none while the
+//      previous refresh is still unanswered; the rows stay (no
 //      loading flash) while a refresh runs, the last good
 //      standings survive a failed one, it all stops on unmount
 //    - ranking by testgrade DESCENDING, compared as numbers
@@ -21,11 +23,16 @@
 //      "2.00"; "" counts as 0); gold / silver / bronze badges
 //      for places 1–3, plain numbers after
 //    - the bar: finished → full burgundy "Įvertinimas: X";
-//      running → blue "answered / total", round(a / q × 100)%
+//      running → blue "answered / total", round(a / q × 100)%;
+//      a student without a dealt test (the API's blank fields)
+//      → "0 / 0" on an empty bar
 //    - last seen in Vilnius wall time ("YYYY-MM-DD HH:MM:SS")
 //    - only students seen within the last day (exactly 24 h
 //      ago still counts, null never does); "Rodyti Visus"
 //      lifts that; "Šiuo metu dalyvių nėra" when nobody is left
+//    - a failed load with no standings on hand → "Rezultatai
+//      šiuo metu nepasiekiami — bandoma iš naujo", never the
+//      empty-state message; the countdown keeps retrying
 //
 //  Time: wherever rows are shown "now" is pinned with a fake
 //  Date (the fixtures' default lastseen is then under an hour
@@ -33,18 +40,11 @@
 //  with advance() — synchronous queries and fireEvent there,
 //  because React Testing Library's waitFor polls with
 //  setInterval.
-//
-//  A RUNNING row of a student without a dealt test prints
-//  "null / " — that is KB-01 in knownBugs.test.jsx; running
-//  rows here always carry a numeric answeredquestioncount.
-//  Also in the ledger, and so left open here: what a failed
-//  FIRST load shows (the empty-state message, KB-23), and
-//  refreshes that overlap when the backend is slower than 5 s
-//  (KB-24).
 // -----------------------------------------------------------
 
 import "./support/setup";
 
+import { StrictMode } from "react";
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import { act, fireEvent, screen } from "@testing-library/react";
 
@@ -77,13 +77,12 @@ const pinNow = () => {
 };
 
 // Date AND the countdown's interval: time moves only through
-// advance(), ONE act() around the fake clock. The fake
-// backend's replies settle between the ticks, but React
-// applies all the ticks' state updates (the countdown's
-// refetch() runs inside one of them) in a single render once
-// the advance is over — a refresh due within an advance has
-// gone out (and, unless the test holds its reply, been
-// answered) when it returns
+// advance(), ONE act() around the fake clock. A refresh goes
+// out at its tick and the fake backend's replies settle
+// between the ticks, while React applies the ticks' countdown
+// updates in a single render once the advance is over — a
+// refresh due within an advance has gone out (and, unless the
+// test holds its reply, been answered) when it returns
 const pinNowAndCountdown = () => {
   vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
   vi.setSystemTime(NOW);
@@ -343,9 +342,7 @@ describe("Leaderboard — the refresh countdown", () => {
     await renderLoaded();
 
     // Cycle by cycle, like the real clock: each refresh is
-    // answered before the next one starts (one long jump would
-    // let React run the ticks' updates in a single render and
-    // fire those refreshes all at once)
+    // answered before the next one falls due
     await advance(5000);
     await advance(5000);
     await advance(5000);
@@ -380,9 +377,9 @@ describe("Leaderboard — the refresh countdown", () => {
     const slowRefresh = deferred();
     backend.once("GET", LEADERBOARD, () => slowRefresh.promise);
 
-    // The refresh due at 5 s is still unanswered at 7 s (whether
-    // the countdown runs on meanwhile is left open — that is how
-    // refreshes overlap, KB-24)
+    // The refresh due at 5 s is still unanswered at 7 s (the
+    // countdown runs on meanwhile — see the next test for the
+    // refresh it skips)
     await advance(7000);
 
     expect(backend.requests("GET", LEADERBOARD)).toHaveLength(2);
@@ -397,6 +394,50 @@ describe("Leaderboard — the refresh countdown", () => {
   });
 
 
+  // A backend slower than the countdown (event load): the refresh
+  // due while one is still unanswered is skipped, so the requests
+  // never pile up — the countdown itself keeps its pace
+  it("skips the refresh due while the previous one is still unanswered, and refreshes again once it has answered", async () => {
+    await renderLoaded([fx.leaderboardEntry({ id: 1, username: "PIRMAS" })]);
+    const slowRefresh = deferred();
+    backend.once("GET", LEADERBOARD, () => slowRefresh.promise);
+
+    await advance(5000);
+    await advance(5000);
+
+    expect(backend.requests("GET", LEADERBOARD)).toHaveLength(2);
+    expect(screen.getByText("Atnaujinimas po: 5s")).toBeInTheDocument();
+    expect(shownNames()).toEqual(["PIRMAS"]);
+
+    await act(async () => slowRefresh.resolve(reply.json([fx.leaderboardEntry({ id: 2, username: "ANTRAS" })])));
+    await advance(0);
+    expect(shownNames()).toEqual(["ANTRAS"]);
+
+    await advance(5000);
+    expect(backend.requests("GET", LEADERBOARD)).toHaveLength(3);
+  });
+
+
+  // The dev server renders the app in <StrictMode>, which runs
+  // state updaters twice — a refresh must not ride on one. Only
+  // the growth per cycle is pinned: whether StrictMode also runs
+  // the mount effects (and so the first request) twice depends
+  // on where it sits in the tree
+  it("sends one refresh per cycle under <StrictMode> too", async () => {
+    backend.on("GET", LEADERBOARD, reply.json([fx.leaderboardEntry()]));
+    renderPage(<StrictMode><LeaderboardPage /></StrictMode>, { path: "/leaderboard" });
+    await advance(0);
+    const atMount = backend.requests("GET", LEADERBOARD).length;
+
+    await advance(5000);
+    expect(backend.requests("GET", LEADERBOARD)).toHaveLength(atMount + 1);
+    expect(screen.getByText("Atnaujinimas po: 5s")).toBeInTheDocument();
+
+    await advance(5000);
+    expect(backend.requests("GET", LEADERBOARD)).toHaveLength(atMount + 2);
+  });
+
+
   it.each([
     ["a server error (500)", reply.status(500, "Internal Server Error")],
     ["a lost connection", reply.networkError()],
@@ -408,6 +449,7 @@ describe("Leaderboard — the refresh countdown", () => {
 
     expect(backend.requests("GET", LEADERBOARD)).toHaveLength(2);
     expect(shownNames()).toEqual(["PIRMAS"]);
+    expect(screen.queryByRole("alert")).toBeNull();
 
     backend.on("GET", LEADERBOARD, reply.json([fx.leaderboardEntry({ id: 2, username: "ANTRAS" })]));
     await advance(5000);
@@ -417,19 +459,20 @@ describe("Leaderboard — the refresh countdown", () => {
   });
 
 
+  // What the failed load itself shows: see "standings that
+  // cannot be loaded" below
   it("retries a failed first load when the countdown runs out", async () => {
     backend.once("GET", LEADERBOARD, reply.status(502, "Bad Gateway"));
     await renderLoaded([fx.leaderboardEntry()]);
 
-    // What the page shows for the failed load itself is a known
-    // bug (KB-23: the empty-state message) — only the recovery
-    // is pinned here
     expect(studentRows()).toHaveLength(0);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
 
     await advance(5000);
 
     expect(backend.requests("GET", LEADERBOARD)).toHaveLength(2);
     expect(shownNames()).toEqual(["JONAS_JONAITIS"]);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
 
@@ -516,9 +559,8 @@ describe("Leaderboard — ranking", () => {
 
   it('ranks a blank grade ("") as 0 — below every real grade', async () => {
     renderBoard([
-      // Finished, so its bar shows a grade — a RUNNING blank row
-      // would print "null / " (KB-01)
-      fx.blankLeaderboardEntry({ id: 1, username: "BE_TESTO", isfinished: 1 }),
+      // The API's entry of a student without a dealt test
+      fx.blankLeaderboardEntry({ id: 1, username: "BE_TESTO" }),
       fx.leaderboardEntry({ id: 2, username: "PUSĖ_BALO", testgrade: "0.50" }),
       fx.leaderboardEntry({ id: 3, username: "AŠTUONI", testgrade: "8.00" }),
     ]);
@@ -699,6 +741,21 @@ describe("Leaderboard — a student's row", () => {
   });
 
 
+  // Registered (so seen within the last day) but not dealt a
+  // test yet: the API's blank fields — answeredquestioncount
+  // null, questioncount "" — are no text for the projector
+  it("shows a student without a dealt test as '0 / 0' on an empty blue bar — never 'null'", async () => {
+    renderBoard([fx.blankLeaderboardEntry({ id: 9, username: "NAUJOKAS", lastseen: seenAgo(5 * MINUTE) })]);
+    await screen.findByText("NAUJOKAS");
+
+    const [row] = studentRows();
+    expect(barText(row)).toBe("0 / 0");
+    expect(bar(row)).toHaveStyle({ width: "0%" });
+    expect(bar(row)).toHaveClass("bg-blue-500/80");
+    expect(screen.queryByText(/null/)).toBeNull();
+  });
+
+
   it("prints the last visit as Vilnius wall time, zero-padded", async () => {
     renderBoard([fx.leaderboardEntry({ lastseen: "2026-08-26T09:05:03+03:00" })]);
     await screen.findByText("JONAS_JONAITIS");
@@ -861,6 +918,87 @@ describe("Leaderboard — nobody to show", () => {
     await user.click(showAllBox());
 
     expect(showAllBox()).toBeChecked();
+    expect(screen.getByText("Šiuo metu dalyvių nėra")).toBeInTheDocument();
+  });
+});
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Standings that cannot be loaded
+// -----------------------------------------------------------
+
+describe("Leaderboard — standings that cannot be loaded", () => {
+
+  beforeEach(pinNowAndCountdown);
+
+  const UNREACHABLE = "Rezultatai šiuo metu nepasiekiami — bandoma iš naujo";
+
+
+  // E.g. the projector page (re)opened during an outage. No
+  // <Toaster/> on this page — a toast would never reach the room
+  it.each([
+    ["a server error (500)", reply.status(500, "Internal Server Error")],
+    ["a bad gateway during a deploy (502)", reply.status(502, "Bad Gateway")],
+    ["a lost connection", reply.networkError()],
+  ])("says the board is unreachable — not that nobody takes part — when the first load fails with %s", async (_, failure) => {
+    backend.on("GET", LEADERBOARD, failure);
+    renderPage(<LeaderboardPage />, { path: "/leaderboard" });
+    await advance(0);
+
+    expect(backend.requests("GET", LEADERBOARD)).toHaveLength(1);
+    expect(screen.getByRole("alert")).toHaveTextContent(UNREACHABLE);
+    expect(screen.getByRole("alert").closest("td")).toHaveAttribute("colspan", "4");
+    expect(screen.queryByText("Šiuo metu dalyvių nėra")).toBeNull();
+    expect(studentRows()).toHaveLength(0);
+
+    // Retrying is the countdown's job — nobody presses a button
+    // on a projector
+    expect(screen.getByText("Atnaujinimas po: 5s")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+
+  it("keeps saying so through failed retries, every 5 s, until one answers", async () => {
+    backend.on("GET", LEADERBOARD, reply.status(502, "Bad Gateway"));
+    renderPage(<LeaderboardPage />, { path: "/leaderboard" });
+    await advance(0);
+
+    await advance(5000);
+    await advance(5000);
+    expect(backend.requests("GET", LEADERBOARD)).toHaveLength(3);
+    expect(screen.getByRole("alert")).toHaveTextContent(UNREACHABLE);
+
+    backend.on("GET", LEADERBOARD, reply.json([fx.leaderboardEntry({ username: "PIRMAS" })]));
+    await advance(5000);
+
+    expect(backend.requests("GET", LEADERBOARD)).toHaveLength(4);
+    expect(shownNames()).toEqual(["PIRMAS"]);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+
+  // Nothing on screen could be kept, and whether anyone has
+  // joined since cannot be known — so no "nobody" claim either
+  it("says so for an empty board whose refresh fails, and goes back to 'Šiuo metu dalyvių nėra' once a refresh answers", async () => {
+    renderBoard([]);
+    await advance(0);
+    expect(screen.getByText("Šiuo metu dalyvių nėra")).toBeInTheDocument();
+
+    backend.once("GET", LEADERBOARD, reply.networkError());
+    await advance(5000);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(UNREACHABLE);
+    expect(screen.queryByText("Šiuo metu dalyvių nėra")).toBeNull();
+
+    await advance(5000);
+
+    expect(backend.requests("GET", LEADERBOARD)).toHaveLength(3);
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByText("Šiuo metu dalyvių nėra")).toBeInTheDocument();
   });
 });

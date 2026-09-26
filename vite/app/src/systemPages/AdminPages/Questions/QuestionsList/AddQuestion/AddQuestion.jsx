@@ -7,13 +7,17 @@
 //  /api/phishingpictures — the backend creates the question
 //  around the picture. On success the dialog closes and
 //  `getData` refreshes the question list; the admin then
-//  fills in the text/options via the inline editor.
+//  fills in the text/options via the inline editor. A refused
+//  upload says why, in Lithuanian; an expired session goes to
+//  /login.
 //
 //  Split into (main component last):
 //
-//    UploadButton  — modal footer: the upload button
-//    ImageDropzone — drag & drop area with the preview
-//    AddQuestion   — state + the upload call (default export)
+//    UPLOAD_REFUSALS — the backend's refusal reasons in
+//                      Lithuanian (refusalText)
+//    UploadButton    — modal footer: the upload button
+//    ImageDropzone   — drag & drop area with the preview
+//    AddQuestion     — state + the upload call (default export)
 //
 //  Used by:
 //    - QuestionsList.jsx — the "Sukurti Naują Klausimą" button
@@ -22,12 +26,29 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import toast from 'react-hot-toast';
-import { useDropzone } from 'react-dropzone';
+import { useDropzone, ErrorCode } from 'react-dropzone';
 
 import { Button, Typography } from "@mui/material";
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 
 import { UniversalModal } from "@/components/Other/UniversalModal";
+import { redirectOnExpiredSession } from "@/utils/session";
+
+
+// The upload's refusal reasons (upload_picture in the
+// backend's pictures_views.py) as the admin reads them
+const UPLOAD_REFUSALS = new Map([
+  ["Not Admin", "Neturite administratoriaus teisių"],
+  ["No file part in the request", "Užklausoje nėra paveikslėlio"],
+  ["File type not allowed", "Netinkamas failo tipas — tinka PNG, JPG arba GIF"],
+  ["Empty file", "Failas tuščias"],
+  ["File is too large", "Failas per didelis — daugiausia 5 MB"],
+  ["File is not an image", "Failas nėra PNG, JPG ar GIF paveikslėlis"],
+]);
+
+// A reason the map does not know yet is shown as it comes —
+// better English than no reason at all
+const refusalText = (reason) => UPLOAD_REFUSALS.get(reason) ?? reason;
 
 
 
@@ -74,7 +95,9 @@ function UploadButton({ disabled, onUpload }) {
 //
 // The drag & drop area: highlights while a file hovers over
 // it, and once an image is picked shows its preview instead
-// of the prompt text.
+// of the prompt text. A refused file is toasted: several at
+// once → one image at a time, a wrong type or size → what
+// the server takes.
 //
 // Used by:
 //   - AddQuestion (below)
@@ -92,9 +115,20 @@ function ImageDropzone({ imagePreviewUrl, onFileSelected }) {
         onFileSelected(acceptedFiles[0]);
       }
     },
-    onDropRejected: () => {
+
+    // A drag can carry several files (the file dialog lets only
+    // one be picked) — react-dropzone then refuses them all as
+    // "too-many-files", even when each would be taken on its own
+    onDropRejected: (fileRejections) => {
+      const tooManyFiles = fileRejections.some(({ errors }) => errors.some(({ code }) => code === ErrorCode.TooManyFiles));
+      if (tooManyFiles) {
+        toast.error(<b>Vienu metu galima įkelti tik vieną paveikslėlį</b>, { duration: 5000 });
+        return;
+      }
+
       toast.error(<b>Tinka tik PNG, JPG arba GIF paveikslėlis iki 5 MB</b>, { duration: 5000 });
     },
+
     accept: {
       'image/png': ['.png'],
       'image/jpeg': ['.jpg', '.jpeg'],
@@ -188,12 +222,18 @@ export default function AddQuestion({ setOpen, getData }) {
         getData();
         setOpen(false);
       } else if (response.data.type === 'error') {
-        toast.error(<b>Nepavyko įkelti:<br/>{response.data.reason}</b>, { duration: 8000 });
+        toast.error(<b>Nepavyko įkelti:<br/>{refusalText(response.data.reason)}</b>, { duration: 8000 });
       } else {
         toast.error(<b>Nepavyko įkelti:<br/>Neaiškus atsakymas.</b>, { duration: 8000 });
       }
     } catch (error) {
-      toast.error(<b>Nepavyko įkelti:<br/>Serverio klaida.</b>, { duration: 8000 });
+      if (redirectOnExpiredSession(error)) return;
+
+      // A refused upload (wrong type, empty, too large, not an
+      // image; 403 for a non-admin) carries the same {type:
+      // "error", reason} as above — the reason tells what to fix
+      const reason = error.response?.data?.reason;
+      toast.error(<b>Nepavyko įkelti:<br/>{reason ? refusalText(reason) : "Serverio klaida."}</b>, { duration: 8000 });
     } finally {
       setUploading(false);
     }

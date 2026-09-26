@@ -2,14 +2,15 @@
 //  [*] Login page — BouncingDotsLoader
 //
 //  Three small white dots bouncing in sequence — the loading
-//  indicator inside the "PALAUKITE" login button. The
+//  indicator inside the login page's "PALAUKITE" buttons. The
 //  animation (animate-bounce-dot, a ±5px swing) is defined
 //  in globals.css; the 2nd and 3rd dots trail the first with
 //  their own animation-delay.
 //
 //  Used by:
-//    - Login — the login form's submit button while the
-//      request is running
+//    - Login — BrandButton's PALAUKITE state while a request
+//      runs: REGISTRUOTIS, PRISIJUNGTI and registration step
+//      2's PRADĖTI TESTĄ
 // -----------------------------------------------------------
 
 export default function BouncingDotsLoader() {

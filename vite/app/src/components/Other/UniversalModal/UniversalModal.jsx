@@ -11,6 +11,10 @@
 //  "success") pick the header icon and the confirm button
 //  color.
 //
+//  The standard confirm awaits an async onConfirm and closes
+//  only once it has succeeded: an onConfirm that throws or
+//  rejects leaves the modal open for another try.
+//
 //  Split into (main component last):
 //
 //    VARIANTS         — per-variant icon + colors
@@ -70,8 +74,9 @@ const VARIANTS = {
 // -----------------------------------------------------------
 //
 // Top section: the variant icon, title and description on the
-// left, the close (×) button on the right. Bottom padding is
-// tighter when something follows underneath.
+// left, the close (×) button on the right — named "Uždaryti"
+// by its aria-label, as the icon itself is aria-hidden. Bottom
+// padding is tighter when something follows underneath.
 //
 // Used by:
 //   - UniversalModal (below)
@@ -121,6 +126,7 @@ function ModalHeader({ icon: Icon, iconColor, title, description, hasBody, showC
 
       {showCloseButton && (
         <IconButton
+          aria-label="Uždaryti"
           onClick={onClose}
           size="small"
           sx={{
@@ -254,11 +260,17 @@ export default function UniversalModal({
 
 
   // onConfirm is awaited so closeOnConfirm doesn't shut the modal
-  // before an async confirm (e.g. an API call) has finished
+  // before an async confirm (e.g. an API call) has finished. A
+  // failed confirm keeps the modal open for another try; telling
+  // the user is the caller's job, and the click handler is the
+  // last stop of its error — nothing above would handle it
   const handleConfirm = async () => {
-    if (onConfirm) {
-      await onConfirm();
+    try {
+      await onConfirm?.();
+    } catch {
+      return;
     }
+
     if (closeOnConfirm) {
       onClose?.();
     }

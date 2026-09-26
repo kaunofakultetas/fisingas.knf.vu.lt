@@ -8,8 +8,15 @@
 //  just like a real email client would.
 //
 //  The image is blurred until it loads; overlays only appear
-//  for the src that is actually on screen (loadedSrc), so
-//  switching questions never shows stale areas.
+//  for the src that is actually on screen (loadedSrc). A new
+//  src starts without areas and without a URL bubble, and a
+//  late reply to the previous src's request is dropped — the
+//  next question never shows the previous one's links.
+//
+//  The overlays are placed in pixels, so the image is
+//  re-measured whenever it or its container changes size
+//  (ResizeObserver — e.g. the admin sidebar pinned, a
+//  scrollbar appearing) as well as on window resizes.
 //
 //  Props worth knowing:
 //    - clickableAreaColor — overlay fill; the test page passes
@@ -27,15 +34,17 @@
 //  Used by:
 //    - TestHome — the question image + fullscreen viewer
 //    - StudentAnswers — answer review (admin + results pages)
-//    - QuestionsList — question editing preview
+//    - QuestionCard — the question bank's preview
 // -----------------------------------------------------------
 
 import { useState, useEffect, useRef } from "react";
 
 
 // Area coordinates come as percent strings ("12.3%") — parse
-// and scale them against the rendered image size
-const percentToPx = (percentString, total) => (parseFloat(percentString) / 100) * total;
+// and scale them against the rendered image size. A null (a
+// stored value the API cannot parse) counts as 0, as in the
+// link editor — NaN would leave the box without a position
+const percentToPx = (percentString, total) => ((parseFloat(percentString) || 0) / 100) * total;
 
 
 
@@ -149,10 +158,11 @@ function UrlTooltip({ area, imageDimensions, onHoverChange }) {
 // Holds the state: which src is loaded, the fetched areas,
 // the measured image dimensions and the hovered area. The
 // overlays are positioned in pixels, so the rendered image
-// is measured on load and re-measured on window resizes.
+// is measured on load and re-measured whenever it or its
+// container resizes.
 //
 // Used by:
-//   - TestHome / StudentAnswers / QuestionsList
+//   - TestHome / StudentAnswers / QuestionCard
 // -----------------------------------------------------------
 
 export default function InteractiveImage({ src, clickableAreasUrl, clickableAreaColor = 'rgba(255, 255, 0, 0.5)', onImageClick, containerStyle, imageStyle }) {
@@ -173,26 +183,48 @@ export default function InteractiveImage({ src, clickableAreasUrl, clickableArea
   const imageLoaded = loadedSrc === src;
 
 
-  
+  // A new src (the test page reuses one viewer for every
+  // question) drops the previous image's areas and URL bubble
+  // right in the render that brings it — before the next image
+  // could show them. A keyboard switch fires no mouseleave, so
+  // nothing else would close that bubble
+  const [areasSrc, setAreasSrc] = useState(src);
+  if (areasSrc !== src) {
+    setAreasSrc(src);
+    setClickableAreas([]);
+    setHoveredArea(null);
+  }
 
-  // Fetch the clickable areas once the image is on screen
+
+  // Fetch the clickable areas once the image is on screen. A
+  // reply that arrives after the src or URL changed (or after
+  // unmount) is outdated and dropped, success or failure alike
+  // — it must never land on the next image
   useEffect(() => {
+    let outdated = false;
+
     async function fetchClickableAreas() {
       try {
         const response = await fetch(clickableAreasUrl);
         const data = await response.json();
-        setClickableAreas(data);
+        if (!outdated) {
+          setClickableAreas(data);
+        }
       } catch (error) {
-        console.error('Error fetching clickable areas:', error);
+        if (!outdated) {
+          console.error('Error fetching clickable areas:', error);
+        }
       }
     }
 
     if (clickableAreasUrl && imageLoaded === true) {
       fetchClickableAreas();
     }
+
+    return () => {
+      outdated = true;
+    };
   }, [imageLoaded, src, clickableAreasUrl]);
-
-
 
 
   // Measure the rendered image relative to its container
@@ -213,16 +245,23 @@ export default function InteractiveImage({ src, clickableAreasUrl, clickableArea
   };
 
 
-
-  // Re-measure when the window resizes
+  // Re-measure on window resizes, and whenever the image or its
+  // container changes size without one (the admin sidebar
+  // pinned, a scrollbar appearing). The container too: when it
+  // resizes, a centered image moves even if its own size stays
   useEffect(() => {
     window.addEventListener('resize', updateImageDimensions);
-    return () => window.removeEventListener('resize', updateImageDimensions);
+
+    const image = imageRef.current;
+    const observer = new ResizeObserver(updateImageDimensions);
+    observer.observe(image);
+    observer.observe(image.parentNode);
+
+    return () => {
+      window.removeEventListener('resize', updateImageDimensions);
+      observer.disconnect();
+    };
   }, []);
-
-
-
-
 
 
   return (

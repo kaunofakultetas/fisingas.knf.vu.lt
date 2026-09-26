@@ -7,32 +7,28 @@
 //  area and the layout's own <Toaster/>):
 //    - GET /api/admin/home (withCredentials) on mount, then
 //      every 2 s until unmount; NOTHING is rendered — not even
-//      the frame — before the first reply. A failing later
-//      poll keeps the last dashboard; a 401 is a full page
-//      load of /login
+//      the frame — before the first reply. A failed first load
+//      shows the frame with "Nepavyko įkelti pradžios
+//      puslapio" and a "Bandyti dar kartą" button — never
+//      "undefined" — until a poll or the button brings the
+//      dashboard. A failing later poll keeps the last
+//      dashboard; a 401 is a full page load of /login
 //    - "Studentų" = studentscount, "Klausimai" =
 //      "enabledquestionscount/totalquestionscount"; their
 //      icons are router links to /admin/students and
 //      /admin/questions; "Testą Sprendžia:" shows the live
 //      progress bars
-//    - "Testo dydis", the test-size picker: 9, 12, 15, 21 or
-//      30 questions, opening on the size of the first reply.
+//    - "Testo dydis", the test-size picker (that caption is its
+//      accessible label): 9, 12, 15, 21 or 30 questions,
+//      showing the size the polls report — 30, what new tests
+//      get, while none was ever saved (null).
 //      A pick shows at once and is saved at once with
 //      POST /api/admin/update/phishingtestsize
 //      {"phishingtestsize": "21"} — the size as a STRING —
-//      and toasted "Išsaugota" / "Nepavyko išsaugoti"
-//
-//  The page's known bugs stay in knownBugs.test.jsx, and every
-//  test here holds before AND after their fixes:
-//    - KB-11 a failed FIRST poll — every test here gets a good
-//      first reply, or a 401
-//    - KB-33 a never-saved size (null) leaves the picker blank
-//    - KB-34 the picker ignores the sizes later polls report
-//      and keeps a pick whose save failed — so nothing here
-//      pins what it shows once a save has landed, until a
-//      poll reports the saved size
-//    - KB-36 a save refused with 401 reads as a failure
-//      instead of sending the admin to /login
+//      and toasted "Išsaugota" / "Nepavyko išsaugoti". A saved
+//      pick stays on while the dashboard is reloaded; a failed
+//      one gives way to the stored size again; a 401 is a full
+//      page load of /login
 // -----------------------------------------------------------
 
 import "./support/setup";
@@ -41,7 +37,6 @@ import { describe, it, expect, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import { backend, deferred, reply } from "./support/backend";
-import { allowConsoleError } from "./support/setup";
 import { findToast, renderPage, settle, toastTexts } from "./support/render";
 import { hardNavigations } from "./support/navigation";
 import * as fx from "./support/fixtures";
@@ -165,11 +160,10 @@ describe("Home — the first load", () => {
     const { container } = renderPage(<Home />, { path: "/admin" });
     await settle();
 
-    // Only the target is pinned, not the count — the 401
-    // interceptor KB-21 / KB-36 suggest may redirect on top of
-    // the hook's own redirect. (No waitFor: with setInterval
-    // faked it re-checks on DOM changes only, and a hard
-    // navigation is none — settle() has drained the reply)
+    // Only the target is pinned, not how often it is set. (No
+    // waitFor: with setInterval faked it re-checks on DOM
+    // changes only, and a hard navigation is none — settle()
+    // has drained the reply)
     expect([...new Set(hardNavigations())]).toEqual(["/login"]);
     expect(container).toBeEmptyDOMElement();
   });
@@ -189,6 +183,64 @@ describe("Home — the first load", () => {
     // The late state update must stay silent — setup.js fails the
     // test on any React error it would log
     expect(screen.queryByText("Studentų")).toBeNull();
+  });
+
+
+  it.each([
+    ["a server error", reply.status(500, "Internal Server Error")],
+    ["a network failure", reply.networkError()],
+  ])("says the page could not be loaded — never 'undefined' — when the first poll fails with %s", async (_, failure) => {
+    useFakeInterval();
+    backend.on("GET", HOME, failure);
+    renderPage(<Home />, { path: "/admin" });
+    await settle();
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Nepavyko įkelti pradžios puslapio");
+    expect(screen.queryByText(/undefined/)).toBeNull();
+    expect(screen.queryByText("Studentų")).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
+
+    // On a white card, like the other admin pages' load errors
+    expect(screen.getByRole("alert").parentElement).toHaveClass("bg-white", "rounded-[15px]");
+
+    // Inside the admin frame — the admin can still go elsewhere
+    expect(screen.getByAltText("VU logotipas")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Pradžia" })).toBeInTheDocument();
+  });
+
+
+  it("replaces the load error with the dashboard once a later poll answers", async () => {
+    useFakeInterval();
+    backend.once("GET", HOME, reply.status(500, "Internal Server Error"));
+    backend.on("GET", HOME, reply.json(fx.dashboard({ studentscount: 42, phishingtestsize: 15 })));
+    renderPage(<Home />, { path: "/admin" });
+    await settle();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+
+    await nextPoll();
+
+    expect(homeRequests()).toHaveLength(2);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(countOf("Studentų")).toBe("42");
+    expect(picker()).toHaveTextContent("15 klausimų");
+  });
+
+
+  it("asks again at once when 'Bandyti dar kartą' is pressed", async () => {
+    useFakeInterval();
+    backend.once("GET", HOME, reply.status(500, "Internal Server Error"));
+    backend.on("GET", HOME, reply.json(fx.dashboard({ studentscount: 42 })));
+    renderPage(<Home />, { path: "/admin" });
+    await settle();
+
+    fireEvent.click(screen.getByRole("button", { name: "Bandyti dar kartą" }));
+    await settle();
+
+    const requests = homeRequests();
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toMatchObject({ client: "axios", withCredentials: true });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(countOf("Studentų")).toBe("42");
   });
 });
 
@@ -279,6 +331,7 @@ describe("Home — polling every 2 s", () => {
     await nextPoll();
 
     expect(homeRequests()).toHaveLength(2);
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(countOf("Studentų")).toBe("42");
     expect(countOf("Klausimai")).toBe("18/20");
     expect(picker()).toHaveTextContent("12 klausimų");
@@ -432,6 +485,22 @@ describe("Home — the test-size picker", () => {
   });
 
 
+  // The caption is the select's label, so a screen reader
+  // announces what the picker is for — not a bare size. MUI
+  // labels the picker by the caption AND by itself; whether
+  // that self-reference adds the shown size to the name
+  // depends on the accessibility engine, so only the start of
+  // the name is pinned
+  it("is labelled by its 'Testo dydis' caption — the picker and the menu it opens", async () => {
+    const { user } = await renderDashboard(fx.dashboard({ phishingtestsize: 12 }));
+
+    expect(screen.getByRole("combobox", { name: /^Testo dydis/ })).toBe(picker());
+
+    await user.click(picker());
+    expect(screen.getByRole("listbox")).toHaveAccessibleName("Testo dydis");
+  });
+
+
   it.each([
     [9, "9 klausimų"],
     [12, "12 klausimų"],
@@ -442,6 +511,35 @@ describe("Home — the test-size picker", () => {
     await renderDashboard(fx.dashboard({ phishingtestsize: size }));
 
     expect(picker().textContent).toBe(text);
+  });
+
+
+  // Until an admin saves a size (every fresh install) the API
+  // reports null — and new tests get the backend's fallback, 30.
+  // MUI's development build would warn about a value no option
+  // has; that is kept out of the output and read back
+  it("shows '30 klausimų' — what new tests get — when no size was ever saved (null)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { user } = await renderDashboard(fx.dashboard({ phishingtestsize: null }));
+    await settle();
+
+    expect(picker().textContent).toBe("30 klausimų");
+    expect(warn.mock.calls.flat().join("\n")).not.toMatch(/out-of-range/);
+
+    await user.click(picker());
+    expect(screen.getByRole("option", { name: "30 klausimų" })).toHaveAttribute("aria-selected", "true");
+  });
+
+
+  // E.g. another admin saved a size meanwhile
+  it("follows the size the polls report", async () => {
+    await mountPolling(fx.dashboard({ phishingtestsize: 12 }));
+    expect(picker()).toHaveTextContent("12 klausimų");
+
+    backend.on("GET", HOME, reply.json(fx.dashboard({ phishingtestsize: 21 })));
+    await nextPoll();
+
+    expect(picker()).toHaveTextContent("21 klausimų");
   });
 
 
@@ -477,10 +575,9 @@ describe("Home — the test-size picker", () => {
     expect(saves[0].json).toEqual({ phishingtestsize: "21" });
 
     // Exactly one toast: the layout's own Toaster is the only one.
-    // (The picker is not checked here: once the save has landed,
-    // a picker driven by the polled size — the KB-34 fix — shows
-    // the stored size until a poll reports the new one; see
-    // "keeps showing a saved pick once the polls report it")
+    // (The picker is not checked here: once the save has landed it
+    // shows what the dashboard reload reports, and this backend
+    // keeps reporting 12 — see "keeps showing a saved pick …")
     expect(toastTexts()).toEqual(["Išsaugota"]);
   });
 
@@ -529,29 +626,31 @@ describe("Home — the test-size picker", () => {
   });
 
 
-  // A 401 is left out: toasting it is known bug KB-36 (the fix
-  // sends the admin to /login) — see the next test
+  // A 401 is no failure to report — see the next test
   it.each([
     ["refused to a non-admin (403 'Error: Not Admin')", reply.text("Error: Not Admin", 403)],
     ["refused as malformed (400)", reply.text("Error: Invalid request body", 400)],
     ["hit by a server error (500)", reply.status(500, "Internal Server Error")],
     ["lost on the network", reply.networkError()],
-  ])("says 'Nepavyko išsaugoti' when the save is %s", async (_, failure) => {
+  ])("says 'Nepavyko išsaugoti' when the save is %s, and shows the stored size again", async (_, failure) => {
     backend.on("POST", TEST_SIZE, failure);
-    const { user } = await renderDashboard();
+    const { user } = await renderDashboard(fx.dashboard({ phishingtestsize: 12 }));
 
     await pickSize(user, "21 klausimų");
 
     await findToast("Nepavyko išsaugoti");
+    await settle();
     expect(toastTexts()).toEqual(["Nepavyko išsaugoti"]);
     expect(backend.lastRequest("POST", TEST_SIZE).json).toEqual({ phishingtestsize: "21" });
+    expect(picker()).toHaveTextContent("12 klausimų");
   });
 
 
-  // What a 401 SHOULD do is KB-36's business (today a
-  // "Nepavyko išsaugoti" toast, after the fix a full page load
-  // of /login) — only what holds either way is pinned
-  it("never says 'Išsaugota' when the save is refused to an expired session (401)", async () => {
+  // The session ended meanwhile (logged out in another tab, or
+  // dropped server-side): like any admin page load, the save
+  // sends the admin to log in again. The target is pinned, not
+  // the count (see the first-load 401 test)
+  it("sends the admin to /login (full page load) when the save finds the session expired (401) — no toast", async () => {
     backend.on("POST", TEST_SIZE, reply.status(401, "Unauthorized"));
     const { user } = await renderDashboard();
 
@@ -559,7 +658,8 @@ describe("Home — the test-size picker", () => {
     await settle();
 
     expect(backend.lastRequest("POST", TEST_SIZE).json).toEqual({ phishingtestsize: "21" });
-    expect(toastTexts()).not.toContain("Išsaugota");
+    expect([...new Set(hardNavigations())]).toEqual(["/login"]);
+    expect(toastTexts()).toEqual([]);
   });
 
 
@@ -574,29 +674,75 @@ describe("Home — the test-size picker", () => {
   });
 
 
-  // Holds for today's uncontrolled picker and for one driven by
-  // the polled size (the fix KB-34 suggests) alike: once the
-  // backend reports the saved size, that size is on screen.
-  // Only the poll interval is faked — user-event and findToast
-  // keep the real setTimeout
-  it("keeps showing a saved pick once the polls report it", async () => {
-    // Today's uncontrolled picker makes MUI's development build
-    // complain when a poll brings a size the page did not open
-    // with — exactly what the poll below does
-    allowConsoleError(/changing the default value state of an uncontrolled Select/);
-    backend.on("POST", TEST_SIZE, SAVED);
-    const { user } = await mountPolling(fx.dashboard({ phishingtestsize: 12, studentscount: 42 }));
+  // A backend that keeps what was saved, like the real one: the
+  // dashboard reports the stored size. Only the poll interval is
+  // faked — user-event and findToast keep the real setTimeout
+  it("keeps showing a saved pick — through the dashboard reload after the save and the polls after it", async () => {
+    let stored = 12;
+    const { user } = await mountPolling(fx.dashboard({ phishingtestsize: stored }));
+    backend.on("POST", TEST_SIZE, (request) => {
+      stored = Number(request.json.phishingtestsize);
+      return SAVED;
+    });
+    backend.on("GET", HOME, () => reply.json(fx.dashboard({ phishingtestsize: stored })));
 
     await pickSize(user, "21 klausimų");
     await findToast("Išsaugota");
-    expect(backend.lastRequest("POST", TEST_SIZE).json).toEqual({ phishingtestsize: "21" });
+    await settle();
 
-    backend.on("GET", HOME, reply.json(fx.dashboard({ phishingtestsize: 21, studentscount: 43 })));
+    // The save landed and the dashboard was asked again at once,
+    // without waiting for the next poll
+    expect(backend.lastRequest("POST", TEST_SIZE).json).toEqual({ phishingtestsize: "21" });
+    expect(homeRequests()).toHaveLength(2);
+    expect(picker()).toHaveTextContent("21 klausimų");
+
+    backend.on("GET", HOME, () => reply.json(fx.dashboard({ phishingtestsize: stored, studentscount: 43 })));
     await nextPoll();
 
     // The poll landed …
     expect(countOf("Studentų")).toBe("43");
     // … and the picker shows the size that was saved
     expect(picker()).toHaveTextContent("21 klausimų");
+  });
+
+
+  // Between the save landing and the reload answering, the
+  // dashboard still holds the old size — the pick must not give
+  // way to it
+  it("holds a saved pick until the dashboard reload has answered — no flash of the old size", async () => {
+    backend.on("POST", TEST_SIZE, SAVED);
+    const { user } = await mountPolling(fx.dashboard({ phishingtestsize: 12 }));
+    const reload = deferred();
+    backend.once("GET", HOME, () => reload.promise);
+
+    await pickSize(user, "21 klausimų");
+    await findToast("Išsaugota");
+    await settle();
+
+    expect(homeRequests()).toHaveLength(2);
+    expect(picker()).toHaveTextContent("21 klausimų");
+
+    await act(async () => reload.resolve(reply.json(fx.dashboard({ phishingtestsize: 21 }))));
+    await settle();
+
+    expect(picker()).toHaveTextContent("21 klausimų");
+  });
+
+
+  // The next 2-second poll lands after the failure, still
+  // reporting the stored 12
+  it("shows the stored size again after a failed save — and keeps it through the next poll", async () => {
+    backend.on("POST", TEST_SIZE, reply.status(500, "Internal Server Error"));
+    const { user } = await mountPolling(fx.dashboard({ phishingtestsize: 12 }));
+
+    await pickSize(user, "21 klausimų");
+    await findToast("Nepavyko išsaugoti");
+    await settle();
+    expect(picker()).toHaveTextContent("12 klausimų");
+
+    await nextPoll();
+
+    expect(homeRequests()).toHaveLength(2);
+    expect(picker()).toHaveTextContent("12 klausimų");
   });
 });

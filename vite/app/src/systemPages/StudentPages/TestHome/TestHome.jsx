@@ -8,11 +8,17 @@
 //
 //  Questions come from GET /api/student/questions (the
 //  backend assigns each student a random subset on first
-//  request). Every click POSTs the whole answer state back,
-//  so progress survives a page reload and the admin dashboard
-//  sees it live — one save at a time, in order, and finishing
-//  waits for the last one to land so no click is ever lost.
-//  The sidebar jumps between questions and ends the test.
+//  request); a failed load says so and offers to ask again.
+//  Every click POSTs the whole answer state back, so progress
+//  survives a page reload and the admin dashboard sees it
+//  live — one save at a time, in order, and finishing waits
+//  for the last one to land so no click is ever lost. A lost
+//  session (401 on the load or on a save) sends the browser
+//  to /login, a save the backend no longer takes (a locked
+//  test, not a student's session) to "/". A page restored
+//  from the browser's back-forward cache (Back after
+//  finishing) reloads, so the route guard decides again. The
+//  sidebar jumps between questions and ends the test.
 //
 //  Clicking the email opens it fullscreen; hovering a link
 //  area shows its URL in both views (via InteractiveImage).
@@ -22,6 +28,7 @@
 //    FullScreenImage  — the zoomed-in email overlay
 //    AnswerButton     — one "Tikras"/"Fišingas" button
 //    OptionsList      — the question's follow-up checkboxes
+//    postAnswers      — one save and what came of it
 //    useTestQuestions — questions state + autosave + handlers
 //    QuestionCard     — the white card of the open question
 //    TestHome         — the page itself (default export)
@@ -34,7 +41,9 @@ import toast, { Toaster } from 'react-hot-toast';
 import Navbar from "@/components/Navbar/Navbar";
 import StudentSidebar from "@/components/Student/Sidebar/Sidebar";
 import InteractiveImage from "@/components/Other/InteractiveImage/InteractiveImage";
+import LoadError from "@/components/Other/LoadError/LoadError";
 import Footer from "@/components/Other/Footer/Footer";
+import { redirectOnExpiredSession } from "@/utils/session";
 
 import { Checkbox } from '@mui/material';
 import { BsHandThumbsUp } from 'react-icons/bs';
@@ -172,7 +181,10 @@ function AnswerButton({ icon, label, selected, onClick }) {
 //
 // The question's follow-up checkboxes ("what gives it away")
 // under a "Klausimai" heading. The whole row is clickable and
-// highlights softly when its checkbox is ticked.
+// highlights softly when its checkbox is ticked. The text is
+// no <label> (a click on a label clicks its checkbox as well
+// — the row would toggle twice), so each checkbox carries the
+// text as its accessible name instead.
 //
 // Used by:
 //   - QuestionCard (below)
@@ -195,12 +207,58 @@ function OptionsList({ options, onOptionClick }) {
             <Checkbox
               checked={questionOption.isselected === 1}
               style={{ color: "rgb(123, 0, 63)" }}
+              slotProps={{ input: { "aria-label": questionOption.answeroption } }}
             />
           </div>
         ))}
       </div>
     </div>
   );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// postAnswers
+// -----------------------------------------------------------
+//
+// One save: POST /api/student/questions with the whole answer
+// state, and what came of it. The backend answers 200 in
+// three ways, so only "OK" counts as saved:
+//
+//   "OK"        → "saved"
+//   {}          → "left" — the test is locked (finished, e.g.
+//                 on another device) or the session is not a
+//                 student's: the browser goes to "/", where
+//                 the router sends it to the real home (the
+//                 results, or the admin pages)
+//   "Error: …"  → "failed" — the body was refused
+//
+// A 401 (the session ended — e.g. /login opened in another
+// tab logs out) → "left" for /login; any other failure (5xx,
+// no connection) → "failed".
+//
+// Used by:
+//   - useTestQuestions (below) — the autosave loop
+// -----------------------------------------------------------
+
+async function postAnswers(answers) {
+  try {
+    const response = await axios.post("/api/student/questions", answers, { withCredentials: true });
+    if (response.data === "OK") return "saved";
+
+    if (response.data && typeof response.data === "object") {
+      window.location.href = "/";
+      return "left";
+    }
+    return "failed";
+  } catch (error) {
+    return redirectOnExpiredSession(error) ? "left" : "failed";
+  }
 }
 
 
@@ -217,23 +275,36 @@ function OptionsList({ options, onOptionClick }) {
 //
 //   - loads the student's questions on mount (the backend
 //     assigns each student a random subset on first request;
-//     a 401 bounces to /login)
+//     a 401 bounces to /login). Any other failure (5xx, a
+//     deploy, no connection) leaves the load `failed`;
+//     retryLoad asks again. Only the newest load counts
+//     (StrictMode mounts twice in development)
 //   - autosaves by POSTing the whole answer state after every
 //     change, so progress survives a reload and the admin
 //     dashboard sees it live. Saves are SERIALISED: only one
 //     POST is in flight, clicks made meanwhile are coalesced
 //     into one follow-up POST of the newest state — so an
 //     older state can never overtake and overwrite a newer one
+//   - a save that sent the browser away (postAnswers: /login
+//     after a 401, "/" for a test the backend no longer takes)
+//     ends saving: nothing is sent after it, and no connection
+//     problem is reported
+//   - a page restored from the back-forward cache (Back after
+//     finishing) reloads: the route guard decides again
 //   - exposes the two mutations the page needs: the
-//     "Tikras"/"Fišingas" verdict and the option toggles
+//     "Tikras"/"Fišingas" verdict and the option toggles.
+//     Both build a new state — the changed question and
+//     option are copies — so no object an earlier state (or
+//     the GET) handed out is ever edited
 //   - finishTest waits for the pending save (retrying once if
 //     the last one failed) BEFORE navigating away — a hard
 //     navigation would abort an in-flight POST and the backend
 //     would freeze a grade missing the last click
 //
 // Returns { questionsData, currentQuestionIndex,
-//           setCurrentQuestionIndex, loading, empty,
-//           answerQuestion, toggleOption, finishTest }.
+//           setCurrentQuestionIndex, loading, failed,
+//           retryLoad, empty, answerQuestion, toggleOption,
+//           finishTest }.
 //
 // Used by:
 //   - TestHome (below)
@@ -244,27 +315,46 @@ function useTestQuestions() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(undefined);
   const [questionsData, setQuestionsData] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
 
   // Load the student's questions (assigned server-side). A
   // finished test answers {} instead of an array — treated as
   // empty rather than crashing the page (the route guard
-  // normally redirects finished students before this runs)
+  // normally redirects finished students before this runs).
+  // Runs again for every retryLoad; a run cleaned up meanwhile
+  // (unmounted, or StrictMode's double mount in development)
+  // ignores its reply
   useEffect(() => {
+    let ignore = false;
+
     async function getData() {
       try {
         const response = await axios.get("/api/student/questions", { withCredentials: true });
+        if (ignore) return;
         setQuestionsData(Array.isArray(response.data) ? response.data : []);
         setCurrentQuestionIndex(0);
         setLoaded(true);
       } catch (error) {
-        if (error.response && error.response.status === 401) {
-          window.location.href = '/login';
-        }
+        if (ignore || redirectOnExpiredSession(error)) return;
+        setLoadFailed(true);
       }
     }
     getData();
-  }, []);
+
+    return () => {
+      ignore = true;
+    };
+  }, [loadAttempt]);
+
+
+  // "Bandyti dar kartą" after a failed load — the spinner shows
+  // again while the questions are asked for once more
+  const retryLoad = () => {
+    setLoadFailed(false);
+    setLoadAttempt((attempt) => attempt + 1);
+  };
 
 
   // Autosave — POST the whole answer state after every change,
@@ -277,8 +367,12 @@ function useTestQuestions() {
   const saveInFlight = useRef(null);      // Promise<boolean> of the running save chain
   const saveDirty = useRef(false);
   const lastSaveFailed = useRef(false);
+  const leftPage = useRef(false);         // a save sent the browser away (/login or "/")
 
   const save = () => {
+    if (leftPage.current) {
+      return Promise.resolve(false);
+    }
     if (saveInFlight.current) {
       saveDirty.current = true;
       return saveInFlight.current;
@@ -286,11 +380,17 @@ function useTestQuestions() {
     saveInFlight.current = (async () => {
       do {
         saveDirty.current = false;
-        try {
-          await axios.post("/api/student/questions", latestState.current, { withCredentials: true });
-          lastSaveFailed.current = false;
-        } catch {
-          lastSaveFailed.current = true;
+        const outcome = await postAnswers(latestState.current);
+        lastSaveFailed.current = outcome !== "saved";
+
+        // Every further save would be turned away as well — no
+        // connection problem to report. What was saved before
+        // is on the server
+        if (outcome === "left") {
+          leftPage.current = true;
+          break;
+        }
+        if (outcome === "failed") {
           toast.error(<b>Nepavyko išsaugoti atsakymo — patikrinkite ryšį</b>, { duration: 5000 });
         }
       } while (saveDirty.current);
@@ -312,17 +412,37 @@ function useTestQuestions() {
   }, [questionsData]);
 
 
+  // Back / forward can bring this page back from the browser's
+  // back-forward cache as it was left — after finishing, a
+  // locked test still clickable. A reload asks the route guard
+  // again, which knows where the student belongs now
+  useEffect(() => {
+    const reloadIfRestored = (event) => {
+      if (event.persisted) {
+        window.location.reload();
+      }
+    };
+    window.addEventListener("pageshow", reloadIfRestored);
+    return () => window.removeEventListener("pageshow", reloadIfRestored);
+  }, []);
+
+
   // Finish — only once the answers are safely on the server.
   // Waits for the running save; if the last save had failed,
   // sends the newest state once more. Still failing → the
   // student stays on the test with an error instead of
-  // finishing with answers that never arrived. The navigation
-  // is a full page load on purpose: the session is re-checked
-  // and a finished student can no longer return to the test
+  // finishing with answers that never arrived — unless a save
+  // sent the browser away already (/login, "/"): then there is
+  // nothing to report. The navigation is a full page load on
+  // purpose: the session is re-checked and a finished student
+  // can no longer return to the test
   const finishTest = async () => {
     let saved = await (saveInFlight.current ?? Promise.resolve(!lastSaveFailed.current));
     if (!saved) {
       saved = await save();
+    }
+    if (leftPage.current) {
+      return;
     }
     if (!saved) {
       toast.error(<b>Paskutiniai atsakymai neišsaugoti — patikrinkite ryšį ir bandykite dar kartą</b>, { duration: 6000 });
@@ -332,12 +452,19 @@ function useTestQuestions() {
   };
 
 
+  // Replaces the open question with changeQuestion's copy of
+  // it — a new array around it, the other questions shared
+  const updateOpenQuestion = (changeQuestion) => {
+    hasUserAnswered.current = true;
+    setQuestionsData((questions) => questions.map((question, index) =>
+      index === currentQuestionIndex ? changeQuestion(question) : question
+    ));
+  };
+
+
   // "Tikras" (0) / "Fišingas" (1) answer for the open question
   const answerQuestion = (selectedanswer) => {
-    hasUserAnswered.current = true;
-    const updatedQuestionsData = [...questionsData];
-    updatedQuestionsData[currentQuestionIndex].selectedanswer = selectedanswer;
-    setQuestionsData(updatedQuestionsData);
+    updateOpenQuestion((question) => ({ ...question, selectedanswer }));
 
     // Bring the follow-up checkboxes into view
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
@@ -346,11 +473,12 @@ function useTestQuestions() {
 
   // Toggle one of the question's follow-up checkboxes
   const toggleOption = (optionIndex) => {
-    hasUserAnswered.current = true;
-    const updatedQuestionsData = [...questionsData];
-    updatedQuestionsData[currentQuestionIndex].questionoptions[optionIndex].isselected =
-      updatedQuestionsData[currentQuestionIndex].questionoptions[optionIndex].isselected === 1 ? 0 : 1;
-    setQuestionsData(updatedQuestionsData);
+    updateOpenQuestion((question) => ({
+      ...question,
+      questionoptions: question.questionoptions.map((option, index) =>
+        index === optionIndex ? { ...option, isselected: option.isselected === 1 ? 0 : 1 } : option
+      ),
+    }));
   };
 
 
@@ -358,7 +486,9 @@ function useTestQuestions() {
     questionsData,
     currentQuestionIndex,
     setCurrentQuestionIndex,
-    loading: !loaded || currentQuestionIndex === undefined,
+    loading: !loadFailed && (!loaded || currentQuestionIndex === undefined),
+    failed: loadFailed,
+    retryLoad,
     empty: loaded && questionsData.length === 0,
     answerQuestion,
     toggleOption,
@@ -486,6 +616,8 @@ export default function TestHome() {
     currentQuestionIndex,
     setCurrentQuestionIndex,
     loading,
+    failed,
+    retryLoad,
     empty,
     answerQuestion,
     toggleOption,
@@ -501,6 +633,21 @@ export default function TestHome() {
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-[#EBECEF]">
         <div className="w-10 h-10 rounded-full border-4 border-gray-300 border-t-[rgb(123,0,63)] animate-spin" />
         <div className="text-gray-500">Kraunasi...</div>
+      </div>
+    );
+  }
+
+  // The questions could not be loaded (a server error, a
+  // deploy, no connection) — say so and let the student ask
+  // again instead of spinning forever
+  if (failed) {
+    return (
+      <div>
+        <Navbar/>
+        <div className="min-h-[calc(100vh-135px)] flex items-center justify-center bg-[#EBECEF]">
+          <LoadError message="Nepavyko įkelti klausimų" onRetry={retryLoad} />
+        </div>
+        <Footer />
       </div>
     );
   }

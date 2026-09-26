@@ -7,7 +7,12 @@
 //  the admin layout (with its own <Toaster/>):
 //    - GET /api/admin/students/<id> (axios, withCredentials,
 //      once); the page renders blurred (blur-[5px]) until it
-//      answers; a 401 is a full page load of /login
+//      answers; a 401 is a full page load of /login; a 404 (the
+//      student is gone) leaves only the heading and "Studentas
+//      nerastas" — no retry, no delete button, no tabs; any
+//      other failure shows "Nepavyko įkelti studento duomenų"
+//      with "Bandyti dar kartą" (asks again) in place of the
+//      profile card and the tiles, the rest of the page kept
 //    - the profile card: the username, "ID:" (the ROUTE's id),
 //      the login code, the registration and last-seen times in
 //      Vilnius time — "—" for null
@@ -19,21 +24,24 @@
 //    - the tabs: "Atsakymai" (the default — the answer review,
 //      StudentAnswers, pinned in studentAnswers.test.jsx) and
 //      "Testo Apibendrinimas" — the summary DataGrid, mounted
-//      only once opened, with its OWN GET .../answers: the email
-//      thumbnail, "Teisingai" / "Neteisingai", the options mini
-//      bar "a / b" and the "<points> tšk." chip
+//      only once opened, with its OWN GET .../answers: the
+//      question id "#<id>", the email thumbnail, "Teisingai" /
+//      "Neteisingai", the options mini bar "a / b" and the
+//      "<points> tšk." chip; a failed GET shows "Nepavyko įkelti
+//      atsakymų" with "Bandyti dar kartą" instead of the grid
 //    - "Ištrinti Studentą", held 1.5 s: POST .../<id>/delete {}
 //      (withCredentials) → "Studentas ištrintas" and client-side
-//      back to /admin/students; any failure → "Nepavyko ištrinti
-//      studento", the page stays; an early release only toasts
+//      back to /admin/students. The button is disabled while the
+//      POST is on its way — a second hold sends nothing. A 401
+//      is a full page load of /login; any other failure →
+//      "Nepavyko ištrinti studento", the page stays and the
+//      button can be held again; an early release only toasts
 //
-//  Left to knownBugs.test.jsx and so not touched here: the
-//  summary grid's ID column ("#" without the id, KB-17), a
-//  route change while the record loads (KB-09), the role-gate
-//  reply (KB-10), failed loads of the record or the answers
-//  other than 401 (a failed load reads as data — KB-20), a 401
-//  on the delete (toasted like any failure — KB-36) and a hold
-//  released right at 1.5 s (KB-37).
+//  Left to other files: a route change while the record loads
+//  and the role-gate reply (useFetchData's —
+//  useFetchData.test.jsx), a failed load of the answer review
+//  (StudentAnswers') and a hold released right at 1.5 s
+//  (LongPressButton's).
 // -----------------------------------------------------------
 
 import "./support/setup";
@@ -129,6 +137,20 @@ const tab = (name) => screen.getByRole("tab", { name });
 
 const deleteButton = () => screen.getByRole("button", { name: "Ištrinti Studentą" });
 
+const retryButton = () => screen.findByRole("button", { name: "Bandyti dar kartą" });
+
+// What a failed load of the record / the summary grid's answers
+// says instead — and a record the backend no longer has (404)
+const RECORD_FAILED = "Nepavyko įkelti studento duomenų";
+const ANSWERS_FAILED = "Nepavyko įkelti atsakymų";
+const STUDENT_GONE = "Studentas nerastas";
+
+// A load lost on the way — the server's or the network's fault
+const LOAD_FAILURES = [
+  ["a server error", reply.status(500, "Internal Server Error")],
+  ["a network failure", reply.networkError()],
+];
+
 // The summary grid (mounted on its tab only): the data rows in
 // screen order — the header row carries no data-id — and cells
 const gridRowIds = () => [...document.querySelectorAll('[role="row"][data-id]')].map((row) => row.getAttribute("data-id"));
@@ -142,7 +164,7 @@ const headerTitles = () =>
 const colorsOf = (element) => ["bg-green-600", "bg-amber-500", "bg-red-500"].filter((name) => element.classList.contains(name));
 
 // `total` options that should all be ticked, the first `missed`
-// left unticked — texts kept distinct (KB-15)
+// left unticked
 const optionsMissing = (total, missed) =>
   Array.from({ length: total }, (_, index) => fx.answeredOption({
     optiontext: `Požymis Nr. ${index + 1}`,
@@ -209,14 +231,75 @@ describe("StudentInformation — loading the page", () => {
     backend.on("GET", ANSWERS, reply.json([]));
     renderPage(<StudentInformation />, { path: "/admin/students/:studentID", url: "/admin/students/5" });
 
-    // The target is pinned, not the count: a shared 401
-    // interceptor (the fix of KB-21 / KB-36) would redirect as
-    // well as useFetchData
+    // The target is pinned, not how often it is set
     await waitFor(() => expect(hardNavigations()).toContain("/login"));
     await settle();
 
     expect([...new Set(hardNavigations())]).toEqual(["/login"]);
     expect(page()).toHaveClass(BLUR);
+  });
+
+
+  it.each(LOAD_FAILURES)("a record lost to %s shows 'Nepavyko įkelti studento duomenų' with 'Bandyti dar kartą' in place of the profile card and the tiles", async (_, failure) => {
+    backend.on("GET", RECORD, failure);
+    backend.on("GET", ANSWERS, reply.json([]));
+    renderPage(<StudentInformation />, { path: "/admin/students/:studentID", url: "/admin/students/5" });
+
+    expect(await screen.findByText(RECORD_FAILED)).toBeInTheDocument();
+    expect(await retryButton()).toBeInTheDocument();
+    expect(page()).not.toHaveClass(BLUR);
+
+    // No blank profile, no invented 0 grade or 0 / 0 tiles
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+    expect(screen.queryByText("ID:")).toBeNull();
+    expect(screen.queryByTestId("SchoolIcon")).toBeNull();
+    expect(screen.queryByTitle(FULLY_CORRECT)).toBeNull();
+
+    // Unlike a 404, the delete button and the result tabs stay
+    expect(deleteButton()).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+  });
+
+
+  it("a record answered 404 — the student is gone (deleted, a stale link) — leaves the heading and 'Studentas nerastas': no retry, no delete, no tabs", async () => {
+    backend.on("GET", RECORD, reply.text("Error: Student not found", 404));
+    // The review asks on mount, before the 404 is in; the answers
+    // of a student who is gone come back empty
+    backend.on("GET", ANSWERS, reply.json([]));
+    renderPage(<StudentInformation />, { path: "/admin/students/:studentID", url: "/admin/students/5" });
+
+    expect(await screen.findByText(STUDENT_GONE)).toBeInTheDocument();
+    await settle();
+
+    expect(screen.getByRole("heading", { name: "Studento Informacija" })).toBeInTheDocument();
+    expect(page()).not.toHaveClass(BLUR);
+    expect(screen.queryByRole("button", { name: "Bandyti dar kartą" })).toBeNull();
+    expect(screen.queryByText(RECORD_FAILED)).toBeNull();
+
+    // Nothing left to show, delete or review
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+    expect(screen.queryByTestId("SchoolIcon")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ištrinti Studentą" })).toBeNull();
+    expect(screen.queryAllByRole("tab")).toEqual([]);
+    expect(backend.requests("GET", RECORD)).toHaveLength(1);
+  });
+
+
+  it("'Bandyti dar kartą' asks for the record again — and shows it once it arrives", async () => {
+    backend.once("GET", RECORD, reply.status(500, "Internal Server Error"));
+    backend.on("GET", RECORD, reply.json(fx.studentDetail({ username: "JONAS_JONAITIS", testgrade: "7.50" })));
+    backend.on("GET", ANSWERS, reply.json([]));
+    const { user } = renderPage(<StudentInformation />, { path: "/admin/students/:studentID", url: "/admin/students/5" });
+
+    await user.click(await retryButton());
+
+    await waitFor(() => expect(username().textContent).toBe("JONAS_JONAITIS"));
+    expect(gradeTile().lastElementChild.textContent).toBe("7.50");
+    expect(screen.queryByText(RECORD_FAILED)).toBeNull();
+
+    const requests = backend.requests("GET", RECORD);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toMatchObject({ client: "axios", method: "GET", url: RECORD, withCredentials: true });
   });
 
 
@@ -520,6 +603,13 @@ describe("StudentInformation — the summary grid ('Testo Apibendrinimas')", () 
   });
 
 
+  it("prints each row's question id in the ID column — '#11', '#12'", async () => {
+    await openSummary([fx.studentAnswer({ id: 11 }), fx.studentAnswer({ id: 12 })]);
+
+    expect([11, 12].map((id) => gridCell(id, "id").textContent)).toEqual(["#11", "#12"]);
+  });
+
+
   it("lists one row per answer in the API's order, each with its email as a thumbnail", async () => {
     await openSummary([18, 11, 13].map((id) => fx.studentAnswer({ id })));
 
@@ -595,6 +685,33 @@ describe("StudentInformation — the summary grid ('Testo Apibendrinimas')", () 
       ["0.00 tšk.", ["bg-red-500"]],
     ]);
   });
+
+
+  it.each(LOAD_FAILURES)("answers lost to %s show 'Nepavyko įkelti atsakymų' with 'Bandyti dar kartą' instead of an empty grid", async (_, failure) => {
+    const { user } = await renderStudent({ answers: [fx.studentAnswer({ id: 11 })] });
+    await screen.findByText("Klausimas #11");
+    backend.once("GET", ANSWERS, failure);
+
+    await user.click(tab("Testo Apibendrinimas"));
+
+    expect(await screen.findByText(ANSWERS_FAILED)).toBeInTheDocument();
+    expect(await retryButton()).toBeInTheDocument();
+    expect(screen.queryByRole("grid")).toBeNull();
+  });
+
+
+  it("'Bandyti dar kartą' asks for the answers again — and fills the grid", async () => {
+    const { user } = await renderStudent({ answers: [fx.studentAnswer({ id: 11 }), fx.studentAnswer({ id: 12 })] });
+    await screen.findByText("Klausimas #11");
+    backend.once("GET", ANSWERS, reply.status(500, "Internal Server Error"));
+    await user.click(tab("Testo Apibendrinimas"));
+
+    await user.click(await retryButton());
+
+    await waitFor(() => expect(gridRowIds()).toEqual(["11", "12"]));
+    expect(screen.queryByText(ANSWERS_FAILED)).toBeNull();
+    expect(backend.requests("GET", ANSWERS)).toHaveLength(3);
+  });
 });
 
 
@@ -669,6 +786,67 @@ describe("StudentInformation — deleting the student", () => {
 
     await waitFor(() => expect(location().pathname).toBe("/admin/students"));
     await findToast("Studentas ištrintas");
+  });
+
+
+  it("disables 'Ištrinti Studentą' while the delete is on its way — a failed delete frees it again", async () => {
+    const deletion = deferred();
+    backend.once("POST", DELETE, () => deletion.promise);
+    await renderStudent();
+
+    // Looked up once: while held, the label drops out of the
+    // button's name
+    const button = deleteButton();
+    expect(button).toBeEnabled();
+
+    longPress(button, 1600);
+    await waitFor(() => expect(backend.requests("POST", DELETE)).toHaveLength(1));
+
+    expect(button).toBeDisabled();
+
+    await act(async () => deletion.resolve(reply.status(500, "Internal Server Error")));
+    await findToast("Nepavyko ištrinti studento");
+
+    expect(button).toBeEnabled();
+  });
+
+
+  it("a second hold while the delete is on its way sends nothing — only the success is reported", async () => {
+    const firstDelete = deferred();
+    backend.once("POST", DELETE, () => firstDelete.promise);
+    // A second delete would find the student gone
+    backend.once("POST", DELETE, reply.text("Error: Student not found", 404));
+    const { location } = await renderStudent({ toaster: true });
+
+    // Looked up once, held twice
+    const button = deleteButton();
+    longPress(button, 1600);
+    await waitFor(() => expect(backend.requests("POST", DELETE)).toHaveLength(1));
+
+    longPress(button, 1600);
+    await settle();
+
+    await act(async () => firstDelete.resolve(DELETED));
+    await waitFor(() => expect(location().pathname).toBe("/admin/students"));
+    await findToast("Studentas ištrintas");
+    await settle();
+
+    expect(backend.requests("POST", DELETE)).toHaveLength(1);
+    expect(toastTexts()).toEqual(["Studentas ištrintas"]);
+  });
+
+
+  it("sends an expired session (401 on the delete) to /login with a full page load — no failure toast", async () => {
+    backend.on("POST", DELETE, reply.status(401, "Unauthorized"));
+    const { location } = await renderStudent();
+
+    longPress(deleteButton(), 1600);
+    await waitFor(() => expect(hardNavigations()).toContain("/login"));
+    await settle();
+
+    expect([...new Set(hardNavigations())]).toEqual(["/login"]);
+    expect(toastTexts()).toEqual([]);
+    expect(location().pathname).toBe("/admin/students/5");
   });
 
 

@@ -10,8 +10,14 @@
 //      card, the summary tiles ("N / P%" shares of the bank,
 //      "—" for the null counters of an EMPTY bank) and the
 //      amber warning while fewer questions are enabled than
-//      the saved test size (never while phishingtestsize is
-//      still null)
+//      the test size (a never-saved size — phishingtestsize
+//      null — counts as the default 30 the backend deals),
+//      its count worded for its number: "įjungtas tik 1
+//      klausimas", "įjungti tik 2 klausimai", "įjungta tik 0
+//      klausimų". A bank that fails to load shows
+//      "Nepavyko įkelti klausimų banko" with "Bandyti dar
+//      kartą" inside the admin frame — never the empty bank; a
+//      reload that fails keeps the bank on screen
 //    - QuestionsList — one card per question in the API's
 //      order (newest first); for a non-empty bank the filter
 //      bar: quick search (question or option text in any case,
@@ -27,9 +33,7 @@
 //      admin layout
 //
 //  The cards (QuestionCard) have their own tests — here they
-//  are only found by their "Klausimas #<id>" header. A failed
-//  bank load is known bug KB-14 and deliberately not
-//  exercised here.
+//  are only found by their "Klausimas #<id>" header.
 // -----------------------------------------------------------
 
 import "./support/setup";
@@ -191,6 +195,44 @@ describe("Questions — loading the bank", () => {
     expect(screen.getByAltText("VU logotipas")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Atsijungti" })).toBeInTheDocument();
   });
+
+
+  // The admin must never mistake it for an empty bank and upload
+  // every question again
+  it.each([
+    ["HTTP 500", reply.status(500, "Internal Server Error")],
+    ["a network error", reply.networkError()],
+  ])("a load failing with %s says so and offers a retry — never the empty bank", async (_, failure) => {
+    backend.on("GET", QUESTIONS, failure);
+    renderPage(<Questions />, { path: "/admin/questions" });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Nepavyko įkelti klausimų banko");
+    expect(screen.getByRole("button", { name: "Bandyti dar kartą" })).toBeInTheDocument();
+
+    expect(screen.queryByText("Klausimų banke dar nieko nėra")).toBeNull();
+    expect(screen.queryByRole("heading", { level: 1, name: "Testo Klausimai" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Sukurti Naują Klausimą/ })).toBeNull();
+
+    // Inside the admin frame — the admin can still move on
+    expect(screen.getByRole("button", { name: "Atsijungti" })).toBeInTheDocument();
+  });
+
+
+  it("'Bandyti dar kartą' asks for the bank again and shows it once it arrives", async () => {
+    backend.once("GET", QUESTIONS, reply.status(500, "Internal Server Error"));
+    backend.on("GET", QUESTIONS, reply.json(fx.questionBank()));
+    const { user } = renderPage(<Questions />, { path: "/admin/questions" });
+
+    await user.click(await screen.findByRole("button", { name: "Bandyti dar kartą" }));
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Testo Klausimai" })).toBeInTheDocument();
+    expect(shownIds()).toEqual([21]);
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    const requests = backend.requests("GET", QUESTIONS);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toMatchObject({ client: "axios", withCredentials: true });
+  });
 }, SLOW_UI_TIMEOUT);
 
 
@@ -296,23 +338,44 @@ describe("Questions — the test-size warning", () => {
   });
 
 
+  // Until a size is saved the API reports null — and the backend
+  // deals the default 30 (capped by the enabled count), as the
+  // dashboard shows it
   it.each([
-    ["a bank with nothing enabled", questionsWithEnabled(3, 0)],
-    ["an empty bank", []],
-  ])("stays hidden while no test size was ever saved (null) — %s", async (_, questions) => {
+    ["a bank with 2 of 3 enabled", questionsWithEnabled(3, 2), "įjungti tik 2 klausimai"],
+    ["a bank with nothing enabled", questionsWithEnabled(3, 0), "įjungta tik 0 klausimų"],
+    ["an empty bank", [], "įjungta tik 0 klausimų"],
+  ])("measures against the default size 30 while none was ever saved (null) — %s", async (_, questions, words) => {
     await openBank(fx.questionBank(questions, { phishingtestsize: null }));
 
-    expect(warning()).toBeNull();
+    expect(warning()).toHaveTextContent(`testo dydis yra 30, bet ${words} — nauji testai`);
+    expect(warning()).not.toHaveTextContent("null");
   });
 
 
-  it("counts the null enabled count of an empty bank as 0", async () => {
+  it("counts the null enabled count of an empty bank as 0 — 'įjungta tik 0 klausimų'", async () => {
     await openBank(fx.questionBank([], { phishingtestsize: 12 }));
 
-    // Numbers only: after 0 the noun should read "klausimų", so
-    // its ending is left open here
-    expect(warning()).toHaveTextContent(/testo dydis yra 12, bet įjungti tik 0 klausim/);
+    expect(warning()).toHaveTextContent("testo dydis yra 12, bet įjungta tik 0 klausimų — nauji testai");
     expect(warning()).not.toHaveTextContent("null");
+  });
+
+
+  // Lithuanian words a count by its last digits: …1 (but not
+  // …11) "įjungtas … klausimas", …2–…9 (but not …12–…19)
+  // "įjungti … klausimai" (the 2 above), the rest "įjungta …
+  // klausimų". Banks of the real size, so the page gets the
+  // counts the backend would send
+  it.each([
+    [1, 12, "įjungtas tik 1 klausimas"],
+    [0, 12, "įjungta tik 0 klausimų"],
+    [11, 12, "įjungta tik 11 klausimų"],
+    [12, 15, "įjungta tik 12 klausimų"],
+    [21, 30, "įjungtas tik 21 klausimas"],
+  ])("words an enabled count of %i (test size %i) as '%s'", async (enabled, size, words) => {
+    await openBank(fx.questionBank(questionsWithEnabled(Math.max(enabled, 1), enabled), { phishingtestsize: size }));
+
+    expect(warning()).toHaveTextContent(`testo dydis yra ${size}, bet ${words} — nauji testai`);
   });
 }, SLOW_UI_TIMEOUT);
 
@@ -635,6 +698,29 @@ describe("QuestionsList — creating a question", () => {
     // The counters come from the refetched bank too
     expect(tile("Viso", "Klausimų")).toBe("5");
     expect(screen.getByText("Rodoma 5 iš 5")).toBeInTheDocument();
+  });
+
+
+  it("a reload that fails after the upload keeps the bank on screen — no load error", async () => {
+    const { user } = await openBank(fx.questionBank(BANK));
+    await user.click(createButton());
+    await screen.findByRole("heading", { name: "Įkelti Paveikslėlį" });
+
+    backend.on("GET", QUESTIONS, reply.status(500, "Internal Server Error"));
+    backend.on("POST", UPLOAD, reply.json({ type: "ok", message: "Image uploaded successfully" }));
+
+    await user.upload(document.querySelector('input[type="file"]'), new File(["png"], "laiskas.png", { type: "image/png" }));
+    const uploadButton = screen.getByRole("button", { name: "Įkelti Paveikslėlį" });
+    await waitFor(() => expect(uploadButton).toBeEnabled());
+    await user.click(uploadButton);
+
+    await findToast("Paveikslėlis sėkmingai įkeltas");
+    await waitFor(() => expect(backend.requests("GET", QUESTIONS)).toHaveLength(2));
+    await settle();
+
+    expect(shownIds()).toEqual([210, 23, 22, 21]);
+    expect(tile("Viso", "Klausimų")).toBe("4");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 }, SLOW_UI_TIMEOUT);
 

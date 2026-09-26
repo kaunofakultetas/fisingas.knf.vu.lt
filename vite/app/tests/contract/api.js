@@ -215,7 +215,6 @@ export const API = {
           // StudentTestSummaryTable's picture and verdict columns
           // are render-only — the grid still reads row[field]
           virtual: ["phishingpicture", "identified"],
-          knownBugReads: { questionid: "KB-17" },
         },
         ROLE_GATE,
       ],

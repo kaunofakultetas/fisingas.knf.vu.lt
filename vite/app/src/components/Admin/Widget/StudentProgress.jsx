@@ -30,13 +30,16 @@ export default function StudentProgress({ text, studentsprogress }) {
         {text}
       </span>
 
-      {/* One progress bar per active student */}
+      {/* One progress bar per active student, keyed by the
+          student — as students come and go between polls, each
+          keeps their own row instead of taking over a leaving
+          student's (and that bar's animation) */}
       <Box className="p-2.5">
         {studentsprogress.length === 0 ?
           <Box>Šiuo metu testo nesprendžia nei vienas studentas</Box>
         :
-          studentsprogress.map((student, index) => (
-            <Box key={index} className="bg-white w-full flex items-center mb-2.5">
+          studentsprogress.map((student) => (
+            <Box key={student.studentid} className="bg-white w-full flex items-center mb-2.5">
               <Box className="text-xl w-[250px] mr-2">{student.username}:</Box>
 
               <Box sx={{ position: 'relative', width: '100%' }}>

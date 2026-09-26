@@ -9,8 +9,12 @@
 //      5 s until unmount. The heading "Studentų Sąrašas" is
 //      there at once, its count "(N)" — the students the list
 //      SHOWS — only once the first reply is in; a progress bar
-//      covers the grid meanwhile. A failed later poll keeps the
-//      last list, a 401 is a full page load of /login
+//      covers the grid meanwhile. A failed FIRST load shows
+//      "Nepavyko įkelti studentų sąrašo" with "Bandyti dar
+//      kartą" (asks again) instead of the count and the grid,
+//      until a retry or the next poll brings the list; a failed
+//      later poll keeps the last list — an empty one too; a 401
+//      is a full page load of /login
 //    - the columns ID, Prisijungimo Vardas, Kl. Skaičius,
 //      Įvertinimas, Baigta?, Registracijos Laikas, Paskutinįkart
 //      Pastebėtas: the grade printed as the API's 2-decimal
@@ -20,24 +24,28 @@
 //    - a click anywhere on a row opens /admin/students/<id>
 //      client-side
 //    - "Per Paskutinį Mėnesį" (on by default) hides the students
-//      not seen within one calendar month — never-seen (null)
-//      ones too; off, everyone is listed
+//      not seen within one calendar month — the day clamped to
+//      a shorter month (May 31 reaches back to April 30) —
+//      never-seen (null) ones too; off, everyone is listed; the
+//      switch keeps its position through polls and a retried
+//      first load
 //    - "Ieškoti..." — the grid's quick filter, applied 150 ms
 //      after the last keystroke: the whole trimmed text is ONE
 //      search value, found case-insensitively inside any
-//      column's printed text; the grade column compares numbers
-//    - "STULPELIAI" toggles the grid's column picker
+//      column's printed text ("BAIGTA" finds the finished);
+//      the grade column compares numbers; a poll landing inside
+//      the 150 ms does not drop the search
+//    - "STULPELIAI" toggles the grid's column picker — one click
+//      opens it again after the picker closed itself (a click
+//      elsewhere, Escape)
 //    - 100 students a page, ButtonsPagination's page buttons
 //
 //  Under jsdom the DataGrid switches row and column
 //  virtualization off, so every row of the page and every
-//  column is in the DOM. "Now" is pinned mid-month wherever the
-//  last-month filter matters: its cutoff misbehaves on the
-//  29th–31st (known bug KB-18, knownBugs.test.jsx), which the
-//  pinned tests never trigger and which cannot reach the polling
-//  tests' students (seen minutes or 40 days back). The role-gate
-//  reply (KB-10) and a failed FIRST load (it reads as an empty
-//  list) are left out.
+//  column is in the DOM. "Now" is pinned wherever the
+//  last-month filter matters; the polling tests' students are
+//  seen minutes or 40 days back, clear of any cutoff. The
+//  role-gate reply is useFetchData's (useFetchData.test.jsx).
 // -----------------------------------------------------------
 
 import "./support/setup";
@@ -56,9 +64,9 @@ import StudentsList from "@/systemPages/AdminPages/StudentsList/StudentsList";
 const STUDENTS = "/api/admin/students";
 
 // "Now" wherever the last-month filter matters: 2026-08-15 12:00
-// in Vilnius, one calendar month back is 2026-07-15 12:00 — mid-
-// month on purpose (KB-18), and no DST switch in between, so the
-// cutoff is the same instant in any timezone the suite runs in
+// in Vilnius, one calendar month back is 2026-07-15 12:00 — no
+// DST switch in between, so the cutoff is the same instant in
+// any timezone the suite runs in
 const NOW = new Date("2026-08-15T12:00:00+03:00");
 
 const HEADERS = [
@@ -160,6 +168,11 @@ const searchBox = () => screen.getByPlaceholderText("Ieškoti...");
 
 const columnsButton = () => screen.getByRole("button", { name: "STULPELIAI" });
 
+// The failed first load's message and its retry
+const LOAD_FAILED = "Nepavyko įkelti studentų sąrašo";
+
+const retryButton = () => screen.findByRole("button", { name: "Bandyti dar kartą" });
+
 // The page content next to the sidebar
 const content = () => screen.getByRole("heading", { name: "Studentų Sąrašas" }).closest(".overflow-auto");
 
@@ -228,15 +241,67 @@ describe("StudentsList — loading the list", () => {
     backend.on("GET", STUDENTS, reply.status(401, "Unauthorized"));
     renderPage(<StudentsList />, { path: "/admin/students" });
 
-    // The target is pinned, not the count: a shared 401
-    // interceptor (the fix of KB-21 / KB-36) would redirect as
-    // well as useFetchData
+    // The target is pinned, not how often it is set
     await waitFor(() => expect(hardNavigations()).toContain("/login"));
     await settle();
 
     expect([...new Set(hardNavigations())]).toEqual(["/login"]);
     expect(countText()).toBeNull();
     expect(screen.getByRole("progressbar")).toBeInTheDocument();
+  });
+
+
+  it.each([
+    ["a server error", reply.status(500, "Internal Server Error")],
+    ["a network failure", reply.networkError()],
+  ])("a first load lost to %s shows 'Nepavyko įkelti studentų sąrašo' with 'Bandyti dar kartą' — no '(0)', no grid", async (_, failure) => {
+    useFakeInterval();
+    backend.on("GET", STUDENTS, failure);
+    renderPage(<StudentsList />, { path: "/admin/students" });
+    await settle();
+
+    expect(screen.getByText(LOAD_FAILED)).toBeInTheDocument();
+    expect(await retryButton()).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Studentų Sąrašas" })).toBeInTheDocument();
+    expect(countText()).toBeNull();
+    expect(screen.queryByRole("grid")).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+
+  it("'Bandyti dar kartą' asks again — and shows the list once it arrives", async () => {
+    useFakeInterval();
+    backend.once("GET", STUDENTS, reply.status(500, "Internal Server Error"));
+    backend.on("GET", STUDENTS, reply.json([student({ id: 5 }), student({ id: 6 })]));
+    const { user } = renderPage(<StudentsList />, { path: "/admin/students" });
+
+    await user.click(await retryButton());
+
+    await waitFor(() => expect(rowIds()).toEqual(["5", "6"]));
+    expect(countText()).toBe("(2)");
+    expect(screen.queryByText(LOAD_FAILED)).toBeNull();
+    expect(listRequests()).toHaveLength(2);
+    expect(listRequests()[1]).toMatchObject({ client: "axios", method: "GET", url: STUDENTS, withCredentials: true });
+  });
+
+
+  it("keeps 'Per Paskutinį Mėnesį' switched off through a failed first load and its retry", async () => {
+    useFakeInterval();
+    const first = deferred();
+    backend.once("GET", STUDENTS, () => first.promise);
+    // Forty days is more than any calendar month back
+    backend.on("GET", STUDENTS, reply.json([student({ id: 1 }), student({ id: 2, lastseen: fx.daysAgo(40) })]));
+    const { user } = renderPage(<StudentsList />, { path: "/admin/students" });
+    await waitFor(() => expect(listRequests()).toHaveLength(1));
+
+    // Switched off while the first load is on its way
+    await user.click(lastMonthSwitch());
+    await act(async () => first.resolve(reply.status(500, "Internal Server Error")));
+    await user.click(await retryButton());
+
+    await waitFor(() => expect(rowIds()).toEqual(["1", "2"]));
+    expect(lastMonthSwitch()).not.toBeChecked();
+    expect(countText()).toBe("(2)");
   });
 
 
@@ -344,6 +409,37 @@ describe("StudentsList — polling every 5 s", () => {
     await nextPoll();
 
     expect(cell(5, "testgrade").textContent).toBe("8.00");
+  });
+
+
+  it("keeps an empty list — '(0)', no failure message — through a failed poll", async () => {
+    await mountPolling([]);
+    expect(countText()).toBe("(0)");
+
+    backend.once("GET", STUDENTS, reply.status(500, "Internal Server Error"));
+    await nextPoll();
+
+    expect(listRequests()).toHaveLength(2);
+    expect(countText()).toBe("(0)");
+    expect(screen.queryByText(LOAD_FAILED)).toBeNull();
+    expect(screen.getByRole("grid")).toBeInTheDocument();
+  });
+
+
+  it("keeps polling after a failed first load — the next good poll brings the list in", async () => {
+    useFakeInterval();
+    backend.once("GET", STUDENTS, reply.status(500, "Internal Server Error"));
+    backend.on("GET", STUDENTS, reply.json([student({ id: 5 })]));
+    renderPage(<StudentsList />, { path: "/admin/students" });
+    await settle();
+    expect(screen.getByText(LOAD_FAILED)).toBeInTheDocument();
+
+    await nextPoll();
+
+    expect(listRequests()).toHaveLength(2);
+    await waitFor(() => expect(rowIds()).toEqual(["5"]));
+    expect(countText()).toBe("(1)");
+    expect(screen.queryByText(LOAD_FAILED)).toBeNull();
   });
 
 
@@ -667,6 +763,29 @@ describe("StudentsList — 'Per Paskutinį Mėnesį'", () => {
   });
 
 
+  it("on March 31 reaches back into February — a student seen March 2, 29 days before, is listed", async () => {
+    vi.setSystemTime(new Date("2026-03-31T12:00:00+03:00"));
+    await renderList([student({ id: 1, username: "PRIES_29_DIENAS", lastseen: "2026-03-02T12:00:00+02:00" })]);
+
+    expect(rowIds()).toEqual(["1"]);
+    expect(countText()).toBe("(1)");
+  });
+
+
+  it("clamps the day to the shorter month: on May 31 12:00:00 seen April 30 12:00:00 stays, a second earlier goes", async () => {
+    // Both in Vilnius summer time (+03:00): no DST switch between
+    // the two dates, whatever timezone the suite runs in
+    vi.setSystemTime(new Date("2026-05-31T12:00:00+03:00"));
+    await renderList([
+      student({ id: 1, username: "RIBOJE", lastseen: "2026-04-30T12:00:00+03:00" }),
+      student({ id: 2, username: "SEKUNDE_PER_ANKSTI", lastseen: "2026-04-30T11:59:59+03:00" }),
+    ]);
+
+    expect(rowIds()).toEqual(["1"]);
+    expect(countText()).toBe("(1)");
+  });
+
+
   it("off: lists everyone — the never-seen student with an empty last-seen cell — and the count follows", async () => {
     const { user } = await renderList(seen());
 
@@ -706,12 +825,10 @@ describe("StudentsList — 'Per Paskutinį Mėnesį'", () => {
 describe("StudentsList — the quick search 'Ieškoti...'", () => {
 
   // The clock pinned AND the 5 s polls held back (the interval
-  // faked). A poll reply re-renders the table, which hands
-  // QuickFilter a new inline `parser` — and QuickFilter rebuilds its
-  // debounced setter for it, dropping a search still inside its
-  // 150 ms. setTimeout stays real for user-event, that debounce and
-  // React Testing Library, whose waits then look again on every DOM
-  // change
+  // faked), so every test searches the list it mounted with.
+  // setTimeout stays real for user-event, the search's 150 ms
+  // debounce and React Testing Library, whose waits then look
+  // again on every DOM change
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     vi.setSystemTime(NOW);
@@ -771,6 +888,20 @@ describe("StudentsList — the quick search 'Ieškoti...'", () => {
     await user.type(searchBox(), "2026-01-15");
 
     await waitFor(() => expect(rowIds()).toEqual(["5"]));
+  });
+
+
+  it("finds the students who finished by the word on their badge — 'BAIGTA' — and only them", async () => {
+    const { user } = await renderList([
+      student({ id: 5, username: "BAIGES_STUDENTAS", isfinished: 1 }),
+      student({ id: 6, username: "DAR_SPRENDZIA", isfinished: 0, answeredquestioncount: 7, testgrade: "4.20" }),
+      student({ id: 7, username: "IRGI_BAIGES", isfinished: 1 }),
+    ]);
+    expect(cell(5, "isfinished").textContent).toBe("BAIGTA");
+
+    await user.type(searchBox(), "BAIGTA");
+
+    await waitFor(() => expect(rowIds()).toEqual(["5", "7"]));
   });
 
 
@@ -835,6 +966,31 @@ describe("StudentsList — the quick search 'Ieškoti...'", () => {
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(rowIds()).toEqual(["5"]);
   });
+
+
+  it("keeps a search typed just before a poll — the list is filtered once the poll's reply is in", async () => {
+    // The whole clock fake: the search's 150 ms, the 5 s polls and
+    // Date — fireEvent + synchronous queries. "jonas" goes into the
+    // box 100 ms before the first poll (the search is due 50 ms
+    // after it); the poll and its reply's re-render run in the next
+    // act — separate acts, because an async act renders its queued
+    // updates only when its callback is done — and the last act
+    // runs well past the search's due time
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    vi.setSystemTime(NOW);
+    backend.on("GET", STUDENTS, reply.json(group()));
+    renderPage(<StudentsList />, { path: "/admin/students" });
+    await act(() => vi.advanceTimersByTimeAsync(4900));
+
+    fireEvent.change(searchBox(), { target: { value: "jonas" } });
+
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+
+    expect(listRequests()).toHaveLength(2);
+    expect(searchBox()).toHaveValue("jonas");
+    expect(rowIds()).toEqual(["5"]);
+  });
 });
 
 
@@ -850,6 +1006,24 @@ describe("StudentsList — the quick search 'Ieškoti...'", () => {
 describe("StudentsList — the column picker 'STULPELIAI'", () => {
 
   beforeEach(pinClock);
+
+  // A column of the picker — on screen while the picker is open
+  const pickerColumn = () => screen.queryByRole("checkbox", { name: "Prisijungimo Vardas" });
+
+  // The picker opened by "STULPELIAI" and then closed by the grid
+  // itself — `closeIt` does that: the panel closes on a pointerup
+  // outside it (a click-away armed one tick after it opened) and
+  // on Escape inside it. Resolves with the user-event instance
+  const pickerClosedByTheGrid = async (closeIt) => {
+    const { user } = await renderList([student()]);
+
+    await user.click(columnsButton());
+    await screen.findByRole("checkbox", { name: "Prisijungimo Vardas" });
+
+    await closeIt(user);
+    await waitFor(() => expect(pickerColumn()).toBeNull());
+    return user;
+  };
 
 
   it("opens the grid's column picker: every column listed, every one ticked", async () => {
@@ -874,6 +1048,26 @@ describe("StudentsList — the column picker 'STULPELIAI'", () => {
     await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Prisijungimo Vardas" })).toBeNull());
 
     await user.click(columnsButton());
+    expect(await screen.findByRole("checkbox", { name: "Prisijungimo Vardas" })).toBeInTheDocument();
+  });
+
+
+  it("after a click elsewhere closed it, one click opens it again", async () => {
+    const user = await pickerClosedByTheGrid((user) => user.click(screen.getByRole("heading", { name: "Studentų Sąrašas" })));
+
+    await user.click(columnsButton());
+
+    expect(await screen.findByRole("checkbox", { name: "Prisijungimo Vardas" })).toBeInTheDocument();
+  });
+
+
+  it("after Escape closed it, one click opens it again", async () => {
+    const user = await pickerClosedByTheGrid(() => {
+      fireEvent.keyDown(pickerColumn(), { key: "Escape" });
+    });
+
+    await user.click(columnsButton());
+
     expect(await screen.findByRole("checkbox", { name: "Prisijungimo Vardas" })).toBeInTheDocument();
   });
 

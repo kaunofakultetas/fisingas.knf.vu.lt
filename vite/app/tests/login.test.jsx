@@ -8,7 +8,9 @@
 //
 //    - opening the page logs out: exactly one bare POST
 //      /api/logout (axios, no body, no config); a failed
-//      logout is silent
+//      logout is silent. A copy the browser restores from its
+//      back-forward cache is reloaded (the fresh load logs
+//      out) and cannot log in again meanwhile
 //    - registration, the default form. Step 1: REGISTRUOTIS /
 //      Enter → POST /api/student/register {username: <the raw
 //      typed text>}; refusals — HTTP 200 {status: "error",
@@ -21,13 +23,22 @@
 //      students alike: POST /api/login {username, password};
 //      "OK" → full page load of "/", any other 200 body is the
 //      message to show, a failed request → "Nepavyko …"
-//    - PALAUKITE + bouncing dots, button disabled, while a
-//      registration / sign-in request runs
-//    - Enter acts on the visible form only; on registration
-//      the keydown is cancelled (no implicit form submit)
+//    - one request at a time: while a registration / login
+//      runs, its button (REGISTRUOTIS, PRISIJUNGTI or step
+//      2's PRADĖTI TESTĄ) is a disabled PALAUKITE with
+//      bouncing dots, and a second click or Enter sends
+//      nothing; after a login's "OK" the button stays on
+//      PALAUKITE while "/" loads
+//    - Enter acts on the visible form only, and never on a
+//      focused button — that is the button's own click (the
+//      link-buttons switch forms); on registration the
+//      keydown is cancelled (no implicit form submit)
 //    - a refusal stays with its form: registration's first
 //      step never shows a login refusal, the sign-in form
-//      never a registration refusal
+//      never a registration refusal; the ONE login message
+//      Login shares between step 2 and the sign-in form is
+//      dropped when the forms switch and when a registration
+//      succeeds
 //
 //  Both forms stay mounted and the hidden one only carries
 //  the "hidden" class — Tailwind is not loaded here, so
@@ -38,14 +49,6 @@
 //  (tests/contract/api.js): logout and login answer plain
 //  text, registration one of its two JSON shapes (the local
 //  registration() / registrationRefused() builders).
-//
-//  The login defects pinned in knownBugs.test.jsx stay there
-//  — no test here depends on them either way: Enter on a
-//  focused link-button (KB-06); a second Enter, or a second
-//  click on PRADĖTI TESTĄ, while a request runs (KB-07); a
-//  new registration's step 2 showing an earlier sign-in's
-//  refusal, from the ONE login message Login shares between
-//  step 2 and the sign-in form (KB-22).
 // -----------------------------------------------------------
 
 import "./support/setup";
@@ -56,7 +59,7 @@ import axios from "axios";
 
 import { backend, deferred, reply } from "./support/backend";
 import { consoleErrors } from "./support/setup";
-import { hardNavigations } from "./support/navigation";
+import { hardNavigations, reloadCount } from "./support/navigation";
 import { renderPage, settle } from "./support/render";
 
 import Login from "@/systemPages/PublicPages/Login/Login";
@@ -150,7 +153,8 @@ const signIn = async (user, name, code) => {
 // where the name field is gone. After a click on REGISTRUOTIS
 // the focus stays on a button (jsdom does not move it off a
 // button that gets disabled), so it is dropped explicitly —
-// Enter must land on the page, not on a button (see KB-06).
+// Enter on a focused button is that button's own click, not
+// the page's Enter.
 //
 // settle() first: step 2 renders from the reply, outside
 // act(), and React runs the useEffect that re-subscribes the
@@ -162,6 +166,16 @@ const pressEnterOnPage = async (user) => {
   act(() => document.activeElement.blur());
   expect(document.activeElement).toBe(document.body);
   await user.keyboard("{Enter}");
+};
+
+
+// The same Enter on the page, after a click on a button that
+// has turned into the disabled PALAUKITE: jsdom keeps the
+// focus there and will not blur a disabled element, so the
+// keydown is sent to <body> directly
+const pressEnterOnPageWhileWaiting = async () => {
+  await settle();
+  fireEvent.keyDown(document.body, { key: "Enter", code: "Enter" });
 };
 
 
@@ -217,6 +231,34 @@ describe("Login — opening the page logs out", () => {
     expect(errorBox(signInForm())).toBeNull();
     expect(buttonIn(registerForm(), "REGISTRUOTIS")).toBeEnabled();
     expect(hardNavigations()).toEqual([]);
+  });
+
+
+  it("reloads a copy restored from the back-forward cache after a login — the copy cannot log in again meanwhile", async () => {
+    backend.on("POST", LOGIN, reply.text("OK"));
+    const { user } = renderLogin();
+
+    await signIn(user, "admin@knf.vu.lt", "slaptazodis");
+    await waitFor(() => expect(hardNavigations()).toEqual(["/"]));
+
+    // A page show that is no restore (a fresh load) changes
+    // nothing
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false }));
+    });
+    expect(reloadCount()).toBe(0);
+
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    });
+    expect(reloadCount()).toBe(1);
+
+    await user.type(signInCodeField(), "{Enter}");
+    await settle();
+
+    expect(buttonIn(signInForm(), "PALAUKITE")).toBeDisabled();
+    expect(backend.requests("POST", LOGIN)).toHaveLength(1);
+    expect(hardNavigations()).toEqual(["/"]);
   });
 });
 
@@ -611,6 +653,22 @@ describe("Login — registration while the request runs", () => {
   });
 
 
+  it("registers once however often Enter is pressed", async () => {
+    const pending = deferred();
+    backend.on("POST", REGISTER, () => pending.promise);
+    const { user } = renderLogin();
+
+    await user.type(nameField(), "jonas{Enter}");
+    await user.keyboard("{Enter}{Enter}");
+
+    expect(backend.requests("POST", REGISTER)).toHaveLength(1);
+
+    await act(async () => pending.resolve(reply.json(registration())));
+    await within(registerForm()).findByRole("button", { name: "PRADĖTI TESTĄ" });
+    expect(backend.requests("POST", REGISTER)).toHaveLength(1);
+  });
+
+
   it("drops a reply that arrives after the page is gone", async () => {
     const pending = deferred();
     backend.on("POST", REGISTER, () => pending.promise);
@@ -724,8 +782,8 @@ describe("Login — registration, step 2: starting the test", () => {
     expect(errorBox(registerForm()).textContent).toBe("Vardas ir/arba Slaptažodis neteisingas.");
     expect(chipValue("Vardas")).toBe("JONAS_JONAITIS");
     expect(chipValue("Kodas")).toBe("48291037");
-    // Awaited: the KB-07 fix gives this button a PALAUKITE
-    // state, which may still be clearing as the message lands
+    // Awaited: the button is PALAUKITE while the login runs,
+    // which may still be clearing as the message lands
     expect(await within(registerForm()).findByRole("button", { name: "PRADĖTI TESTĄ" })).toBeEnabled();
     expect(hardNavigations()).toEqual([]);
   });
@@ -761,6 +819,107 @@ describe("Login — registration, step 2: starting the test", () => {
     expect(backend.requests("POST", LOGIN)).toHaveLength(1);
     expect(backend.lastRequest("POST", LOGIN).json).toEqual({ username: "JONAS_JONAITIS", password: "48291037" });
     expect(backend.requests("POST", REGISTER)).toHaveLength(1);
+  });
+});
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Registration, step 2 — while the login runs
+// -----------------------------------------------------------
+//
+// Step 2 goes through the same login as the sign-in form, so
+// PRADĖTI TESTĄ waits the way PRISIJUNGTI does.
+// -----------------------------------------------------------
+
+describe("Login — registration, step 2: while the login runs", () => {
+
+  it("turns PRADĖTI TESTĄ into a disabled PALAUKITE with three bouncing dots", async () => {
+    const pending = deferred();
+    backend.on("POST", LOGIN, () => pending.promise);
+    const { user } = renderLogin();
+    await register(user);
+
+    await user.click(buttonIn(registerForm(), "PRADĖTI TESTĄ"));
+
+    const waiting = buttonIn(registerForm(), "PALAUKITE");
+    expect(waiting).toBeDisabled();
+    expect(waiting.querySelectorAll(".animate-bounce-dot")).toHaveLength(3);
+    expect(within(registerForm()).queryByRole("button", { name: "PRADĖTI TESTĄ" })).toBeNull();
+
+    await act(async () => pending.resolve(reply.text("OK")));
+    await waitFor(() => expect(hardNavigations()).toEqual(["/"]));
+  });
+
+
+  it.each([
+    ["a refusal", reply.text("Vardas ir/arba Slaptažodis neteisingas."), "Vardas ir/arba Slaptažodis neteisingas."],
+    ["a network failure", reply.networkError(), NO_CONNECTION],
+  ])("comes back as PRADĖTI TESTĄ after %s", async (_, answer, message) => {
+    const pending = deferred();
+    backend.on("POST", LOGIN, () => pending.promise);
+    const { user } = renderLogin();
+    await register(user);
+
+    await user.click(buttonIn(registerForm(), "PRADĖTI TESTĄ"));
+    await act(async () => pending.resolve(answer));
+
+    expect(await within(registerForm()).findByRole("button", { name: "PRADĖTI TESTĄ" })).toBeEnabled();
+    expect(within(registerForm()).queryByRole("button", { name: "PALAUKITE" })).toBeNull();
+    expect(errorBox(registerForm()).textContent).toBe(message);
+  });
+
+
+  it("logs in once however often PRADĖTI TESTĄ is clicked", async () => {
+    const pending = deferred();
+    backend.on("POST", LOGIN, () => pending.promise);
+    const { user } = renderLogin();
+    await register(user);
+
+    await user.dblClick(buttonIn(registerForm(), "PRADĖTI TESTĄ"));
+
+    expect(backend.requests("POST", LOGIN)).toHaveLength(1);
+
+    await act(async () => pending.resolve(reply.text("OK")));
+    await waitFor(() => expect(hardNavigations()).toEqual(["/"]));
+    expect(backend.requests("POST", LOGIN)).toHaveLength(1);
+  });
+
+
+  it("logs in once on a click followed by an Enter", async () => {
+    const pending = deferred();
+    backend.on("POST", LOGIN, () => pending.promise);
+    const { user } = renderLogin();
+    await register(user);
+
+    await user.click(buttonIn(registerForm(), "PRADĖTI TESTĄ"));
+    await pressEnterOnPageWhileWaiting();
+
+    expect(backend.requests("POST", LOGIN)).toHaveLength(1);
+
+    await act(async () => pending.resolve(reply.text("OK")));
+    await waitFor(() => expect(hardNavigations()).toEqual(["/"]));
+    expect(backend.requests("POST", LOGIN)).toHaveLength(1);
+  });
+
+
+  it("stays on PALAUKITE after the 'OK' — no second login while '/' loads", async () => {
+    backend.on("POST", LOGIN, reply.text("OK"));
+    const { user } = renderLogin();
+    await register(user);
+
+    await user.click(buttonIn(registerForm(), "PRADĖTI TESTĄ"));
+    await waitFor(() => expect(hardNavigations()).toEqual(["/"]));
+    await pressEnterOnPageWhileWaiting();
+    await settle();
+
+    expect(buttonIn(registerForm(), "PALAUKITE")).toBeDisabled();
+    expect(backend.requests("POST", LOGIN)).toHaveLength(1);
+    expect(hardNavigations()).toEqual(["/"]);
   });
 });
 
@@ -1033,6 +1192,39 @@ describe("Login — the sign-in form while the request runs", () => {
     await within(signInForm()).findByRole("button", { name: "PRISIJUNGTI" });
     expect(backend.requests("POST", LOGIN)).toHaveLength(1);
   });
+
+
+  it("signs in once however often Enter is pressed", async () => {
+    const pending = deferred();
+    backend.on("POST", LOGIN, () => pending.promise);
+    const { user } = renderLogin();
+
+    await openSignIn(user);
+    await user.type(signInNameField(), "JONAS_JONAITIS");
+    await user.type(signInCodeField(), "48291037{Enter}");
+    await user.keyboard("{Enter}{Enter}");
+
+    expect(backend.requests("POST", LOGIN)).toHaveLength(1);
+
+    await act(async () => pending.resolve(reply.text("Vardas ir/arba Slaptažodis neteisingas.")));
+    await within(signInForm()).findByRole("button", { name: "PRISIJUNGTI" });
+    expect(backend.requests("POST", LOGIN)).toHaveLength(1);
+  });
+
+
+  it("stays on PALAUKITE after the 'OK' — no second login while '/' loads", async () => {
+    backend.on("POST", LOGIN, reply.text("OK"));
+    const { user } = renderLogin();
+
+    await signIn(user, "admin@knf.vu.lt", "slaptazodis");
+    await waitFor(() => expect(hardNavigations()).toEqual(["/"]));
+    await user.type(signInCodeField(), "{Enter}");
+    await settle();
+
+    expect(buttonIn(signInForm(), "PALAUKITE")).toBeDisabled();
+    expect(backend.requests("POST", LOGIN)).toHaveLength(1);
+    expect(hardNavigations()).toEqual(["/"]);
+  });
 });
 
 
@@ -1110,14 +1302,91 @@ describe("Login — Enter only acts on the visible form", () => {
 
 
 // -----------------------------------------------------------
+// Enter on a focused button
+// -----------------------------------------------------------
+//
+// A focused button handles Enter through its own click; the
+// forms' document-wide Enter listeners leave it alone. The
+// request that must not happen is left unrouted, so it would
+// also fail the test as unanswered.
+// -----------------------------------------------------------
+
+describe("Login — Enter on a focused button", () => {
+
+  it("Enter on 'Jau turiu paskyrą' switches to the sign-in form without registering", async () => {
+    const { user } = renderLogin();
+
+    await user.type(nameField(), "jonas");
+    buttonIn(registerForm(), "Jau turiu paskyrą — prisijungti").focus();
+    await user.keyboard("{Enter}");
+    await settle();
+
+    expect(backend.requests("POST", REGISTER)).toHaveLength(0);
+    expect(signInForm().parentElement).toHaveClass("block");
+    expect(registerForm().parentElement).toHaveClass("hidden");
+  });
+
+
+  it("Enter on 'Neturiu paskyros' goes back to registration without signing in", async () => {
+    const { user } = renderLogin();
+
+    await openSignIn(user);
+    await user.type(signInNameField(), "JONAS");
+    buttonIn(signInForm(), "Neturiu paskyros — registruotis").focus();
+    await user.keyboard("{Enter}");
+    await settle();
+
+    expect(backend.requests("POST", LOGIN)).toHaveLength(0);
+    expect(registerForm().parentElement).toHaveClass("block");
+    expect(signInForm().parentElement).toHaveClass("hidden");
+  });
+
+
+  it("Enter on a focused REGISTRUOTIS registers once", async () => {
+    backend.on("POST", REGISTER, reply.json(registration()));
+    const { user } = renderLogin();
+
+    await user.type(nameField(), "jonas_jonaitis");
+    buttonIn(registerForm(), "REGISTRUOTIS").focus();
+    await user.keyboard("{Enter}");
+    await within(registerForm()).findByRole("button", { name: "PRADĖTI TESTĄ" });
+
+    expect(backend.requests("POST", REGISTER)).toHaveLength(1);
+    expect(backend.lastRequest("POST", REGISTER).json).toEqual({ username: "jonas_jonaitis" });
+  });
+
+
+  it("Enter on a focused PRISIJUNGTI signs in once", async () => {
+    backend.on("POST", LOGIN, reply.text("OK"));
+    const { user } = renderLogin();
+
+    await openSignIn(user);
+    await user.type(signInNameField(), "admin@knf.vu.lt");
+    await user.type(signInCodeField(), "slaptazodis");
+    buttonIn(signInForm(), "PRISIJUNGTI").focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(hardNavigations()).toEqual(["/"]));
+
+    expect(backend.requests("POST", LOGIN)).toHaveLength(1);
+    expect(backend.lastRequest("POST", LOGIN).json).toEqual({ username: "admin@knf.vu.lt", password: "slaptazodis" });
+  });
+});
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // A refusal stays with its form
 // -----------------------------------------------------------
 //
 // Registration's first step keeps its own message (the
-// registration refusals), apart from the login message. How
-// the login message is shared between step 2 and the sign-in
-// form is KB-22's to change (clear it on a switch, or split
-// it), so nothing here depends on that sharing.
+// registration refusals), apart from the login message. The
+// ONE login message Login shares between step 2 and the
+// sign-in form belongs to the attempt that got it: a switch
+// between the forms and a successful registration drop it.
 // -----------------------------------------------------------
 
 describe("Login — a refusal stays with its form", () => {
@@ -1146,5 +1415,50 @@ describe("Login — a refusal stays with its form", () => {
 
     expect(signInForm().parentElement).toHaveClass("block");
     expect(errorBox(signInForm())).toBeNull();
+  });
+
+
+  it("a new registration's step 2 shows its credentials without an earlier sign-in's refusal", async () => {
+    backend.on("POST", LOGIN, reply.text("Vardas ir/arba Slaptažodis neteisingas."));
+    const { user } = renderLogin();
+
+    await signIn(user, "JONAS", "00000000");
+    await within(signInForm()).findByText("Vardas ir/arba Slaptažodis neteisingas.");
+    await backToRegistration(user);
+    await register(user);
+
+    expect(chipValue("Vardas")).toBe("JONAS_JONAITIS");
+    expect(chipValue("Kodas")).toBe("48291037");
+    expect(errorBox(registerForm())).toBeNull();
+  });
+
+
+  it("a refused sign-in's message is gone once the sign-in form is opened again", async () => {
+    backend.on("POST", LOGIN, reply.text("Vardas ir/arba Slaptažodis neteisingas."));
+    const { user } = renderLogin();
+
+    await signIn(user, "JONAS", "00000000");
+    await within(signInForm()).findByText("Vardas ir/arba Slaptažodis neteisingas.");
+    await backToRegistration(user);
+    await openSignIn(user);
+
+    expect(errorBox(signInForm())).toBeNull();
+    expect(signInNameField()).toHaveValue("JONAS");
+    expect(signInCodeField()).toHaveValue("00000000");
+  });
+
+
+  it("a sign-in refusal that lands after the switch stays out of the new registration's step 2", async () => {
+    const pending = deferred();
+    backend.on("POST", LOGIN, () => pending.promise);
+    const { user } = renderLogin();
+
+    await signIn(user, "JONAS", "00000000");
+    await backToRegistration(user);
+    await act(async () => pending.resolve(reply.text("Vardas ir/arba Slaptažodis neteisingas.")));
+    await register(user);
+
+    expect(chipValue("Vardas")).toBe("JONAS_JONAITIS");
+    expect(errorBox(registerForm())).toBeNull();
   });
 });

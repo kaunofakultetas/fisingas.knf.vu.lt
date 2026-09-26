@@ -3,10 +3,10 @@
 //
 //  A standalone page with the link-area editor for one
 //  question (/admin/questions/:questionID). The normal
-//  editing flow is the fullscreen editor inside QuestionsList;
-//  this page is a direct-URL shortcut to the same editor,
-//  wrapped in the usual admin layout (navbar, sidebar,
-//  toasts).
+//  editing flow is the fullscreen editor a QuestionCard opens
+//  ("Redaguoti Nuorodas" in the question bank); this page is
+//  a direct-URL shortcut to the same editor, wrapped in the
+//  usual admin layout (navbar, sidebar, toasts).
 //
 //  Used by:
 //    - App.jsx — route /admin/questions/:questionID

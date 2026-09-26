@@ -12,6 +12,13 @@
 //    - editor: "Papildomai" text, the is-phishing checkbox, one
 //      row per option ("Opcija Nr.: <optionid>" + right-answer
 //      checkbox — ticked only for 1, never for 0 / null)
+//    - accessible names, unique with many cards on a page: the
+//      switch "Ar klausimas #<id> dalinamas studentams", the
+//      is-phishing checkbox "Ar tai fišingas? (klausimas
+//      #<id>)", the delete button "Ištrinti klausimą #<id>", an
+//      option's checkbox "Teisinga opcija Nr.: <optionid>" and
+//      its icon-only delete button "Ištrinti opciją Nr.:
+//      <optionid>"
 //    - AUTOSAVE, no save button: nothing on mount; an edit shows
 //      "Saugoma…" at once, and 500 ms after the LAST edit ONE
 //      POST /api/admin/questions/updatequestion (withCredentials)
@@ -20,6 +27,20 @@
 //         rightoptionanswer}]}             (never `created`)
 //      → "Išsaugota"; a failure toasts "Nepavyko išsaugoti
 //      klausimo #<id>" and clears the status (no retry)
+//    - ONE SAVE AT A TIME: a save that comes due while another
+//      is on its way waits for that reply, then ONE follow-up
+//      POST carries the newest state — the last save to land
+//      is always the newest. A reply counts only while no newer
+//      edit waits: "Išsaugota" (or the failure toast) speaks
+//      for the newest edit alone
+//    - an edit still in the debounce when the card unmounts is
+//      POSTed at once; an option created / deleted while the
+//      card went away schedules no save. While an edit waits
+//      or a save runs (unmounted or not), a beforeunload is
+//      cancelled — the browser asks before a reload or a
+//      closed tab loses it; never once all is saved or failed
+//    - a 401 on any request (autosave, option create / delete,
+//      question delete) sends the admin to /login — no toast
 //    - POST .../createnewoption {questionid} → {new_option_id}
 //      → an empty, unticked row that joins the autosave
 //    - hold-to-delete (1.5 s): POST .../deleteoption {optionid}
@@ -28,7 +49,9 @@
 //      after the backend confirmed
 //    - "Redaguoti Nuorodas" → the fullscreen link editor,
 //      portalled onto <body>; "Atgal" or a save closes it and
-//      reloads the list
+//      reloads the list. After a save the preview shows the
+//      areas as saved: closing remounts it, so it loads them
+//      anew
 //    - the card keeps its OWN copy of the question: a list
 //      reload (new prop) changes nothing, unsaved edits survive
 //    - the preview fetches its link areas once its image loads
@@ -38,17 +61,12 @@
 //  while faked); the hold-to-delete tests run on real timers,
 //  except where the autosave after a deletion is timed — those
 //  share one fake clock (setTimeout + Date +
-//  requestAnimationFrame) with longPress().
+//  requestAnimationFrame) with longPress(). A save held on its
+//  way is a deferred() the test resolves by hand.
 //
-//  The card's known defects are pinned in knownBugs.test.jsx —
-//  not here: KB-08 (the preview keeps its old areas after the
-//  editor closes), KB-25 (an edit still in the debounce is
-//  dropped when the card unmounts), KB-26 / KB-27 (overlapping
-//  saves — "Išsaugota" too early, an older state winning) and
-//  KB-36 (a 401 only toasts). So no test here lets a save
-//  overlap a newer edit or answers one with 401, and every test
-//  that ends with an edit still in the debounce declares the
-//  save route — a KB-25 fix sends that save on unmount.
+//  Every test that ends with an edit still in the debounce
+//  declares the save route: the cleanup after the test
+//  unmounts the card, which sends that save.
 // -----------------------------------------------------------
 
 import "./support/setup";
@@ -60,6 +78,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { backend, deferred, reply } from "./support/backend";
 import { findToast, renderPage, settle, toastTexts } from "./support/render";
 import { linkAreas, longPress } from "./support/interactions";
+import { hardNavigations } from "./support/navigation";
 import * as fx from "./support/fixtures";
 
 import QuestionCard from "@/systemPages/AdminPages/Questions/QuestionsList/QuestionCard/QuestionCard";
@@ -119,13 +138,23 @@ const useFakeClock = () =>
 const advance = (ms) => act(() => vi.advanceTimersByTimeAsync(ms));
 
 
+// A reload or a closed tab: true when the page cancels the
+// beforeunload — the browser would then ask before leaving
+const leavingIsHeldBack = () => {
+  const leaving = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(leaving);
+  return leaving.defaultPrevented;
+};
+
+
 // The card's root — the white panel a disabled question dims
 // (the header strip above it has its own grey background)
 const card = () => screen.getByText(/^Klausimas #/).closest(".bg-white");
 
 const enabledSwitch = () => screen.getByRole("switch");
 
-const questionDeleteButton = () => screen.getByRole("button", { name: "Ištrinti" });
+// Visible text "Ištrinti", named with the question number
+const questionDeleteButton = () => screen.getByRole("button", { name: /^Ištrinti klausimą #\d+$/ });
 
 const descriptionField = () => screen.getByLabelText("Papildomai");
 
@@ -139,7 +168,8 @@ const optionField = (optionid) => screen.getByLabelText(`Opcija Nr.: ${optionid}
 const optionLabels = () => screen.queryAllByText(/^Opcija Nr\.: /).map((label) => label.textContent);
 
 // One option row: its text field, its hold-to-delete button
-// (icon only, so no name) and its right-answer checkbox
+// (the only button — icon only, named by aria-label) and its
+// right-answer checkbox
 const optionRow = (optionid) => optionField(optionid).closest(".MuiTextField-root").parentElement;
 
 const rightAnswerCheckbox = (optionid) => within(optionRow(optionid)).getByRole("checkbox");
@@ -228,10 +258,10 @@ describe("QuestionCard — header", () => {
   });
 
 
-  it("explains the switch as 'Ar klausimas dalinamas studentams' (label and hover tooltip)", async () => {
-    const { user } = renderCard();
+  it("names the switch 'Ar klausimas #<id> dalinamas studentams' and explains it in a hover tooltip", async () => {
+    const { user } = renderCard({ questionid: 37 });
 
-    expect(screen.getByLabelText("Ar klausimas dalinamas studentams")).toContainElement(enabledSwitch());
+    expect(enabledSwitch()).toHaveAccessibleName("Ar klausimas #37 dalinamas studentams");
 
     await user.hover(screen.getByText("Įjungtas"));
 
@@ -245,6 +275,34 @@ describe("QuestionCard — header", () => {
     await user.hover(questionDeleteButton());
 
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Laikykite mygtuką, kad ištrintumėte klausimą");
+  });
+
+
+  it("names the delete button 'Ištrinti klausimą #<id>' — its visible 'Ištrinti' first", () => {
+    renderCard({ questionid: 37 });
+
+    expect(questionDeleteButton()).toHaveAccessibleName("Ištrinti klausimą #37");
+    expect(questionDeleteButton()).toHaveTextContent("Ištrinti");
+  });
+
+
+  // The bank shows every card on one page — a control named the
+  // same on each would leave a screen reader guessing which
+  // question it belongs to
+  it("two cards on one page name their switch, verdict checkbox and delete button apart", () => {
+    renderPage(
+      <>
+        <QuestionCard fetchedQuestionData={fx.adminQuestion({ questionid: 21 })} triggerQuestionListUpdate={() => {}} />
+        <QuestionCard fetchedQuestionData={fx.adminQuestion({ questionid: 22 })} triggerQuestionListUpdate={() => {}} />
+      </>,
+      { toaster: true }
+    );
+
+    for (const id of [21, 22]) {
+      expect(screen.getByRole("switch", { name: `Ar klausimas #${id} dalinamas studentams` })).toBeInTheDocument();
+      expect(screen.getByRole("checkbox", { name: `Ar tai fišingas? (klausimas #${id})` })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: `Ištrinti klausimą #${id}` })).toBeInTheDocument();
+    }
   });
 });
 
@@ -322,6 +380,19 @@ describe("QuestionCard — the editor fields", () => {
     expect(screen.getAllByRole("checkbox")).toHaveLength(1);
     expect(addOptionButton()).toBeInTheDocument();
   });
+
+
+  // No visible text labels these: the checkboxes sit under the
+  // "Teisingas" column heading, the delete buttons show an icon
+  it("names the checkboxes and the options' delete buttons for screen readers", () => {
+    renderCard();
+
+    expect(isPhishingCheckbox()).toHaveAccessibleName("Ar tai fišingas? (klausimas #21)");
+    expect(rightAnswerCheckbox(211)).toHaveAccessibleName("Teisinga opcija Nr.: 211");
+    expect(rightAnswerCheckbox(212)).toHaveAccessibleName("Teisinga opcija Nr.: 212");
+    expect(optionDeleteButton(211)).toHaveAccessibleName("Ištrinti opciją Nr.: 211");
+    expect(optionDeleteButton(212)).toHaveAccessibleName("Ištrinti opciją Nr.: 212");
+  });
 });
 
 
@@ -354,7 +425,7 @@ describe("QuestionCard — autosave timing and status", () => {
 
   it("shows 'Saugoma…' right after an edit, before anything is sent", () => {
     // Nothing is sent during the test, but the edit is still in
-    // the debounce when it ends (a KB-25 fix sends it on unmount)
+    // the debounce when it ends — the unmount after it sends it
     savesSucceed();
     renderCard();
 
@@ -504,6 +575,335 @@ describe("QuestionCard — autosave timing and status", () => {
     expect(backend.requests("POST", UPDATE)).toHaveLength(2);
     expect(savePayload()).toMatchObject({ isphishing: 0, questiontext: "Antras bandymas" });
     expect(screen.getByText("Išsaugota")).toBeInTheDocument();
+  });
+});
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Autosave — overlapping saves
+// -----------------------------------------------------------
+
+describe("QuestionCard — overlapping saves", () => {
+
+  beforeEach(() => {
+    useFakeDebounce();
+  });
+
+
+  // The first save hangs until the test answers it (a slow
+  // backend); every save after it is answered at once
+  const holdFirstSave = () => {
+    const firstSave = deferred();
+    backend.once("POST", UPDATE, () => firstSave.promise);
+    savesSucceed();
+    return firstSave;
+  };
+
+  const sentTexts = () => backend.requests("POST", UPDATE).map((request) => request.json.questiontext);
+
+
+  it("a save that comes due while another is on its way waits for its reply — the newest state lands last", async () => {
+    // The fake bank keeps the body of the save that COMPLETED
+    // last: the first save completes only when the test says so
+    const firstSave = deferred();
+    const bank = { question: null };
+    backend.once("POST", UPDATE, async (request) => {
+      const firstAnswer = await firstSave.promise;
+      bank.question = request.json;
+      return firstAnswer;
+    });
+    backend.on("POST", UPDATE, (request) => {
+      bank.question = request.json;
+      return reply.json({ status: "ok" });
+    });
+    renderCard();
+
+    fireEvent.change(descriptionField(), { target: { value: "Pirmas" } });
+    await advance(500);
+    fireEvent.change(descriptionField(), { target: { value: "Antras" } });
+    await advance(500);
+
+    // "Antras" is due, but "Pirmas" has not answered yet
+    expect(sentTexts()).toEqual(["Pirmas"]);
+    expect(screen.getByText("Saugoma…")).toBeInTheDocument();
+
+    await act(async () => firstSave.resolve(reply.json({ status: "ok" })));
+    await advance(0);
+
+    expect(sentTexts()).toEqual(["Pirmas", "Antras"]);
+    expect(bank.question.questiontext).toBe("Antras");
+    expect(screen.getByText("Išsaugota")).toBeInTheDocument();
+  });
+
+
+  it("edits made while a save is on its way go out as ONE follow-up save of the newest state", async () => {
+    const firstSave = holdFirstSave();
+    renderCard();
+
+    fireEvent.change(descriptionField(), { target: { value: "Pirmas" } });
+    await advance(500);
+    fireEvent.change(descriptionField(), { target: { value: "Antras" } });
+    await advance(500);
+    fireEvent.change(descriptionField(), { target: { value: "Trečias" } });
+    await advance(500);
+    expect(sentTexts()).toEqual(["Pirmas"]);
+
+    await act(async () => firstSave.resolve(reply.json({ status: "ok" })));
+    await advance(0);
+
+    expect(sentTexts()).toEqual(["Pirmas", "Trečias"]);
+    expect(screen.getByText("Išsaugota")).toBeInTheDocument();
+
+    await advance(5000);
+    expect(sentTexts()).toEqual(["Pirmas", "Trečias"]);
+  });
+
+
+  it("'Išsaugota' shows only once the newest edit is saved — not when an older save answers", async () => {
+    const firstSave = holdFirstSave();
+    renderCard();
+
+    fireEvent.change(descriptionField(), { target: { value: "Pirmas" } });
+    await advance(500);
+    fireEvent.change(descriptionField(), { target: { value: "Antras" } });
+
+    // "Pirmas" answers while "Antras" still waits in the debounce
+    await act(async () => firstSave.resolve(reply.json({ status: "ok" })));
+    await advance(0);
+    expect(sentTexts()).toEqual(["Pirmas"]);
+    expect(screen.getByText("Saugoma…")).toBeInTheDocument();
+    expect(screen.queryByText("Išsaugota")).toBeNull();
+
+    await advance(500);
+    expect(sentTexts()).toEqual(["Pirmas", "Antras"]);
+    expect(screen.getByText("Išsaugota")).toBeInTheDocument();
+  });
+
+
+  // Every save carries the whole question, so the newer save
+  // brings the failed one's changes along
+  it("an older save failing while a newer edit waits toasts nothing — the newer save decides", async () => {
+    const firstSave = holdFirstSave();
+    renderCard({ isphishing: 1 });
+
+    fireEvent.click(isPhishingCheckbox());
+    await advance(500);
+    fireEvent.change(descriptionField(), { target: { value: "Antras" } });
+
+    await act(async () => firstSave.resolve(reply.status(500, "Internal Server Error")));
+    await advance(0);
+    expect(toastTexts()).toEqual([]);
+    expect(screen.getByText("Saugoma…")).toBeInTheDocument();
+
+    await advance(500);
+    expect(savePayload()).toMatchObject({ isphishing: 0, questiontext: "Antras" });
+    expect(screen.getByText("Išsaugota")).toBeInTheDocument();
+    expect(toastTexts()).toEqual([]);
+  });
+
+
+  it("the newest save failing is toasted as usual, after the older one landed", async () => {
+    const firstSave = deferred();
+    backend.once("POST", UPDATE, () => firstSave.promise);
+    backend.on("POST", UPDATE, reply.status(500, "Internal Server Error"));
+    renderCard();
+
+    fireEvent.change(descriptionField(), { target: { value: "Pirmas" } });
+    await advance(500);
+    fireEvent.change(descriptionField(), { target: { value: "Antras" } });
+    await advance(500);
+
+    await act(async () => firstSave.resolve(reply.json({ status: "ok" })));
+    await advance(0);
+
+    expect(sentTexts()).toEqual(["Pirmas", "Antras"]);
+    expect(toastTexts()).toEqual(["Nepavyko išsaugoti klausimo #21"]);
+    expect(screen.queryByText("Išsaugota")).toBeNull();
+    expect(screen.queryByText("Saugoma…")).toBeNull();
+  });
+});
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Autosave — leaving the card or the page
+// -----------------------------------------------------------
+
+describe("QuestionCard — leaving the card or the page", () => {
+
+  // The admin leaves within the debounce (a sidebar link,
+  // browser back) — there is no save button to have pressed
+  it("sends an edit still in the debounce at once when the card goes away", async () => {
+    useFakeDebounce();
+    savesSucceed();
+    const { unmount } = renderCard();
+
+    fireEvent.change(descriptionField(), { target: { value: "Paskutinis pakeitimas" } });
+    await advance(200);
+    expect(screen.getByText("Saugoma…")).toBeInTheDocument();
+    expect(backend.requests("POST", UPDATE)).toHaveLength(0);
+
+    unmount();
+    await advance(0);
+
+    expect(backend.requests("POST", UPDATE)).toHaveLength(1);
+    expect(savePayload().questiontext).toBe("Paskutinis pakeitimas");
+
+    // ...once: the debounce it cut short sends nothing more
+    await advance(1000);
+    expect(backend.requests("POST", UPDATE)).toHaveLength(1);
+  });
+
+
+  it("sends nothing when the card goes away with every edit saved", async () => {
+    useFakeDebounce();
+    savesSucceed();
+    const { unmount } = renderCard();
+
+    fireEvent.change(descriptionField(), { target: { value: "Naujas tekstas" } });
+    await advance(500);
+    expect(screen.getByText("Išsaugota")).toBeInTheDocument();
+
+    unmount();
+    await advance(1000);
+
+    expect(backend.requests("POST", UPDATE)).toHaveLength(1);
+  });
+
+
+  // The admin left while the option's request was on its way:
+  // the change is on the server, and no card is left to save
+  it("an option created while the card went away schedules no save", async () => {
+    useFakeDebounce();
+    const creation = deferred();
+    backend.once("POST", CREATE_OPTION, () => creation.promise);
+    const { unmount } = renderCard();
+
+    fireEvent.click(addOptionButton());
+    await advance(0);
+    expect(backend.requests("POST", CREATE_OPTION)).toHaveLength(1);
+
+    unmount();
+    await act(async () => creation.resolve(reply.json({ new_option_id: 213 })));
+    await advance(1000);
+
+    expect(backend.requests("POST", UPDATE)).toHaveLength(0);
+    expect(leavingIsHeldBack()).toBe(false);
+  });
+
+
+  it("an option deleted while the card went away schedules no save", async () => {
+    useFakeClock();
+    const deletion = deferred();
+    backend.once("POST", DELETE_OPTION, () => deletion.promise);
+    const { unmount } = renderCard();
+
+    longPress(optionDeleteButton(212), 1600);
+    await advance(0);
+    expect(backend.requests("POST", DELETE_OPTION)).toHaveLength(1);
+
+    unmount();
+    await act(async () => deletion.resolve(reply.json({ status: "ok" })));
+    await advance(1000);
+
+    expect(backend.requests("POST", UPDATE)).toHaveLength(0);
+    expect(leavingIsHeldBack()).toBe(false);
+  });
+
+
+  // A reload, a closed tab or "Atsijungti" (a full page load)
+  // never unmounts the card — its edit would be lost unasked
+  it("makes the browser ask before the page is left while an edit waits or a save runs — not once saved", async () => {
+    useFakeDebounce();
+    const save = deferred();
+    backend.once("POST", UPDATE, () => save.promise);
+    renderCard();
+    expect(leavingIsHeldBack()).toBe(false);
+
+    // Waiting in the debounce
+    fireEvent.change(descriptionField(), { target: { value: "Naujas tekstas" } });
+    expect(screen.getByText("Saugoma…")).toBeInTheDocument();
+    expect(leavingIsHeldBack()).toBe(true);
+
+    // On its way
+    await advance(500);
+    expect(backend.requests("POST", UPDATE)).toHaveLength(1);
+    expect(leavingIsHeldBack()).toBe(true);
+
+    await act(async () => save.resolve(reply.json({ status: "ok" })));
+    await advance(0);
+    expect(screen.getByText("Išsaugota")).toBeInTheDocument();
+    expect(leavingIsHeldBack()).toBe(false);
+  });
+
+
+  it("lets the page go once the save failed — nothing waits any more", async () => {
+    useFakeDebounce();
+    backend.on("POST", UPDATE, reply.status(500, "Internal Server Error"));
+    renderCard();
+
+    fireEvent.change(descriptionField(), { target: { value: "Naujas tekstas" } });
+    await advance(500);
+
+    expect(toastTexts()).toEqual(["Nepavyko išsaugoti klausimo #21"]);
+    expect(leavingIsHeldBack()).toBe(false);
+  });
+
+
+  // After a sidebar link the card is gone, but the save it sent
+  // on its way out still runs — a reload now would lose it
+  it("keeps asking after the card went away until the save it sent landed", async () => {
+    useFakeDebounce();
+    const save = deferred();
+    backend.once("POST", UPDATE, () => save.promise);
+    const { unmount } = renderCard();
+
+    fireEvent.change(descriptionField(), { target: { value: "Paskutinis pakeitimas" } });
+    unmount();
+    await advance(0);
+    expect(backend.requests("POST", UPDATE)).toHaveLength(1);
+    expect(leavingIsHeldBack()).toBe(true);
+
+    await act(async () => save.resolve(reply.json({ status: "ok" })));
+    await advance(0);
+    expect(leavingIsHeldBack()).toBe(false);
+  });
+
+
+  it("every card asks on its own — one card saved does not let go of another's waiting edit", async () => {
+    useFakeDebounce();
+    savesSucceed();
+    renderPage(
+      <>
+        <QuestionCard fetchedQuestionData={fx.adminQuestion({ questionid: 21 })} triggerQuestionListUpdate={() => {}} />
+        <QuestionCard fetchedQuestionData={fx.adminQuestion({ questionid: 22 })} triggerQuestionListUpdate={() => {}} />
+      </>,
+      { toaster: true }
+    );
+    const [firstField, secondField] = screen.getAllByLabelText("Papildomai");
+    const savedQuestions = () => backend.requests("POST", UPDATE).map((request) => request.json.questionid);
+
+    fireEvent.change(firstField, { target: { value: "Pirmas" } });
+    await advance(300);
+    fireEvent.change(secondField, { target: { value: "Antras" } });
+
+    // #21 is saved, #22 still waits in its debounce
+    await advance(200);
+    expect(savedQuestions()).toEqual([21]);
+    expect(leavingIsHeldBack()).toBe(true);
+
+    await advance(300);
+    expect(savedQuestions()).toEqual([21, 22]);
+    expect(leavingIsHeldBack()).toBe(false);
   });
 });
 
@@ -677,7 +1077,7 @@ describe("QuestionCard — adding an option", () => {
 
   // A created option joins the autosave, and some tests end while
   // its save still waits in the debounce — the save is always
-  // routed (a KB-25 fix sends a pending save on unmount)
+  // routed, as the unmount after the test sends it
   beforeEach(() => {
     useFakeDebounce();
     savesSucceed();
@@ -1002,6 +1402,82 @@ describe("QuestionCard — deleting the question", () => {
 
 
 // -----------------------------------------------------------
+// An expired session
+// -----------------------------------------------------------
+
+describe("QuestionCard — an expired session (401)", () => {
+
+  // The session ended meanwhile — logged out in another tab, or
+  // dropped server-side
+  const EXPIRED = reply.status(401, "Unauthorized");
+
+
+  it("an autosave answered 401 sends the admin to /login — no toast, and the browser does not ask", async () => {
+    useFakeDebounce();
+    backend.on("POST", UPDATE, EXPIRED);
+    renderCard();
+
+    fireEvent.change(descriptionField(), { target: { value: "Naujas tekstas" } });
+    expect(leavingIsHeldBack()).toBe(true);
+    await advance(500);
+
+    expect(backend.requests("POST", UPDATE)).toHaveLength(1);
+    expect(hardNavigations()).toEqual(["/login"]);
+    expect(toastTexts()).toEqual([]);
+
+    // The session — and the edit with it — is gone: our own
+    // redirect is not held back
+    expect(leavingIsHeldBack()).toBe(false);
+  });
+
+
+  it("creating an option answered 401 sends the admin to /login — no toast, no new row", async () => {
+    useFakeDebounce();
+    backend.on("POST", CREATE_OPTION, EXPIRED);
+    renderCard();
+
+    fireEvent.click(addOptionButton());
+    await advance(0);
+
+    expect(hardNavigations()).toEqual(["/login"]);
+    expect(toastTexts()).toEqual([]);
+    expect(optionLabels()).toEqual(["Opcija Nr.: 211", "Opcija Nr.: 212"]);
+  });
+
+
+  it("deleting an option answered 401 sends the admin to /login — no toast, the row stays", async () => {
+    backend.on("POST", DELETE_OPTION, EXPIRED);
+    renderCard();
+
+    longPress(optionDeleteButton(212), 1600);
+    await waitFor(() => expect(hardNavigations()).toEqual(["/login"]));
+    await settle();
+
+    expect(toastTexts()).toEqual([]);
+    expect(optionField(212)).toHaveValue("Nuoroda veda į svetimą svetainę");
+  });
+
+
+  it("deleting the question answered 401 sends the admin to /login — no toast, no list reload", async () => {
+    backend.on("POST", DELETE_QUESTION, EXPIRED);
+    const { triggerQuestionListUpdate } = renderCard();
+
+    longPress(questionDeleteButton(), 1600);
+    await waitFor(() => expect(hardNavigations()).toEqual(["/login"]));
+    await settle();
+
+    expect(toastTexts()).toEqual([]);
+    expect(triggerQuestionListUpdate).not.toHaveBeenCalled();
+  });
+});
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // The link editor
 // -----------------------------------------------------------
 
@@ -1081,6 +1557,36 @@ describe("QuestionCard — the link editor", () => {
     const save = backend.lastRequest("POST", QUESTION_LINKS);
     expect(save.withCredentials).toBe(true);
     expect(save.json).toEqual({ areas: [{ id: 1, url: "http://example.com", x: 0.15, y: 0.42, width: 0.2, height: 0.03 }] });
+  });
+
+
+  it("after a save the preview shows the areas as saved — it is remounted and loads them anew", async () => {
+    backend.on("GET", QUESTION_LINKS, reply.json([fx.questionLink({ id: 1, url: "https://senas.example" })]));
+    const { user, container } = renderCard();
+
+    // The preview's image is on screen → its areas are fetched
+    fireEvent.load(screen.getByAltText("Fišingo El. Laiškas"));
+    await waitFor(() => expect(linkAreas(container)).toHaveLength(1));
+
+    const saveButton = await openLinkEditor(user);
+    const urlField = screen.getByLabelText("Nuoroda");
+    await user.clear(urlField);
+    await user.type(urlField, "https://naujas.example");
+
+    // From the save on, the backend serves the saved areas
+    // (re-created, so under a new id)
+    backend.on("POST", QUESTION_LINKS, reply.text("OK"));
+    backend.on("GET", QUESTION_LINKS, reply.json([fx.questionLink({ id: 2, url: "https://naujas.example" })]));
+    await user.click(saveButton);
+    await waitFor(() => expect(screen.queryByText("Nuorodų Redagavimas")).toBeNull());
+
+    // The new preview loads its image, then its areas
+    fireEvent.load(screen.getByAltText("Fišingo El. Laiškas"));
+    await waitFor(() => expect(linkAreas(container)).toHaveLength(1));
+    fireEvent.mouseEnter(linkAreas(container)[0]);
+
+    expect(screen.getByText("https://naujas.example")).toBeInTheDocument();
+    expect(screen.queryByText("https://senas.example")).toBeNull();
   });
 
 
@@ -1172,6 +1678,27 @@ describe("QuestionCard — the card keeps its own copy of the question", () => {
 
     expect(backend.requests()).toEqual([]);
     expect(screen.queryByText("Saugoma…")).toBeNull();
+  });
+
+
+  // The card starts from the list's own object (the list's
+  // search reads it) — its edits must replace options, never
+  // change them in place
+  it("option edits leave the list's copy of the question as it was loaded", async () => {
+    useFakeDebounce();
+    savesSucceed();
+    const listCopy = fx.adminQuestion();
+    renderPage(<QuestionCard fetchedQuestionData={listCopy} triggerQuestionListUpdate={() => {}} />, { toaster: true });
+
+    fireEvent.change(optionField(211), { target: { value: "Pakeista opcija" } });
+    fireEvent.click(rightAnswerCheckbox(212));
+    await advance(500);
+
+    expect(savePayload().questionoptions).toEqual([
+      { optionid: 211, optiontext: "Pakeista opcija", rightoptionanswer: 1 },
+      { optionid: 212, optiontext: "Nuoroda veda į svetimą svetainę", rightoptionanswer: 1 },
+    ]);
+    expect(listCopy.questionoptions).toEqual([OPTION_211, OPTION_212]);
   });
 });
 

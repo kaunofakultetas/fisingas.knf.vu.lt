@@ -11,8 +11,9 @@
 //    - no slide available (404, network error, broken image)
 //      → the leaderboard simply stays up and it retries on the
 //      next cycle
-//    - object URLs are revoked when replaced, and on unmount
-//      (also a preloaded one that never got shown)
+//    - object URLs are revoked when replaced, on unmount (also
+//      a preloaded one that never got shown), and at once when
+//      the browser cannot decode the image
 //    - the leaderboard iframe stays mounted the whole time
 //      (the layers cross-fade, the live page never reloads)
 //
@@ -303,6 +304,33 @@ describe("Slides — no slide available", () => {
     await advance(6000);
 
     expect(isVisible(leaderboardPanel())).toBe(true);
+    expect(shownSlide()).toBeNull();
+  });
+
+
+  // A corrupt file in the slides folder is picked at random,
+  // again and again — every failed decode has to release its
+  // blob, or the all-day projector page only grows
+  it("revokes the object URL of a slide the browser cannot decode, every time it is picked", async () => {
+    allowConsoleError(/Failed to fetch slide/);
+    imagesFail = true;
+    backend.on("GET", NEXT_SLIDE, reply.image("image/webp"));
+    renderPage(<SlidesPage />, { path: "/slides" });
+
+    // The preload fails within microtasks — long before the 6 s
+    // leaderboard phase ends
+    await advance(100);
+    expect(slideRequests()).toBe(1);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:slide-1");
+
+    // The next cycle's retry picks it again
+    await advance(6000);
+    expect(slideRequests()).toBe(2);
+
+    const created = URL.createObjectURL.mock.results.map((result) => result.value);
+    const revoked = URL.revokeObjectURL.mock.calls.map(([url]) => url);
+    expect(created).toEqual(["blob:slide-1", "blob:slide-2"]);
+    expect(revoked).toEqual(["blob:slide-1", "blob:slide-2"]);
     expect(shownSlide()).toBeNull();
   });
 

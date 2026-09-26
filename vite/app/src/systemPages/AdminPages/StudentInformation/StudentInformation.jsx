@@ -12,22 +12,34 @@
 //                 summary grid (StudentTestSummaryTable)
 //
 //  Data comes from GET /api/admin/students/<id>; while it
-//  loads the page renders blurred instead of empty.
+//  loads the page renders blurred instead of empty. A record
+//  that failed to load leaves nothing to fill the profile
+//  card and the tiles with (they would read blank and 0 / 0):
+//  a message with a retry (LoadError) takes their place. A 404
+//  means the student is gone (deleted, or a stale link): the
+//  page keeps only its heading and says "Studentas nerastas" —
+//  no retry, no delete button, no result tabs, as there is
+//  nothing left to load, delete or review.
 //
 //  The "Ištrinti Studentą" button in the page heading row
 //  removes the account with its test — hold-to-confirm
-//  (LongPressButton), no confirm dialog.
+//  (LongPressButton), no confirm dialog. While the delete is
+//  on its way the button is disabled and further holds are
+//  ignored, so the student is never deleted twice; an expired
+//  session (401) sends the admin to /login.
 //
 //  Split into (root component last):
 //
 //    SummaryTile        — one icon + label + value + % tile
 //    StudentDetailsCard — avatar, username and login code
 //    TestSummaryPanel   — the grade + count tiles strip
+//    StudentOverview    — the top row: card + tiles, or the
+//                         load error in their place
 //    ResultsTabs        — answers / summary tab switcher
 //    StudentInformation — the page itself (default export)
 // -----------------------------------------------------------
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
 import toast from 'react-hot-toast';
@@ -38,7 +50,9 @@ import AdminPageLayout from "@/systemPages/AdminPages/AdminPageLayout";
 import StudentTestSummaryTable from "./StudentTestSummaryTable/StudentTestSummaryTable";
 import StudentAnswers from "./StudentAnswers/StudentAnswers";
 import { LongPressDeleteButton } from "@/components/Other/LongPressButton";
+import LoadError from "@/components/Other/LoadError/LoadError";
 import { formatDateTime } from "@/utils/timestamps";
+import { redirectOnExpiredSession } from "@/utils/session";
 
 import SchoolIcon from '@mui/icons-material/School';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
@@ -115,7 +129,7 @@ function SummaryTile({ icon, label, value, percent, title }) {
 // column existed).
 //
 // Used by:
-//   - StudentInformation (below)
+//   - StudentOverview (below)
 // -----------------------------------------------------------
 
 function StudentDetailsCard({ studentID, data }) {
@@ -178,7 +192,7 @@ function StudentDetailsCard({ studentID, data }) {
 // percentage bar and tooltip.
 //
 // Used by:
-//   - StudentInformation (below)
+//   - StudentOverview (below)
 // -----------------------------------------------------------
 
 function TestSummaryPanel({ data }) {
@@ -218,6 +232,46 @@ function TestSummaryPanel({ data }) {
         title="Teisingų opcijų skaičius teisingai identifikuotuose klausimuose"
       />
 
+    </div>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// StudentOverview
+// -----------------------------------------------------------
+//
+// The top row: the profile card next to the summary tiles,
+// stacked on narrow screens. A record that failed to load
+// has nothing to fill them with — the load error with its
+// retry takes the row instead. A student who is gone gets no
+// retry: asking again would only 404 again.
+//
+// Used by:
+//   - StudentInformation (below)
+// -----------------------------------------------------------
+
+function StudentOverview({ studentID, data, loadError, studentGone, onRetry }) {
+
+  if (loadError) {
+    return (
+      <div className="mb-5 bg-white rounded-[15px] shadow-[2px_4px_10px_1px_rgba(201,201,201,0.47)]">
+        {studentGone
+          ? <LoadError message="Studentas nerastas" />
+          : <LoadError message="Nepavyko įkelti studento duomenų" onRetry={onRetry} />}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col xl:flex-row gap-5 items-stretch mb-5">
+      <StudentDetailsCard studentID={studentID} data={data} />
+      <TestSummaryPanel data={data} />
     </div>
   );
 }
@@ -319,17 +373,36 @@ export default function StudentInformation() {
 
   const navigate = useNavigate();
   const { studentID } = useParams();
-  const { data, loadingData } = useFetchData("/api/admin/students/" + studentID);
+  const { data, loadingData, error: loadError, refetch } = useFetchData("/api/admin/students/" + studentID);
+
+  // The record answered 404: the student is gone (deleted, or
+  // a stale link) — nothing left to delete or review
+  const studentGone = loadError?.response?.status === 404;
+
+  // The delete on its way: the ref turns further holds away at
+  // once (state changes only with the next render), the state
+  // disables the button meanwhile
+  const deleteRunning = useRef(false);
+  const [deleting, setDeleting] = useState(false);
 
 
-  // Remove the account for good, then back to the students list
+  // Remove the account for good, then back to the students
+  // list. Only a failure frees the button for another hold
   const handleDeleteStudent = async () => {
+    if (deleteRunning.current) return;
+    deleteRunning.current = true;
+    setDeleting(true);
+
     try {
       await axios.post(`/api/admin/students/${studentID}/delete`, {}, { withCredentials: true });
       toast.success(<b>Studentas ištrintas</b>, { duration: 4000 });
       navigate("/admin/students");
-    } catch {
+    } catch (error) {
+      if (redirectOnExpiredSession(error)) return;
+
       toast.error(<b>Nepavyko ištrinti studento</b>, { duration: 5000 });
+      deleteRunning.current = false;
+      setDeleting(false);
     }
   };
 
@@ -345,32 +418,30 @@ export default function StudentInformation() {
             Studento Informacija
           </Typography>
 
-          <Box className="ml-auto flex flex-wrap gap-2">
-            <LongPressDeleteButton
-              onComplete={handleDeleteStudent}
-              duration={1500}
-              variant="contained"
-              tooltip="Laikykite mygtuką, kad ištrintumėte studentą"
-              uncompletedToastMessage="Laikykite mygtuką ilgiau, kad ištrintumėte studentą"
-              progressColor="white"
-              progressBgColor="rgba(211,47,47,0.25)"
-            >
-              <>
-                <DeleteOutlineIcon />
-                <span className="ml-2">Ištrinti Studentą</span>
-              </>
-            </LongPressDeleteButton>
-          </Box>
+          {!studentGone && (
+            <Box className="ml-auto flex flex-wrap gap-2">
+              <LongPressDeleteButton
+                onComplete={handleDeleteStudent}
+                disabled={deleting}
+                duration={1500}
+                variant="contained"
+                tooltip="Laikykite mygtuką, kad ištrintumėte studentą"
+                uncompletedToastMessage="Laikykite mygtuką ilgiau, kad ištrintumėte studentą"
+                progressColor="white"
+                progressBgColor="rgba(211,47,47,0.25)"
+              >
+                <>
+                  <DeleteOutlineIcon />
+                  <span className="ml-2">Ištrinti Studentą</span>
+                </>
+              </LongPressDeleteButton>
+            </Box>
+          )}
         </Box>
 
-        {/* Top row — profile card + summary tiles, stacked on
-            narrow screens */}
-        <div className="flex flex-col xl:flex-row gap-5 items-stretch mb-5">
-          <StudentDetailsCard studentID={studentID} data={data} />
-          <TestSummaryPanel data={data} />
-        </div>
+        <StudentOverview studentID={studentID} data={data} loadError={loadError} studentGone={studentGone} onRetry={refetch} />
 
-        <ResultsTabs studentID={studentID} />
+        {!studentGone && <ResultsTabs studentID={studentID} />}
 
       </div>
     </AdminPageLayout>

@@ -10,9 +10,11 @@
 //
 //  The next image is preloaded as an object URL while the
 //  leaderboard is showing, so the cross-fade never flashes a
-//  half-loaded image; old object URLs are revoked to avoid
-//  leaking memory. If fetching a slide fails the leaderboard
-//  simply stays up and it retries next cycle.
+//  half-loaded image. Every object URL is revoked once it is
+//  done with — replaced, undecodable, or still alive at
+//  unmount — so the all-day page never leaks memory. If
+//  fetching or decoding a slide fails the leaderboard simply
+//  stays up and it retries next cycle.
 //
 //  Split into (root component last):
 //
@@ -47,15 +49,25 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 //
 // Fetch a random slide and wait until the browser has fully
 // decoded it; returns a ready-to-show object URL (or null on
-// any failure). The caller owns the URL and must revoke it.
+// any failure). The caller owns a returned URL and must
+// revoke it; the URL of a slide that fails to decode is
+// revoked here — a corrupt file is picked again and again.
+//
+// Used by:
+//   - useSlideCycle (below) — during every leaderboard phase
 // -----------------------------------------------------------
 
 async function preloadNewSlide() {
+
+  // Outside the try, so the catch can release it
+  let url = null;
+
+
   try {
     const response = await fetch("/api/leaderboard/nextslide");
     if (response.ok) {
       const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      url = URL.createObjectURL(blob);
 
       await new Promise((resolve, reject) => {
         const img = new Image();
@@ -67,6 +79,7 @@ async function preloadNewSlide() {
       return url;
     }
   } catch (error) {
+    if (url) URL.revokeObjectURL(url);
     console.error('Failed to fetch slide:', error);
   }
   return null;

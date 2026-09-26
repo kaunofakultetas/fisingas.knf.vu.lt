@@ -6,13 +6,20 @@
 //  three) and a combined progress/score bar — blue
 //  "answered / total" while the test is running, burgundy
 //  "Įvertinimas: X" once finished. Data comes from
-//  /api/leaderboard, refetched by a visible 5 s countdown
+//  /api/leaderboard, refreshed by a visible 5 s countdown
 //  ("Atnaujinimas po: Xs"); rows are sorted by grade, best
-//  first.
+//  first. A refresh that falls due while the previous one is
+//  still unanswered is skipped, so a slow backend never gets
+//  overlapping requests.
 //
 //  By default only students seen within the last day are
 //  shown (it's an event view) — the "Rodyti Visus" checkbox
 //  lifts the filter.
+//
+//  A failed load with no standings to show says the board is
+//  unreachable — never "Šiuo metu dalyvių nėra" — while the
+//  countdown keeps retrying; a failed refresh keeps the last
+//  standings on screen.
 //
 //  Split into (root component last):
 //
@@ -27,6 +34,7 @@
 import { useState, useEffect } from "react";
 import useFetchData from "@/hooks/useFetchData";
 import { formatDateTime, parseTimestamp } from "@/utils/timestamps";
+import LoadError from "@/components/Other/LoadError/LoadError";
 
 
 const REFRESH_TIME = 5; // seconds
@@ -46,7 +54,7 @@ const REFRESH_TIME = 5; // seconds
 // everyone else.
 //
 // Used by:
-//   - StudentsLeaderboard (below)
+//   - LeaderboardTable (below)
 // -----------------------------------------------------------
 
 function RankBadge({ place }) {
@@ -80,22 +88,29 @@ function RankBadge({ place }) {
 //
 // The combined progress/score bar of one row:
 //   - test running  — blue bar, "answered / total" in black
+//     (a student not dealt a test yet: "0 / 0", empty bar)
 //   - test finished — full burgundy bar, "Įvertinimas: X"
 //     in white
 //
 // Used by:
-//   - StudentsLeaderboard (below)
+//   - LeaderboardTable (below)
 // -----------------------------------------------------------
 
 function ProgressBar({ row }) {
 
   const finished = row.isfinished === 1;
 
-  // A student with no dealt questions yet shows an empty bar
-  // (guards the division against questioncount = 0)
+  // A student not dealt a test yet arrives with the API's
+  // blank fields (answeredquestioncount null, questioncount
+  // "") — counted as 0 of 0
+  const answered = row.answeredquestioncount ?? 0;
+  const total = row.questioncount || 0;
+
+  // No questions dealt means an empty bar (guards the
+  // division against a zero total)
   const percent = finished
     ? 100
-    : row.questioncount > 0 ? Math.round((row.answeredquestioncount / row.questioncount) * 100) : 0;
+    : total > 0 ? Math.round((answered / total) * 100) : 0;
 
   return (
     <div className="relative h-9 w-full rounded-full bg-gray-100 overflow-hidden">
@@ -110,7 +125,7 @@ function ProgressBar({ row }) {
       >
         {finished
           ? `Įvertinimas: ${row.testgrade}`
-          : `${row.answeredquestioncount} / ${row.questioncount}`
+          : `${answered} / ${total}`
         }
       </span>
     </div>
@@ -133,27 +148,37 @@ function ProgressBar({ row }) {
 
 export default function LeaderboardTable() {
 
-  const { data, loadingData, refetch } = useFetchData("/api/leaderboard");
+  const { data, loadingData, error, poll } = useFetchData("/api/leaderboard");
 
   const [showRecentOnly, setShowRecentOnly] = useState(true);
   const [nextUpdate, setNextUpdate] = useState(REFRESH_TIME);
 
 
   // Visible refresh countdown — tick down every second and
-  // refetch the leaderboard when it reaches zero
+  // poll the leaderboard when it reaches zero. The count lives
+  // in the timer, not in a state updater: React may run an
+  // updater twice (StrictMode does in development), and a
+  // request sent from one would go out twice. poll() skips the
+  // refresh while the previous one is still unanswered
   useEffect(() => {
+    let secondsLeft = REFRESH_TIME;
+
     const timer = setInterval(() => {
-      setNextUpdate((prevTime) => {
-        if (prevTime <= 1) {
-          refetch();
-          return REFRESH_TIME;
-        }
-        return prevTime - 1;
-      });
+      secondsLeft -= 1;
+      if (secondsLeft === 0) {
+        poll();
+        secondsLeft = REFRESH_TIME;
+      }
+      setNextUpdate(secondsLeft);
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [refetch]);
+  }, [poll]);
+
+
+  // No standings on hand and the last load failed — the board
+  // is unreachable, which must not read as nobody taking part
+  const unreachable = Boolean(error) && data.length === 0;
 
 
   // Hide students not seen within the last day (unless "show
@@ -231,8 +256,18 @@ export default function LeaderboardTable() {
               </tr>
             ))}
 
+            {/* Unreachable — no retry button: nobody clicks the
+                projector, the countdown retries by itself */}
+            {unreachable && (
+              <tr>
+                <td colSpan={4}>
+                  <LoadError message="Rezultatai šiuo metu nepasiekiami — bandoma iš naujo" />
+                </td>
+              </tr>
+            )}
+
             {/* Empty state — nobody seen within the last day */}
-            {!loadingData && filteredRows.length === 0 && (
+            {!loadingData && !unreachable && filteredRows.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-3 py-12 text-center text-gray-400">
                   Šiuo metu dalyvių nėra

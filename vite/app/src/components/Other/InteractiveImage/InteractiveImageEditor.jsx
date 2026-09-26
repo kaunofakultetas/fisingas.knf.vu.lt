@@ -17,22 +17,43 @@
 //    - react-rnd works in on-screen pixels, so every drag/
 //      resize is converted px → % and every render % → px
 //      against the measured size of the rendered image
+//    - an area stays on the image: the boxes stop at its
+//      edges (not at the grey canvas around it), and every
+//      loaded area and every change is kept within 0–100 % —
+//      the test page would draw an area off the image beside
+//      the screenshot
 //    - saved back as fractions (0.123) via POST to the same
 //      URL the areas came from
+//
+//  LOADING AND SAVING
+//
+//    - "Kraunasi..." until the areas arrive; a failed load
+//      shows the failure with "Bandyti dar kartą" — never an
+//      empty editor, whose "Išsaugoti" would wipe the stored
+//      areas
+//    - another question (a new initialAreasUrl) starts over
+//      in a fresh editor; a reply for the previous question
+//      is dropped
+//    - only an "OK" reply means saved: the role gate ("Error:
+//      Not Admin", HTTP 200) sends the user home, an expired
+//      session (401) to /login, anything else is a failure
+//      that keeps the editor open
 //
 //  Split into (root component last):
 //
 //    percentToPx / pxToPercent — conversion helpers
+//    keepOnImage   — an area pulled back onto the image
 //    AreaOverlay   — one draggable/resizable box on the image
 //    ImageCanvas   — the image + overlays, self-measuring
 //    AreaCard      — one area in the side panel list
 //    SidePanel     — heading, buttons and the area list
-//    InteractiveImageEditor — state + API calls (default
-//                             export)
+//    AreaEditor    — one question's areas: state + API calls
+//    InteractiveImageEditor — one AreaEditor per question
+//                             (default export)
 //
 //  Used by:
-//    - QuestionsList — the fullscreen "Redaguoti Nuorodas"
-//      editor
+//    - QuestionCard — the question bank's fullscreen
+//      "Redaguoti Nuorodas" editor
 //    - EditQuestion — the /admin/questions/:questionID page
 // -----------------------------------------------------------
 
@@ -46,6 +67,9 @@ import SaveIcon from '@mui/icons-material/Save';
 import AddCircleOutlinedIcon from '@mui/icons-material/AddCircleOutlined';
 import AddLinkIcon from '@mui/icons-material/AddLink';
 
+import LoadError from '@/components/Other/LoadError/LoadError';
+import { redirectOnExpiredSession, redirectOnRoleGate } from '@/utils/session';
+
 
 // Percent (0–100, relative to the image) ⇄ on-screen pixels
 const percentToPx = (percent, total) => (percent / 100) * total;
@@ -58,12 +82,52 @@ const pxToPercent = (px, total) => (px / total) * 100;
 
 
 // -----------------------------------------------------------
+// keepOnImage
+// -----------------------------------------------------------
+//
+// An area (whole percent) held on the image: no bigger than
+// the image, and moved back onto it — size kept — where it
+// sticks out. The POST stores whatever it is sent, so areas
+// stored off the image are pulled back as they load, and so
+// is every change: the boxes stop at the image's edges while
+// dragged, but x and width are rounded separately (79.5 → 80,
+// 20.5 → 21), which can still land a box a percent past the
+// edge.
+//
+// Used by:
+//   - AreaEditor — the loaded areas and handleAreaChange
+//     (below)
+// -----------------------------------------------------------
+
+function keepOnImage(area) {
+
+  const width = Math.min(Math.max(area.width, 0), 100);
+  const height = Math.min(Math.max(area.height, 0), 100);
+
+  return {
+    ...area,
+    width,
+    height,
+    x: Math.min(Math.max(area.x, 0), 100 - width),
+    y: Math.min(Math.max(area.y, 0), 100 - height),
+  };
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
 // AreaOverlay
 // -----------------------------------------------------------
 //
 // One link area drawn on top of the image: a react-rnd box
-// that can be dragged and resized. The selected area is a
-// solid pink frame, the rest are dashed blue.
+// that can be dragged and resized — within the image itself
+// (`imageElement` bounds it), never into the grey canvas
+// around it. The selected area is a solid pink frame, the
+// rest are dashed blue.
 //
 // The area's percent coordinates are converted to pixels for
 // display; after a drag/resize the new pixel values are
@@ -76,7 +140,7 @@ const pxToPercent = (px, total) => (px / total) * 100;
 //   - ImageCanvas (below) — one per area
 // -----------------------------------------------------------
 
-function AreaOverlay({ area, selected, imageDimensions, onSelect, onChange }) {
+function AreaOverlay({ area, selected, imageDimensions, imageElement, onSelect, onChange }) {
 
   const { width, height, offsetX, offsetY } = imageDimensions;
 
@@ -92,7 +156,7 @@ function AreaOverlay({ area, selected, imageDimensions, onSelect, onChange }) {
         x: percentToPx(area.x, width) + offsetX,
         y: percentToPx(area.y, height) + offsetY,
       }}
-      bounds="parent"
+      bounds={imageElement}
 
       // Pixels → percent after the user moved the box
       onDragStop={(e, d) => {
@@ -146,14 +210,15 @@ function AreaOverlay({ area, selected, imageDimensions, onSelect, onChange }) {
 // measures the rendered image (size + offset inside the
 // canvas) on load, on window resizes and on any container
 // resize (ResizeObserver — e.g. the fullscreen editor
-// opening). Overlays only render once a measurement exists.
+// opening). Overlays only render once a measurement exists —
+// by then imageRef holds the image that bounds them.
 //
 // h-full down the chain keeps a tall image inside the
 // viewport (it shrinks via max-h-full) instead of overflowing
 // the fullscreen editor.
 //
 // Used by:
-//   - InteractiveImageEditor (below)
+//   - AreaEditor (below)
 // -----------------------------------------------------------
 
 function ImageCanvas({ src, areas, selectedAreaId, onSelectArea, onAreaChange }) {
@@ -224,6 +289,7 @@ function ImageCanvas({ src, areas, selectedAreaId, onSelectArea, onAreaChange })
               area={area}
               selected={area.id === selectedAreaId}
               imageDimensions={imageDimensions}
+              imageElement={imageRef.current}
               onSelect={onSelectArea}
               onChange={onAreaChange}
             />
@@ -244,7 +310,9 @@ function ImageCanvas({ src, areas, selectedAreaId, onSelectArea, onAreaChange })
 // -----------------------------------------------------------
 //
 // One area in the side panel: the number badge (matches the
-// order on screen), the URL input, a delete button and the
+// order on screen), the URL input, a delete button named
+// after that number ("Ištrinti nuorodą Nr. 2" — a screen
+// reader can tell the cards' buttons apart) and the
 // coordinates as small grey chips. Clicking the card selects
 // the matching overlay on the image (and vice versa — the
 // selected card gets the same pink highlight).
@@ -278,7 +346,7 @@ function AreaCard({ area, index, selected, onSelect, onDelete, onUrlChange }) {
           onChange={(e) => onUrlChange(area.id, e.target.value)}
         />
         <IconButton
-          aria-label="delete"
+          aria-label={`Ištrinti nuorodą Nr. ${index + 1}`}
           color="error"
           size="small"
           onClick={(e) => {
@@ -317,7 +385,7 @@ function AreaCard({ area, index, selected, onSelect, onDelete, onUrlChange }) {
 // on its own when there are many areas.
 //
 // Used by:
-//   - InteractiveImageEditor (below)
+//   - AreaEditor (below)
 // -----------------------------------------------------------
 
 function SidePanel({ areas, selectedAreaId, onSelectArea, onAddArea, onDeleteArea, onUrlChange, onSave }) {
@@ -379,38 +447,54 @@ function SidePanel({ areas, selectedAreaId, onSelectArea, onAddArea, onDeleteAre
 
 
 // -----------------------------------------------------------
-// InteractiveImageEditor (default export)
+// AreaEditor
 // -----------------------------------------------------------
 //
-// Holds the areas + selection state and the API calls; the
-// visual pieces above are purely presentational. The image
-// canvas and the side panel stay in sync through the shared
-// selectedAreaId.
+// One question's editor: holds the areas + selection state
+// and the API calls; the visual pieces above are purely
+// presentational. The image canvas and the side panel stay
+// in sync through the shared selectedAreaId.
+//
+// Nothing can be edited (or saved) before the areas have
+// loaded: "Kraunasi...", or after a failed load the failure
+// with "Bandyti dar kartą" — an empty editor there would
+// replace the stored areas with none.
 //
 // Used by:
-//   - QuestionsList — the fullscreen "Redaguoti Nuorodas"
-//     editor
-//   - EditQuestion — the /admin/questions/:questionID page
+//   - InteractiveImageEditor (below) — one per question
 // -----------------------------------------------------------
 
-export default function InteractiveImageEditor({ src, initialAreasUrl, onSaveButtonClick }) {
+function AreaEditor({ src, initialAreasUrl, onSaveButtonClick }) {
 
   const [areas, setAreas] = useState([]);
   const [areasFetched, setAreasFetched] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [selectedAreaId, setSelectedAreaId] = useState(null);
 
+  // Bumped by "Bandyti dar kartą" — runs the load again
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
-  // Fetch the areas once; percent strings ("12.3%") → plain
-  // numbers (12.3) so they can be edited
+
+  // Fetch the areas; percent strings ("12.3%") → plain
+  // numbers (12.3) so they can be edited. A reply that
+  // arrives after unmount (another question took over) is
+  // dropped
   useEffect(() => {
+    let outdated = false;
+
     const fetchAreas = async () => {
       try {
         const response = await axios.get(initialAreasUrl, { withCredentials: true });
-        // A coordinate may be null on rows older than the API's
-        // validation — treat it as 0 instead of throwing and leaving
-        // the editor on the loading placeholder forever
+        if (outdated) {
+          return;
+        }
+
+        // A coordinate is null for a stored value the API cannot
+        // parse — read it as 0 instead of failing the whole load.
+        // An area stored off the image lands back on it, so what
+        // the editor shows is what "Išsaugoti" stores
         const percentValue = (value) => parseFloat(String(value ?? 0).replace('%', '')) || 0;
-        setAreas(response.data.map((area) => ({
+        setAreas(response.data.map((area) => keepOnImage({
           ...area,
           x: percentValue(area.x),
           y: percentValue(area.y),
@@ -418,12 +502,27 @@ export default function InteractiveImageEditor({ src, initialAreasUrl, onSaveBut
           height: percentValue(area.height),
         })));
         setAreasFetched(true);
-      } catch {
+      } catch (error) {
+        if (outdated || redirectOnExpiredSession(error)) {
+          return;
+        }
         toast.error(<b>Nepavyko užkrauti nuorodų</b>, { duration: 5000 });
+        setLoadFailed(true);
       }
     };
     fetchAreas();
-  }, [initialAreasUrl]);
+
+    return () => {
+      outdated = true;
+    };
+  }, [initialAreasUrl, loadAttempt]);
+
+
+  // "Bandyti dar kartą" — back to "Kraunasi..." and ask again
+  const handleRetry = () => {
+    setLoadFailed(false);
+    setLoadAttempt((attempt) => attempt + 1);
+  };
 
 
   // Add a new area near the top-left corner, selected right
@@ -451,7 +550,8 @@ export default function InteractiveImageEditor({ src, initialAreasUrl, onSaveBut
 
 
   // Merge changed props into one area; numeric props (the
-  // coordinates) are rounded to whole percent
+  // coordinates) are rounded to whole percent, and the area is
+  // kept on the image
   const handleAreaChange = (id, newProps) => {
     const roundedProps = Object.keys(newProps).reduce((acc, key) => {
       acc[key] = typeof newProps[key] === 'number' ? Math.round(newProps[key]) : newProps[key];
@@ -459,7 +559,7 @@ export default function InteractiveImageEditor({ src, initialAreasUrl, onSaveBut
     }, {});
 
     setAreas((prevAreas) =>
-      prevAreas.map((area) => (area.id === id ? { ...area, ...roundedProps } : area))
+      prevAreas.map((area) => (area.id === id ? keepOnImage({ ...area, ...roundedProps }) : area))
     );
   };
 
@@ -467,7 +567,9 @@ export default function InteractiveImageEditor({ src, initialAreasUrl, onSaveBut
 
 
   // Save all areas back (percent → 0–1 fractions, as the
-  // backend stores them) and hand control back to the caller
+  // backend stores them) and hand control back to the caller.
+  // Only "OK" means stored: the role gate sends the user home,
+  // any other reply is a failure and the editor stays open
   const handleSave = async () => {
     try {
       const areasInFraction = areas.map((area) => ({
@@ -479,16 +581,34 @@ export default function InteractiveImageEditor({ src, initialAreasUrl, onSaveBut
         height: Math.round(area.height) / 100,
       }));
 
-      await axios.post(initialAreasUrl, { areas: areasInFraction }, { withCredentials: true });
+      const response = await axios.post(initialAreasUrl, { areas: areasInFraction }, { withCredentials: true });
+      if (redirectOnRoleGate(response.data)) {
+        return;
+      }
+      if (response.data !== 'OK') {
+        throw new Error(`Unexpected reply to the save: ${response.data}`);
+      }
 
       toast.success(<b>Nuorodos išsaugotos</b>, { duration: 3000 });
       if (onSaveButtonClick) {
         onSaveButtonClick();
       }
-    } catch {
+    } catch (error) {
+      if (redirectOnExpiredSession(error)) {
+        return;
+      }
       toast.error(<b>Nepavyko išsaugoti nuorodų</b>, { duration: 5000 });
     }
   };
+
+
+  if (loadFailed) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <LoadError message="Nepavyko užkrauti nuorodų" onRetry={handleRetry} />
+      </div>
+    );
+  }
 
 
   if (!areasFetched) {
@@ -522,5 +642,38 @@ export default function InteractiveImageEditor({ src, initialAreasUrl, onSaveBut
       />
 
     </Grid>
+  );
+}
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// InteractiveImageEditor (default export)
+// -----------------------------------------------------------
+//
+// One AreaEditor per question — keyed by initialAreasUrl, so
+// another question under a mounted editor (e.g. a route param
+// change) gets a fresh one: no areas, "Kraunasi...", no
+// selection. The previous question's areas can never be
+// shown, or saved, over the next question's image.
+//
+// Used by:
+//   - QuestionCard — the question bank's fullscreen
+//     "Redaguoti Nuorodas" editor
+//   - EditQuestion — the /admin/questions/:questionID page
+// -----------------------------------------------------------
+
+export default function InteractiveImageEditor({ src, initialAreasUrl, onSaveButtonClick }) {
+  return (
+    <AreaEditor
+      key={initialAreasUrl}
+      src={src}
+      initialAreasUrl={initialAreasUrl}
+      onSaveButtonClick={onSaveButtonClick}
+    />
   );
 }
